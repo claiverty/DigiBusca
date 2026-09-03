@@ -1,4 +1,5 @@
 export type OpportunityType = 'Sem site' | 'Site desatualizado' | 'Perfil incompleto'
+export type LeadStatus = 'Novo' | 'Contatado' | 'Respondeu' | 'Proposta' | 'Ganhou' | 'Perdeu'
 
 export type Lead = {
   id: string
@@ -12,7 +13,13 @@ export type Lead = {
   opportunity: OpportunityType
   score: number
   diagnosis: string
+  status: LeadStatus
+  notes?: string
+  nextFollowUp?: string
+  draftMessage?: string
 }
+
+export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage'>
 
 export type SearchLeadsQuery = {
   city: string

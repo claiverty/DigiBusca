@@ -2,19 +2,47 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { mockLeads } from '../data/mockLeads.js'
 import { MockLeadProvider } from '../integrations/mockLeadProvider.js'
+import type { LeadStatus, LeadUpdate } from '../contracts/lead.js'
 
 const port = Number(process.env.PORT ?? 3001)
 const leadProvider = new MockLeadProvider(mockLeads)
 const savedLeads = new Map<string, (typeof mockLeads)[number]>()
+const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
     'Access-Control-Allow-Origin': 'http://127.0.0.1:5173',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Content-Type': 'application/json; charset=utf-8',
   })
   response.end(JSON.stringify(payload))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let body = ''
+
+    request.setEncoding('utf8')
+    request.on('data', (chunk: string) => { body += chunk })
+    request.on('end', () => {
+      if (!body) {
+        resolve({})
+        return
+      }
+
+      try {
+        resolve(JSON.parse(body))
+      } catch {
+        reject(new Error('JSON inválido.'))
+      }
+    })
+    request.on('error', reject)
+  })
 }
 
 function getSearchParams(request: IncomingMessage) {
@@ -35,6 +63,7 @@ const server = createServer(async (request, response) => {
 
   if (request.method !== 'GET') {
     const saveMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/save$/)
+    const updateMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)$/)
 
     if (saveMatch && (request.method === 'POST' || request.method === 'DELETE')) {
       const lead = await leadProvider.findById(saveMatch[1])
@@ -52,6 +81,47 @@ const server = createServer(async (request, response) => {
 
       savedLeads.delete(lead.id)
       sendJson(response, 204, null)
+      return
+    }
+
+    if (updateMatch && request.method === 'PATCH') {
+      let body: unknown
+
+      try {
+        body = await readJsonBody(request)
+      } catch {
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+
+      if (!isRecord(body)) {
+        sendJson(response, 400, { error: 'O corpo da requisição é inválido.' })
+        return
+      }
+
+      if (body.status !== undefined && !leadStatuses.includes(body.status as LeadStatus)) {
+        sendJson(response, 400, { error: 'Status de lead inválido.' })
+        return
+      }
+
+      const changes: Partial<LeadUpdate> = {}
+      if (body.status !== undefined) changes.status = body.status as LeadStatus
+      if (body.notes !== undefined) changes.notes = typeof body.notes === 'string' ? body.notes : ''
+      if (body.nextFollowUp !== undefined) changes.nextFollowUp = typeof body.nextFollowUp === 'string' ? body.nextFollowUp : undefined
+      if (body.draftMessage !== undefined) changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
+
+      const updatedLead = await leadProvider.update(updateMatch[1], changes)
+
+      if (!updatedLead) {
+        sendJson(response, 404, { error: 'Lead não encontrado.' })
+        return
+      }
+
+      if (savedLeads.has(updatedLead.id)) {
+        savedLeads.set(updatedLead.id, updatedLead)
+      }
+
+      sendJson(response, 200, { data: updatedLead })
       return
     }
 

@@ -12,6 +12,7 @@ export const mockLeads: Lead[] = [
     opportunity: 'Sem site',
     score: 94,
     diagnosis: 'O negócio tem boa avaliação local, mas não apresenta site nos dados consultados.',
+    status: 'Novo',
   },
   {
     id: 'lead-sabor-caseiro',
@@ -24,6 +25,7 @@ export const mockLeads: Lead[] = [
     opportunity: 'Perfil incompleto',
     score: 82,
     diagnosis: 'O perfil tem avaliações, mas faltam informações importantes para apresentar melhor o negócio online.',
+    status: 'Novo',
   },
   {
     id: 'lead-cafe-lago',
@@ -37,5 +39,6 @@ export const mockLeads: Lead[] = [
     opportunity: 'Site desatualizado',
     score: 74,
     diagnosis: 'O negócio possui um endereço de site, mas vale revisar se a experiência atual comunica bem a oferta.',
+    status: 'Novo',
   },
 ]

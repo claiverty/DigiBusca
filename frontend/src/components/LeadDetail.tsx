@@ -1,19 +1,44 @@
 import { ArrowLeft, Bookmark, ExternalLink, MessageCircle, Phone } from 'lucide-react'
 import { useState } from 'react'
-import type { Lead } from '../types'
+import type { Lead, LeadStatus, LeadUpdate } from '../types'
 import './LeadDetail.css'
 
-type LeadDetailProps = { lead: Lead; isSaved: boolean; onBack: () => void; onToggleSave: () => Promise<void> }
+type LeadDetailProps = { lead: Lead; isSaved: boolean; onBack: () => void; onToggleSave: () => Promise<void>; onUpdateLead: (changes: LeadUpdate) => Promise<void> }
 
-export function LeadDetail({ lead, isSaved, onBack, onToggleSave }: LeadDetailProps) {
-  const [message, setMessage] = useState(`Olá, ${lead.name}! Encontrei o perfil de vocês e percebi uma oportunidade de apresentar melhor o negócio online. Posso te mostrar uma ideia?`)
+const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
+
+export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead }: LeadDetailProps) {
+  const [message, setMessage] = useState(lead.draftMessage ?? `Olá, ${lead.name}! Encontrei o perfil de vocês e percebi uma oportunidade de apresentar melhor o negócio online. Posso te mostrar uma ideia?`)
+  const [status, setStatus] = useState<LeadStatus>(lead.status)
+  const [notes, setNotes] = useState(lead.notes ?? '')
+  const [nextFollowUp, setNextFollowUp] = useState(lead.nextFollowUp ?? '')
   const [isSaving, setIsSaving] = useState(false)
+  const [feedback, setFeedback] = useState('')
   const whatsappLink = `https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
 
   async function handleToggleSave() {
     setIsSaving(true)
     try {
       await onToggleSave()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleSaveChanges() {
+    setIsSaving(true)
+    setFeedback('')
+
+    try {
+      await onUpdateLead({
+        status,
+        notes,
+        nextFollowUp: nextFollowUp || undefined,
+        draftMessage: message,
+      })
+      setFeedback('Alterações salvas.')
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Não foi possível salvar as alterações.')
     } finally {
       setIsSaving(false)
     }
@@ -48,7 +73,30 @@ export function LeadDetail({ lead, isSaved, onBack, onToggleSave }: LeadDetailPr
             <textarea value={message} onChange={(event) => setMessage(event.target.value)} aria-label="Mensagem de abordagem" />
             <div className="panel-actions">
               <a className="primary-button" href={whatsappLink} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Abrir no WhatsApp</a>
-              <button className="secondary-button" type="button">Salvar rascunho</button>
+              <button className="secondary-button" type="button" onClick={() => void handleSaveChanges()} disabled={isSaving}>{isSaving ? 'Salvando...' : 'Salvar rascunho'}</button>
+            </div>
+          </div>
+          <div className="panel detail-follow-up">
+            <span className="eyebrow">Acompanhamento</span>
+            <div className="detail-form-grid">
+              <label className="detail-field">
+                <span>Status</span>
+                <select value={status} onChange={(event) => setStatus(event.target.value as LeadStatus)}>
+                  {leadStatuses.map((leadStatus) => <option key={leadStatus} value={leadStatus}>{leadStatus}</option>)}
+                </select>
+              </label>
+              <label className="detail-field">
+                <span>Próximo follow-up</span>
+                <input type="date" value={nextFollowUp} onChange={(event) => setNextFollowUp(event.target.value)} />
+              </label>
+            </div>
+            <label className="detail-field">
+              <span>Observações</span>
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Registre o contexto da conversa" aria-label="Observações do lead" />
+            </label>
+            <div className="panel-actions follow-up-actions">
+              <button className="primary-button" type="button" onClick={() => void handleSaveChanges()} disabled={isSaving}>{isSaving ? 'Salvando...' : 'Salvar acompanhamento'}</button>
+              {feedback && <span className="save-feedback" role="status">{feedback}</span>}
             </div>
           </div>
         </div>

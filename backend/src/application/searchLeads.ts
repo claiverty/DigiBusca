@@ -1,9 +1,10 @@
-import type { Lead, SearchLeadsQuery, SearchLeadsResponse } from '../contracts/lead.js'
+import type { Lead, LeadUpdate, SearchLeadsQuery, SearchLeadsResponse } from '../contracts/lead.js'
 import { searchLeads } from '../domain/searchLeads.js'
 
 export interface LeadProvider {
   search(query: SearchLeadsQuery): Promise<Lead[]>
   findById(id: string): Promise<Lead | undefined>
+  update(id: string, changes: Partial<LeadUpdate>): Promise<Lead | undefined>
 }
 
 export async function executeSearchLeads(provider: LeadProvider, query: SearchLeadsQuery): Promise<SearchLeadsResponse> {

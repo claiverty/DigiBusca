@@ -1,4 +1,4 @@
-import type { Lead, SearchLeadsResponse } from '../types'
+import type { Lead, LeadUpdate, SearchLeadsResponse } from '../types'
 
 type SearchLeadsParams = {
   city: string
@@ -47,6 +47,22 @@ export async function removeSavedLead(leadId: string): Promise<void> {
   if (!response.ok) {
     throw new Error('Não foi possível remover este lead dos salvos.')
   }
+}
+
+export async function updateLead(leadId: string, changes: LeadUpdate): Promise<Lead> {
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível atualizar este lead.')
+  }
+
+  const payload = await response.json() as { data: Lead }
+  return payload.data
 }
 
 export type { Lead }
