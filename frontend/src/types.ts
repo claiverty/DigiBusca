@@ -13,3 +13,12 @@ export type Lead = {
   score: number
   diagnosis: string
 }
+
+export type SearchLeadsResponse = {
+  data: Lead[]
+  meta: {
+    total: number
+    city: string
+    segment: string
+  }
+}
