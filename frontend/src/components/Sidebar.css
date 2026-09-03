@@ -1,11 +1,65 @@
-.sidebar { width: var(--sidebar-width); padding: 28px 16px 20px; background: rgba(255, 255, 255, .9); border-right: 1px solid #e3e3e7; display: flex; flex-direction: column; flex-shrink: 0; }
-.brand-mark { display: flex; align-items: center; gap: 10px; padding: 0 12px; font-size: 18px; font-weight: 700; letter-spacing: -.05em; }
-.brand-dot { width: 12px; height: 12px; border-radius: 4px; background: var(--color-text); box-shadow: 4px 4px 0 #d5d8ff; }
-.main-nav { display: grid; gap: 5px; margin-top: 54px; }
-.nav-item { width: 100%; display: flex; align-items: center; gap: 11px; padding: 11px 12px; border: 0; border-radius: var(--radius-control); color: #85868d; background: transparent; text-align: left; font-size: 14px; }
-.nav-item:hover { color: #33343a; background: #f4f4f6; }
-.nav-item.active { color: #1d2d91; background: var(--color-accent-soft); font-weight: 600; }
-.settings-link { margin-top: auto; }
+.sidebar {
+  width: var(--sidebar-width);
+  padding: 28px 16px 20px;
+  background: rgba(255, 255, 255, .9);
+  border-right: 1px solid #e3e3e7;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -.05em;
+}
+
+.brand-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--color-text);
+  box-shadow: 4px 4px 0 #d5d8ff;
+}
+
+.main-nav {
+  display: grid;
+  gap: 5px;
+  margin-top: 54px;
+}
+
+.nav-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: #85868d;
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+}
+
+.nav-item:hover {
+  color: #33343a;
+  background: #f4f4f6;
+}
+
+.nav-item.active {
+  color: #1d2d91;
+  background: var(--color-accent-soft);
+  font-weight: 600;
+}
+
+.settings-link {
+  margin-top: auto;
+}
 
 @media (max-width: 720px) {
   .sidebar { width: 78px; padding: 23px 10px; }

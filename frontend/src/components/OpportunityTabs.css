@@ -1,3 +1,22 @@
-.filter-tabs { display: flex; gap: 8px; margin: 19px 0 13px; overflow-x: auto; }
-.filter-tabs button { white-space: nowrap; padding: 8px 14px; border: 0; border-radius: var(--radius-control); color: var(--color-text-muted); background: transparent; font-size: 12px; }
-.filter-tabs button.selected { color: var(--color-accent); background: var(--color-accent-soft); font-weight: 600; }
+.filter-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 19px 0 13px;
+  overflow-x: auto;
+}
+
+.filter-tabs button {
+  white-space: nowrap;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--color-text-muted);
+  background: transparent;
+  font-size: 12px;
+}
+
+.filter-tabs button.selected {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  font-weight: 600;
+}
