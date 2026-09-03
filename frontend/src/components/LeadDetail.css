@@ -95,7 +95,7 @@
   display: block;
   color: var(--color-text);
   font-size: 29px;
-  letter-spacing: -.05em;
+  letter-spacing: -0.05em;
 }
 
 .score-large span {
@@ -104,7 +104,7 @@
 
 .detail-grid {
   display: grid;
-  grid-template-columns: 1.45fr .8fr;
+  grid-template-columns: 1.45fr 0.8fr;
   gap: 14px;
   align-items: start;
 }
@@ -117,7 +117,7 @@
 .panel h2 {
   margin-top: 12px;
   font-size: 19px;
-  letter-spacing: -.035em;
+  letter-spacing: -0.035em;
 }
 
 .panel > p {
@@ -198,8 +198,17 @@ textarea:focus {
 }
 
 @media (max-width: 590px) {
-  .detail-grid { grid-template-columns: 1fr; }
-  .detail-header { align-items: flex-start; flex-direction: column; }
-  .score-large { text-align: left; }
-  .detail-form-grid { grid-template-columns: 1fr; }
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .detail-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .score-large {
+    text-align: left;
+  }
+  .detail-form-grid {
+    grid-template-columns: 1fr;
+  }
 }

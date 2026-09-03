@@ -17,16 +17,33 @@ const segments = [
   'Oficinas e serviços automotivos',
 ]
 
-export function SearchPanel({ city, segment, onCityChange, onSegmentChange, onSearch }: SearchPanelProps) {
+export function SearchPanel({
+  city,
+  segment,
+  onCityChange,
+  onSegmentChange,
+  onSearch,
+}: SearchPanelProps) {
   return (
     <section className="search-panel" aria-label="Configurar busca">
       <span className="search-label">Onde você quer prospectar?</span>
       <div className="search-input-wrap">
         <Search size={18} aria-hidden="true" />
-        <input value={city} onChange={(event) => onCityChange(event.target.value)} aria-label="Cidade ou região" placeholder="Cidade ou região" />
+        <input
+          value={city}
+          onChange={(event) => onCityChange(event.target.value)}
+          aria-label="Cidade ou região"
+          placeholder="Cidade ou região"
+        />
       </div>
-      <select value={segment} onChange={(event) => onSegmentChange(event.target.value)} aria-label="Segmento">
-        {segments.map((option) => <option key={option}>{option}</option>)}
+      <select
+        value={segment}
+        onChange={(event) => onSegmentChange(event.target.value)}
+        aria-label="Segmento"
+      >
+        {segments.map((option) => (
+          <option key={option}>{option}</option>
+        ))}
       </select>
       <button className="primary-button search-button" type="button" onClick={onSearch}>
         <Search size={17} aria-hidden="true" />

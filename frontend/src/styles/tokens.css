@@ -1,5 +1,7 @@
 :root {
-  --font-sans: -apple-system, "system-ui", "SF Pro Display", "SF Pro Text", Inter, "Inter Fallback", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-sans:
+    -apple-system, 'system-ui', 'SF Pro Display', 'SF Pro Text', Inter, 'Inter Fallback',
+    'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 
   --color-background: #f5f5f7;
   --color-surface: #ffffff;
@@ -18,10 +20,10 @@
   --radius-md: 15px;
   --radius-lg: 16px;
 
-  --shadow-panel: 0 14px 36px rgba(25, 26, 32, .06);
-  --shadow-card: 0 8px 22px rgba(25, 26, 32, .035);
-  --shadow-control: 0 5px 14px rgba(25, 26, 32, .04);
-  --shadow-button: 0 6px 12px rgba(25, 26, 32, .14);
+  --shadow-panel: 0 14px 36px rgba(25, 26, 32, 0.06);
+  --shadow-card: 0 8px 22px rgba(25, 26, 32, 0.035);
+  --shadow-control: 0 5px 14px rgba(25, 26, 32, 0.04);
+  --shadow-button: 0 6px 12px rgba(25, 26, 32, 0.14);
 
   --content-max-width: 1120px;
   --sidebar-width: 236px;

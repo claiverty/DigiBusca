@@ -4,7 +4,9 @@ export class SalesStore {
   private readonly sales = new Map<string, Sale>()
 
   list(): Sale[] {
-    return Array.from(this.sales.values()).sort((first, second) => second.soldAt.localeCompare(first.soldAt))
+    return Array.from(this.sales.values()).sort((first, second) =>
+      second.soldAt.localeCompare(first.soldAt),
+    )
   }
 
   create(input: CreateSaleInput): Sale {

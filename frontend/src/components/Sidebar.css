@@ -1,7 +1,7 @@
 .sidebar {
   width: var(--sidebar-width);
   padding: 28px 16px 20px;
-  background: rgba(255, 255, 255, .9);
+  background: rgba(255, 255, 255, 0.9);
   border-right: 1px solid #e3e3e7;
   display: flex;
   flex-direction: column;
@@ -15,7 +15,7 @@
   padding: 0 12px;
   font-size: 18px;
   font-weight: 700;
-  letter-spacing: -.05em;
+  letter-spacing: -0.05em;
 }
 
 .brand-dot {
@@ -62,14 +62,33 @@
 }
 
 @media (max-width: 720px) {
-  .sidebar { width: 78px; padding: 23px 10px; }
-  .brand-mark span:last-child { display: none; }
-  .brand-mark { padding: 0; justify-content: center; }
-  .main-nav { margin-top: 44px; }
-  .nav-item { justify-content: center; padding: 11px 8px; font-size: 0; }
-  .settings-link { font-size: 0; }
+  .sidebar {
+    width: 78px;
+    padding: 23px 10px;
+  }
+  .brand-mark span:last-child {
+    display: none;
+  }
+  .brand-mark {
+    padding: 0;
+    justify-content: center;
+  }
+  .main-nav {
+    margin-top: 44px;
+  }
+  .nav-item {
+    justify-content: center;
+    padding: 11px 8px;
+    font-size: 0;
+  }
+  .settings-link {
+    font-size: 0;
+  }
 }
 
 @media (max-width: 590px) {
-  .sidebar { width: 62px; padding: 23px 7px; }
+  .sidebar {
+    width: 62px;
+    padding: 23px 7px;
+  }
 }

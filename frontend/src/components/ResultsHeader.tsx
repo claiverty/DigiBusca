@@ -9,7 +9,9 @@ export function ResultsHeader({ city, total }: ResultsHeaderProps) {
     <section className="results-header" aria-labelledby="results-title">
       <div>
         <span className="eyebrow">RESULTADOS DA BUSCA</span>
-        <h2 id="results-title">{total} {opportunityLabel} em {city}</h2>
+        <h2 id="results-title">
+          {total} {opportunityLabel} em {city}
+        </h2>
         <p className="results-note">Resultados disponíveis nesta busca</p>
       </div>
       <button className="filter-button" type="button">

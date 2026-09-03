@@ -7,7 +7,10 @@ export interface LeadProvider {
   update(id: string, changes: Partial<LeadUpdate>): Promise<Lead | undefined>
 }
 
-export async function executeSearchLeads(provider: LeadProvider, query: SearchLeadsQuery): Promise<SearchLeadsResponse> {
+export async function executeSearchLeads(
+  provider: LeadProvider,
+  query: SearchLeadsQuery,
+): Promise<SearchLeadsResponse> {
   const candidates = await provider.search(query)
   const data = searchLeads(candidates, query)
 

@@ -4,12 +4,36 @@ import type { Lead, LeadStatus, LeadUpdate } from '../types'
 import type { CreateSaleInput } from '../types/sales'
 import './LeadDetail.css'
 
-type LeadDetailProps = { lead: Lead; isSaved: boolean; onBack: () => void; onToggleSave: () => Promise<void>; onUpdateLead: (changes: LeadUpdate) => Promise<void>; onRegisterSale: (input: Omit<CreateSaleInput, 'businessName' | 'leadId'>) => Promise<void> }
+type LeadDetailProps = {
+  lead: Lead
+  isSaved: boolean
+  onBack: () => void
+  onToggleSave: () => Promise<void>
+  onUpdateLead: (changes: LeadUpdate) => Promise<void>
+  onRegisterSale: (input: Omit<CreateSaleInput, 'businessName' | 'leadId'>) => Promise<void>
+}
 
-const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
+const leadStatuses: LeadStatus[] = [
+  'Novo',
+  'Contatado',
+  'Respondeu',
+  'Proposta',
+  'Ganhou',
+  'Perdeu',
+]
 
-export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead, onRegisterSale }: LeadDetailProps) {
-  const [message, setMessage] = useState(lead.draftMessage ?? `Olá, ${lead.name}! Encontrei o perfil de vocês e percebi uma oportunidade de apresentar melhor o negócio online. Posso te mostrar uma ideia?`)
+export function LeadDetail({
+  lead,
+  isSaved,
+  onBack,
+  onToggleSave,
+  onUpdateLead,
+  onRegisterSale,
+}: LeadDetailProps) {
+  const [message, setMessage] = useState(
+    lead.draftMessage ??
+      `Olá, ${lead.name}! Encontrei o perfil de vocês e percebi uma oportunidade de apresentar melhor o negócio online. Posso te mostrar uma ideia?`,
+  )
   const [status, setStatus] = useState<LeadStatus>(lead.status)
   const [notes, setNotes] = useState(lead.notes ?? '')
   const [nextFollowUp, setNextFollowUp] = useState(lead.nextFollowUp ?? '')
@@ -66,7 +90,9 @@ export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead, 
       setSaleAmount('')
       setSaleFeedback('Venda registrada no Financeiro.')
     } catch (error) {
-      setSaleFeedback(error instanceof Error ? error.message : 'Não foi possível registrar a venda.')
+      setSaleFeedback(
+        error instanceof Error ? error.message : 'Não foi possível registrar a venda.',
+      )
     } finally {
       setIsRegisteringSale(false)
     }
@@ -74,17 +100,29 @@ export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead, 
 
   return (
     <section className="detail-view">
-      <button className="back-button" type="button" onClick={onBack}><ArrowLeft size={16} /> Voltar para resultados</button>
+      <button className="back-button" type="button" onClick={onBack}>
+        <ArrowLeft size={16} /> Voltar para resultados
+      </button>
       <div className="detail-header">
         <div>
           <span className="opportunity-pill">{lead.opportunity}</span>
           <h1>{lead.name}</h1>
-          <p>{lead.category} · {lead.address}</p>
+          <p>
+            {lead.category} · {lead.address}
+          </p>
         </div>
-        <div className="score-large"><strong>{lead.score}%</strong><span>oportunidade</span></div>
+        <div className="score-large">
+          <strong>{lead.score}%</strong>
+          <span>oportunidade</span>
+        </div>
       </div>
       <div className="detail-toolbar">
-        <button className={`secondary-button${isSaved ? ' saved' : ''}`} type="button" onClick={() => void handleToggleSave()} disabled={isSaving}>
+        <button
+          className={`secondary-button${isSaved ? ' saved' : ''}`}
+          type="button"
+          onClick={() => void handleToggleSave()}
+          disabled={isSaving}
+        >
           <Bookmark size={16} fill={isSaved ? 'currentColor' : 'none'} />
           {isSaving ? 'Salvando...' : isSaved ? 'Lead salvo' : 'Salvar lead'}
         </button>
@@ -98,10 +136,23 @@ export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead, 
           </div>
           <div className="panel">
             <span className="eyebrow">Abordagem sugerida</span>
-            <textarea value={message} onChange={(event) => setMessage(event.target.value)} aria-label="Mensagem de abordagem" />
+            <textarea
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              aria-label="Mensagem de abordagem"
+            />
             <div className="panel-actions">
-              <a className="primary-button" href={whatsappLink} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Abrir no WhatsApp</a>
-              <button className="secondary-button" type="button" onClick={() => void handleSaveChanges()} disabled={isSaving}>{isSaving ? 'Salvando...' : 'Salvar rascunho'}</button>
+              <a className="primary-button" href={whatsappLink} target="_blank" rel="noreferrer">
+                <MessageCircle size={17} /> Abrir no WhatsApp
+              </a>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void handleSaveChanges()}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Salvando...' : 'Salvar rascunho'}
+              </button>
             </div>
           </div>
           <div className="panel detail-follow-up">
@@ -109,22 +160,49 @@ export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead, 
             <div className="detail-form-grid">
               <label className="detail-field">
                 <span>Status</span>
-                <select value={status} onChange={(event) => setStatus(event.target.value as LeadStatus)}>
-                  {leadStatuses.map((leadStatus) => <option key={leadStatus} value={leadStatus}>{leadStatus}</option>)}
+                <select
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value as LeadStatus)}
+                >
+                  {leadStatuses.map((leadStatus) => (
+                    <option key={leadStatus} value={leadStatus}>
+                      {leadStatus}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="detail-field">
                 <span>Próximo follow-up</span>
-                <input type="date" value={nextFollowUp} onChange={(event) => setNextFollowUp(event.target.value)} />
+                <input
+                  type="date"
+                  value={nextFollowUp}
+                  onChange={(event) => setNextFollowUp(event.target.value)}
+                />
               </label>
             </div>
             <label className="detail-field">
               <span>Observações</span>
-              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Registre o contexto da conversa" aria-label="Observações do lead" />
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Registre o contexto da conversa"
+                aria-label="Observações do lead"
+              />
             </label>
             <div className="panel-actions follow-up-actions">
-              <button className="primary-button" type="button" onClick={() => void handleSaveChanges()} disabled={isSaving}>{isSaving ? 'Salvando...' : 'Salvar acompanhamento'}</button>
-              {feedback && <span className="save-feedback" role="status">{feedback}</span>}
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void handleSaveChanges()}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Salvando...' : 'Salvar acompanhamento'}
+              </button>
+              {feedback && (
+                <span className="save-feedback" role="status">
+                  {feedback}
+                </span>
+              )}
             </div>
           </div>
           <div className="panel sale-from-lead">
@@ -135,24 +213,78 @@ export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead, 
               </div>
             </div>
             <div className="detail-form-grid">
-              <label className="detail-field"><span>Serviço vendido</span><input value={saleService} onChange={(event) => setSaleService(event.target.value)} placeholder="Ex.: Site institucional" /></label>
-              <label className="detail-field"><span>Valor</span><input inputMode="decimal" value={saleAmount} onChange={(event) => setSaleAmount(event.target.value)} placeholder="R$ 0,00" /></label>
+              <label className="detail-field">
+                <span>Serviço vendido</span>
+                <input
+                  value={saleService}
+                  onChange={(event) => setSaleService(event.target.value)}
+                  placeholder="Ex.: Site institucional"
+                />
+              </label>
+              <label className="detail-field">
+                <span>Valor</span>
+                <input
+                  inputMode="decimal"
+                  value={saleAmount}
+                  onChange={(event) => setSaleAmount(event.target.value)}
+                  placeholder="R$ 0,00"
+                />
+              </label>
             </div>
-            <label className="detail-field"><span>Data da venda</span><input type="date" value={saleDate} onChange={(event) => setSaleDate(event.target.value)} /></label>
+            <label className="detail-field">
+              <span>Data da venda</span>
+              <input
+                type="date"
+                value={saleDate}
+                onChange={(event) => setSaleDate(event.target.value)}
+              />
+            </label>
             <div className="panel-actions follow-up-actions">
-              <button className="primary-button" type="button" onClick={() => void handleRegisterSale()} disabled={isRegisteringSale}>{isRegisteringSale ? 'Registrando...' : 'Registrar venda'}</button>
-              {saleFeedback && <span className="save-feedback" role="status">{saleFeedback}</span>}
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void handleRegisterSale()}
+                disabled={isRegisteringSale}
+              >
+                {isRegisteringSale ? 'Registrando...' : 'Registrar venda'}
+              </button>
+              {saleFeedback && (
+                <span className="save-feedback" role="status">
+                  {saleFeedback}
+                </span>
+              )}
             </div>
           </div>
         </div>
         <aside className="detail-side panel">
           <span className="eyebrow">Informações encontradas</span>
           <dl>
-            <div><dt>Telefone</dt><dd>{lead.phone}</dd></div>
-            <div><dt>Avaliação</dt><dd>{lead.rating} em 5 ({lead.reviews})</dd></div>
-            <div><dt>Site</dt><dd>{lead.website ? <a href={lead.website} target="_blank" rel="noreferrer">Abrir site <ExternalLink size={13} /></a> : 'Não encontrado'}</dd></div>
+            <div>
+              <dt>Telefone</dt>
+              <dd>{lead.phone}</dd>
+            </div>
+            <div>
+              <dt>Avaliação</dt>
+              <dd>
+                {lead.rating} em 5 ({lead.reviews})
+              </dd>
+            </div>
+            <div>
+              <dt>Site</dt>
+              <dd>
+                {lead.website ? (
+                  <a href={lead.website} target="_blank" rel="noreferrer">
+                    Abrir site <ExternalLink size={13} />
+                  </a>
+                ) : (
+                  'Não encontrado'
+                )}
+              </dd>
+            </div>
           </dl>
-          <a className="contact-link" href={`tel:${lead.phone}`}><Phone size={16} /> Ligar para a empresa</a>
+          <a className="contact-link" href={`tel:${lead.phone}`}>
+            <Phone size={16} /> Ligar para a empresa
+          </a>
         </aside>
       </div>
     </section>

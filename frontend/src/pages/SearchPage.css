@@ -9,7 +9,7 @@ h1 {
   max-width: 650px;
   margin-top: 14px;
   font-size: clamp(32px, 4.8vw, 56px);
-  letter-spacing: -.06em;
+  letter-spacing: -0.06em;
   line-height: 1.05;
   font-weight: 500;
 }
@@ -44,7 +44,7 @@ h1 {
 .results-header h2 {
   margin-top: 8px;
   font-size: 23px;
-  letter-spacing: -.04em;
+  letter-spacing: -0.04em;
 }
 
 .results-note {
@@ -81,7 +81,16 @@ h1 {
 }
 
 @media (max-width: 590px) {
-  .page-header { margin-bottom: 25px; }
-  .page-header p { font-size: 13px; }
-  .results-header { align-items: flex-start; flex-direction: column; gap: 15px; margin-top: 58px; }
+  .page-header {
+    margin-bottom: 25px;
+  }
+  .page-header p {
+    font-size: 13px;
+  }
+  .results-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 58px;
+  }
 }

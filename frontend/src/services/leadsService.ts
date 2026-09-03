@@ -8,12 +8,15 @@ type SearchLeadsParams = {
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001/api'
 
-export async function searchLeads({ city, segment }: SearchLeadsParams): Promise<SearchLeadsResponse> {
+export async function searchLeads({
+  city,
+  segment,
+}: SearchLeadsParams): Promise<SearchLeadsResponse> {
   const params = new URLSearchParams({ city, segment })
   const response = await fetch(`${apiBaseUrl}/leads?${params.toString()}`)
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: string } | null
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
     throw new Error(payload?.error ?? 'Não foi possível buscar os leads.')
   }
 
@@ -27,23 +30,27 @@ export async function getSavedLeads(): Promise<Lead[]> {
     throw new Error('Não foi possível carregar os leads salvos.')
   }
 
-  const payload = await response.json() as { data: Lead[] }
+  const payload = (await response.json()) as { data: Lead[] }
   return payload.data
 }
 
 export async function saveLead(leadId: string): Promise<Lead> {
-  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/save`, { method: 'POST' })
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/save`, {
+    method: 'POST',
+  })
 
   if (!response.ok) {
     throw new Error('Não foi possível salvar este lead.')
   }
 
-  const payload = await response.json() as { data: Lead }
+  const payload = (await response.json()) as { data: Lead }
   return payload.data
 }
 
 export async function removeSavedLead(leadId: string): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/save`, { method: 'DELETE' })
+  const response = await fetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/save`, {
+    method: 'DELETE',
+  })
 
   if (!response.ok) {
     throw new Error('Não foi possível remover este lead dos salvos.')
@@ -58,11 +65,11 @@ export async function updateLead(leadId: string, changes: LeadUpdate): Promise<L
   })
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: string } | null
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
     throw new Error(payload?.error ?? 'Não foi possível atualizar este lead.')
   }
 
-  const payload = await response.json() as { data: Lead }
+  const payload = (await response.json()) as { data: Lead }
   return payload.data
 }
 
@@ -73,7 +80,7 @@ export async function getSales(): Promise<Sale[]> {
     throw new Error('Não foi possível carregar o histórico financeiro.')
   }
 
-  const payload = await response.json() as { data: Sale[] }
+  const payload = (await response.json()) as { data: Sale[] }
   return payload.data
 }
 
@@ -85,11 +92,11 @@ export async function createSale(input: CreateSaleInput): Promise<Sale> {
   })
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: string } | null
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
     throw new Error(payload?.error ?? 'Não foi possível registrar a venda.')
   }
 
-  const payload = await response.json() as { data: Sale }
+  const payload = (await response.json()) as { data: Sale }
   return payload.data
 }
 

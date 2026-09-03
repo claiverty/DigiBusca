@@ -12,13 +12,19 @@
 }
 
 @media (max-width: 820px) {
-  .content { padding: 56px 22px 48px; }
+  .content {
+    padding: 56px 22px 48px;
+  }
 }
 
 @media (max-width: 720px) {
-  .content { padding-top: 52px; }
+  .content {
+    padding-top: 52px;
+  }
 }
 
 @media (max-width: 590px) {
-  .content { padding: 44px 16px 42px; }
+  .content {
+    padding: 44px 16px 42px;
+  }
 }

@@ -9,16 +9,22 @@
   border-radius: var(--radius-md);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
-  transition: border-color .2s, box-shadow .2s, transform .2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
 }
 
 .lead-card:hover {
   border-color: #c9d0ff;
-  box-shadow: 0 12px 26px rgba(25, 26, 32, .07);
+  box-shadow: 0 12px 26px rgba(25, 26, 32, 0.07);
   transform: translateY(-1px);
 }
 
-.lead-card-topline, .lead-heading, .lead-meta, .lead-card-footer {
+.lead-card-topline,
+.lead-heading,
+.lead-meta,
+.lead-card-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -47,7 +53,7 @@
 
 .lead-heading h3 {
   font-size: 16px;
-  letter-spacing: -.02em;
+  letter-spacing: -0.02em;
 }
 
 .lead-heading p {
@@ -89,6 +95,11 @@
 }
 
 @media (max-width: 590px) {
-  .lead-card-footer { align-items: flex-start; flex-direction: column; }
-  .diagnosis-preview { max-width: 100%; }
+  .lead-card-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .diagnosis-preview {
+    max-width: 100%;
+  }
 }

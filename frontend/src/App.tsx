@@ -3,7 +3,13 @@ import { LeadDetail } from './components/LeadDetail'
 import { Sidebar, type AppView } from './components/Sidebar'
 import { FinancePage } from './pages/FinancePage'
 import { SearchPage } from './pages/SearchPage'
-import { createSale, getSavedLeads, removeSavedLead, saveLead, updateLead } from './services/leadsService'
+import {
+  createSale,
+  getSavedLeads,
+  removeSavedLead,
+  saveLead,
+  updateLead,
+} from './services/leadsService'
 import type { Lead, LeadUpdate } from './types'
 import type { CreateSaleInput } from './types/sales'
 import './App.css'
@@ -14,7 +20,9 @@ function App() {
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    void getSavedLeads().then((leads) => setSavedLeadIds(new Set(leads.map((lead) => lead.id)))).catch(() => undefined)
+    void getSavedLeads()
+      .then((leads) => setSavedLeadIds(new Set(leads.map((lead) => lead.id))))
+      .catch(() => undefined)
   }, [])
 
   async function toggleSavedLead(lead: Lead) {
@@ -55,7 +63,21 @@ function App() {
   }
 
   if (selectedLead) {
-    return <div className="app-shell"><Sidebar activeView="search" onNavigate={handleNavigate} /><main className="content"><LeadDetail lead={selectedLead} isSaved={savedLeadIds.has(selectedLead.id)} onBack={() => setSelectedLead(null)} onToggleSave={() => toggleSavedLead(selectedLead)} onUpdateLead={updateSelectedLead} onRegisterSale={registerSaleFromLead} /></main></div>
+    return (
+      <div className="app-shell">
+        <Sidebar activeView="search" onNavigate={handleNavigate} />
+        <main className="content">
+          <LeadDetail
+            lead={selectedLead}
+            isSaved={savedLeadIds.has(selectedLead.id)}
+            onBack={() => setSelectedLead(null)}
+            onToggleSave={() => toggleSavedLead(selectedLead)}
+            onUpdateLead={updateSelectedLead}
+            onRegisterSale={registerSaleFromLead}
+          />
+        </main>
+      </div>
+    )
   }
 
   return (

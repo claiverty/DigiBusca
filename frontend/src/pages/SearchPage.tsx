@@ -38,7 +38,8 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
   }, [])
 
   const visibleLeads = useMemo(
-    () => activeFilter === 'Todos' ? leads : leads.filter((lead) => lead.opportunity === activeFilter),
+    () =>
+      activeFilter === 'Todos' ? leads : leads.filter((lead) => lead.opportunity === activeFilter),
     [activeFilter, leads],
   )
 
@@ -48,20 +49,42 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         <div>
           <span className="eyebrow">BUSCAR OPORTUNIDADES</span>
           <h1>Encontre empresas que precisam de você.</h1>
-          <p>Pesquise uma região e encontre negócios com espaço para melhorar sua presença digital.</p>
+          <p>
+            Pesquise uma região e encontre negócios com espaço para melhorar sua presença digital.
+          </p>
         </div>
-        <div className="avatar" aria-label="Conta do usuário">C</div>
+        <div className="avatar" aria-label="Conta do usuário">
+          C
+        </div>
       </header>
 
-      <SearchPanel city={city} segment={segment} onCityChange={setCity} onSegmentChange={setSegment} onSearch={() => void loadLeads()} />
+      <SearchPanel
+        city={city}
+        segment={segment}
+        onCityChange={setCity}
+        onSegmentChange={setSegment}
+        onSearch={() => void loadLeads()}
+      />
       <ResultsHeader city={city} total={total} />
       <OpportunityTabs activeFilter={activeFilter} onFilterChange={setActiveFilter} />
 
       <section className="lead-list" aria-label="Lista de leads">
         {status === 'loading' && <div className="data-state">Buscando oportunidades...</div>}
-        {status === 'error' && <div className="data-state" role="alert"><p>{errorMessage}</p><button className="secondary-button" type="button" onClick={() => void loadLeads()}>Tentar novamente</button></div>}
-        {status === 'success' && visibleLeads.length === 0 && <div className="data-state">Nenhuma oportunidade encontrada para esses filtros.</div>}
-        {status === 'success' && visibleLeads.map((lead) => <LeadCard key={lead.id} lead={lead} onSelect={onSelectLead} />)}
+        {status === 'error' && (
+          <div className="data-state" role="alert">
+            <p>{errorMessage}</p>
+            <button className="secondary-button" type="button" onClick={() => void loadLeads()}>
+              Tentar novamente
+            </button>
+          </div>
+        )}
+        {status === 'success' && visibleLeads.length === 0 && (
+          <div className="data-state">Nenhuma oportunidade encontrada para esses filtros.</div>
+        )}
+        {status === 'success' &&
+          visibleLeads.map((lead) => (
+            <LeadCard key={lead.id} lead={lead} onSelect={onSelectLead} />
+          ))}
       </section>
     </>
   )

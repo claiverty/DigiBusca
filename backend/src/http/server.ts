@@ -10,13 +10,21 @@ const port = Number(process.env.PORT ?? 3001)
 const leadProvider = new MockLeadProvider(mockLeads)
 const savedLeads = new Map<string, (typeof mockLeads)[number]>()
 const salesStore = new SalesStore()
-const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
+const leadStatuses: LeadStatus[] = [
+  'Novo',
+  'Contatado',
+  'Respondeu',
+  'Proposta',
+  'Ganhou',
+  'Perdeu',
+]
 const allowedOrigins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173'])
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown) {
   const origin = response.req.headers.origin
   response.writeHead(statusCode, {
-    'Access-Control-Allow-Origin': origin && allowedOrigins.has(origin) ? origin : 'http://127.0.0.1:5173',
+    'Access-Control-Allow-Origin':
+      origin && allowedOrigins.has(origin) ? origin : 'http://127.0.0.1:5173',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Content-Type': 'application/json; charset=utf-8',
@@ -33,7 +41,9 @@ function readJsonBody(request: IncomingMessage): Promise<unknown> {
     let body = ''
 
     request.setEncoding('utf8')
-    request.on('data', (chunk: string) => { body += chunk })
+    request.on('data', (chunk: string) => {
+      body += chunk
+    })
     request.on('end', () => {
       if (!body) {
         resolve({})
@@ -56,7 +66,17 @@ function parseSaleInput(value: unknown): CreateSaleInput | undefined {
   }
 
   const { businessName, service, amount, soldAt, leadId } = value
-  if (typeof businessName !== 'string' || !businessName.trim() || typeof service !== 'string' || !service.trim() || typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0 || typeof soldAt !== 'string' || !soldAt) {
+  if (
+    typeof businessName !== 'string' ||
+    !businessName.trim() ||
+    typeof service !== 'string' ||
+    !service.trim() ||
+    typeof amount !== 'number' ||
+    !Number.isFinite(amount) ||
+    amount < 0 ||
+    typeof soldAt !== 'string' ||
+    !soldAt
+  ) {
     return undefined
   }
 
@@ -132,8 +152,10 @@ const server = createServer(async (request, response) => {
       const changes: Partial<LeadUpdate> = {}
       if (body.status !== undefined) changes.status = body.status as LeadStatus
       if (body.notes !== undefined) changes.notes = typeof body.notes === 'string' ? body.notes : ''
-      if (body.nextFollowUp !== undefined) changes.nextFollowUp = typeof body.nextFollowUp === 'string' ? body.nextFollowUp : undefined
-      if (body.draftMessage !== undefined) changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
+      if (body.nextFollowUp !== undefined)
+        changes.nextFollowUp = typeof body.nextFollowUp === 'string' ? body.nextFollowUp : undefined
+      if (body.draftMessage !== undefined)
+        changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
 
       const updatedLead = await leadProvider.update(updateMatch[1], changes)
 
