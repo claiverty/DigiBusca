@@ -1,12 +1,23 @@
-import { ArrowLeft, ExternalLink, MessageCircle, Phone } from 'lucide-react'
+import { ArrowLeft, Bookmark, ExternalLink, MessageCircle, Phone } from 'lucide-react'
+import { useState } from 'react'
 import type { Lead } from '../types'
 import './LeadDetail.css'
 
-type LeadDetailProps = { lead: Lead; onBack: () => void }
+type LeadDetailProps = { lead: Lead; isSaved: boolean; onBack: () => void; onToggleSave: () => Promise<void> }
 
-export function LeadDetail({ lead, onBack }: LeadDetailProps) {
-  const message = `Olá, ${lead.name}! Encontrei o perfil de vocês e percebi uma oportunidade de apresentar melhor o negócio online. Posso te mostrar uma ideia?`
-  const whatsappLink = `https://wa.me/${lead.phone.replace(/\\D/g, '')}?text=${encodeURIComponent(message)}`
+export function LeadDetail({ lead, isSaved, onBack, onToggleSave }: LeadDetailProps) {
+  const [message, setMessage] = useState(`Olá, ${lead.name}! Encontrei o perfil de vocês e percebi uma oportunidade de apresentar melhor o negócio online. Posso te mostrar uma ideia?`)
+  const [isSaving, setIsSaving] = useState(false)
+  const whatsappLink = `https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
+
+  async function handleToggleSave() {
+    setIsSaving(true)
+    try {
+      await onToggleSave()
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   return (
     <section className="detail-view">
@@ -19,6 +30,12 @@ export function LeadDetail({ lead, onBack }: LeadDetailProps) {
         </div>
         <div className="score-large"><strong>{lead.score}%</strong><span>oportunidade</span></div>
       </div>
+      <div className="detail-toolbar">
+        <button className={`secondary-button${isSaved ? ' saved' : ''}`} type="button" onClick={() => void handleToggleSave()} disabled={isSaving}>
+          <Bookmark size={16} fill={isSaved ? 'currentColor' : 'none'} />
+          {isSaving ? 'Salvando...' : isSaved ? 'Lead salvo' : 'Salvar lead'}
+        </button>
+      </div>
       <div className="detail-grid">
         <div className="detail-main">
           <div className="panel">
@@ -28,7 +45,7 @@ export function LeadDetail({ lead, onBack }: LeadDetailProps) {
           </div>
           <div className="panel">
             <span className="eyebrow">Abordagem sugerida</span>
-            <textarea defaultValue={message} aria-label="Mensagem de abordagem" />
+            <textarea value={message} onChange={(event) => setMessage(event.target.value)} aria-label="Mensagem de abordagem" />
             <div className="panel-actions">
               <a className="primary-button" href={whatsappLink} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Abrir no WhatsApp</a>
               <button className="secondary-button" type="button">Salvar rascunho</button>

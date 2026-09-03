@@ -7,4 +7,8 @@ export class MockLeadProvider implements LeadProvider {
   async search(_query: SearchLeadsQuery): Promise<Lead[]> {
     return this.leads
   }
+
+  async findById(id: string): Promise<Lead | undefined> {
+    return this.leads.find((lead) => lead.id === id)
+  }
 }

@@ -18,7 +18,7 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 - `frontend/src/components/`: componentes de interface e seus estilos locais.
 - `frontend/src/pages/`: telas completas e suas regras de composição.
 - `frontend/src/styles/`: tokens do design system e estilos globais mínimos.
-- `frontend/src/data/`: dados mockados compatíveis com os contratos da API.
+- `backend/src/data/`: dados mockados compatíveis com os contratos da API.
 - `backend/`: API Node.js, domínio, persistência e integrações.
 - `REQUISITOS-MVP.md` e `DESIGN-SYSTEM.md`: decisões do produto e da interface.
 
@@ -31,5 +31,5 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 
 ## Estado atual
 
-Frontend inicial e API local de busca com dados mockados. O primeiro teste será realizado em Formosa-GO.
+Frontend inicial e API local de busca com dados mockados. A Fase 1 já contempla busca, ficha, abordagem editável e salvamento temporário de leads no backend. O primeiro teste será realizado em Formosa-GO.
 # DigiBusca

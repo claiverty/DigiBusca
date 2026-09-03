@@ -3,6 +3,7 @@ import { searchLeads } from '../domain/searchLeads.js'
 
 export interface LeadProvider {
   search(query: SearchLeadsQuery): Promise<Lead[]>
+  findById(id: string): Promise<Lead | undefined>
 }
 
 export async function executeSearchLeads(provider: LeadProvider, query: SearchLeadsQuery): Promise<SearchLeadsResponse> {
