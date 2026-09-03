@@ -1,60 +1,102 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { CalendarDays, Plus, Receipt } from 'lucide-react'
+import { CalendarDays, Plus, Receipt, X } from 'lucide-react'
 import { createSale, getSales } from '../services/leadsService'
 import type { Sale } from '../types/sales'
 import './FinancePage.css'
 
-function today() {
-  return new Date().toISOString().slice(0, 10)
+type Period = 'today' | '7d' | '30d' | 'all'
+
+const periods: Array<{ id: Period; label: string }> = [
+  { id: 'today', label: 'Hoje' },
+  { id: '7d', label: 'Últimos 7 dias' },
+  { id: '30d', label: 'Últimos 30 dias' },
+  { id: 'all', label: 'Sempre' },
+]
+
+function dateKey(date: Date) { return date.toISOString().slice(0, 10) }
+function today() { return dateKey(new Date()) }
+function formatDate(value: string) { return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`)) }
+function formatCurrency(value: number) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value) }
+
+function isInPeriod(value: string, period: Period) {
+  if (period === 'all') return true
+  const saleDate = new Date(`${value}T12:00:00`)
+  const start = new Date()
+  start.setHours(12, 0, 0, 0)
+  if (period === 'today') return value === dateKey(start)
+  start.setDate(start.getDate() - (period === '7d' ? 6 : 29))
+  return saleDate >= start
 }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`))
+function chartDates(period: Period) {
+  const days = period === 'today' ? 1 : period === '30d' ? 30 : 7
+  const points = period === '30d' ? 7 : days
+  return Array.from({ length: points }, (_, index) => {
+    const date = new Date()
+    date.setHours(12, 0, 0, 0)
+    date.setDate(date.getDate() - Math.round((points - 1 - index) * ((days - 1) / Math.max(points - 1, 1))))
+    return dateKey(date)
+  })
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
-}
+function formatChartDate(value: string) { return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(new Date(`${value}T12:00:00`)) }
 
-function isCurrentMonth(value: string) {
-  const date = new Date(`${value}T12:00:00`)
-  const current = new Date()
-  return date.getMonth() === current.getMonth() && date.getFullYear() === current.getFullYear()
+function buildChartPath(dates: string[], sales: Sale[], max: number) {
+  return dates.map((date, index) => {
+    const total = sales.filter((sale) => sale.soldAt === date).reduce((sum, sale) => sum + sale.amount, 0)
+    const x = dates.length === 1 ? 50 : (index / (dates.length - 1)) * 100
+    const y = max ? 100 - (total / max) * 76 - 12 : 88
+    return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
+  }).join(' ')
 }
 
 export function FinancePage() {
   const [sales, setSales] = useState<Sale[]>([])
+  const [period, setPeriod] = useState<Period>('7d')
   const [businessName, setBusinessName] = useState('')
   const [service, setService] = useState('')
   const [amount, setAmount] = useState('')
   const [soldAt, setSoldAt] = useState(today())
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [feedback, setFeedback] = useState('')
+  const [showSaleForm, setShowSaleForm] = useState(false)
+  const [saleToast, setSaleToast] = useState('')
 
   useEffect(() => {
     void getSales().then((items) => { setSales(items); setStatus('ready') }).catch(() => setStatus('error'))
   }, [])
 
-  const periodSales = useMemo(() => sales.filter((sale) => isCurrentMonth(sale.soldAt)), [sales])
+  useEffect(() => {
+    if (!showSaleForm) return
+    const handleEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setShowSaleForm(false) }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [showSaleForm])
+
+  const periodSales = useMemo(() => sales.filter((sale) => isInPeriod(sale.soldAt, period)), [period, sales])
   const periodTotal = periodSales.reduce((total, sale) => total + sale.amount, 0)
+  const dates = useMemo(() => chartDates(period), [period])
+  const chartMax = Math.max(...dates.map((date) => periodSales.filter((sale) => sale.soldAt === date).reduce((sum, sale) => sum + sale.amount, 0)), 0)
+  const chartPath = buildChartPath(dates, periodSales, chartMax)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFeedback('')
-
     const value = Number(amount.replace(',', '.'))
     if (!businessName.trim() || !service.trim() || !Number.isFinite(value) || value < 0 || !soldAt) {
       setFeedback('Preencha comércio, serviço, valor e data.')
       return
     }
-
     try {
       const sale = await createSale({ businessName, service, amount: value, soldAt })
       setSales((current) => [sale, ...current])
       setBusinessName('')
       setService('')
       setAmount('')
-      setFeedback('Venda registrada.')
+      setFeedback('')
+      setShowSaleForm(false)
+      setSaleToast('Venda registrada.')
+      window.setTimeout(() => setSaleToast(''), 3000)
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Não foi possível registrar a venda.')
     }
@@ -65,57 +107,29 @@ export function FinancePage() {
       <header className="page-header finance-header">
         <div>
           <span className="eyebrow">CONTROLE FINANCEIRO</span>
-          <h1>Suas vendas, em um só lugar.</h1>
-          <p>Registre o que você vendeu e consulte seu histórico quando precisar.</p>
+          <h1>Acompanhe suas vendas.</h1>
+          <p>Registre o que você vendeu e acompanhe seu histórico.</p>
         </div>
       </header>
 
-      <div className="finance-summary" aria-label="Resumo financeiro">
-        <div className="finance-metric panel">
-          <span className="eyebrow">VENDAS NO PERÍODO</span>
-          <strong>{periodSales.length}</strong>
-          <span className="muted">Neste mês</span>
-        </div>
-        <div className="finance-metric panel">
-          <span className="eyebrow">TOTAL NO PERÍODO</span>
-          <strong>{formatCurrency(periodTotal)}</strong>
-          <span className="muted">Neste mês</span>
-        </div>
-      </div>
+      <button className="primary-button floating-sale-button" type="button" aria-expanded={showSaleForm} onClick={() => { setFeedback(''); setShowSaleForm(true) }}><Plus size={17} /> Nova venda</button>
+      {saleToast && <div className="sale-toast" role="status">{saleToast}</div>}
 
-      <div className="finance-layout">
-        <form className="panel sale-form" onSubmit={handleSubmit}>
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">NOVA VENDA</span>
-              <h2>Adicionar ao histórico</h2>
-            </div>
-            <div className="section-icon"><Plus size={18} /></div>
-          </div>
-          <label className="finance-field"><span>Comércio ou cliente</span><input value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Ex.: Padaria Central" /></label>
-          <label className="finance-field"><span>O que foi vendido</span><input value={service} onChange={(event) => setService(event.target.value)} placeholder="Ex.: Site institucional" /></label>
-          <div className="finance-form-grid">
-            <label className="finance-field"><span>Valor</span><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="R$ 0,00" /></label>
-            <label className="finance-field"><span>Data</span><input type="date" value={soldAt} onChange={(event) => setSoldAt(event.target.value)} /></label>
-          </div>
-          <button className="primary-button" type="submit">Registrar venda</button>
-          {feedback && <span className="form-feedback" role="status">{feedback}</span>}
-        </form>
+      <section className="finance-dashboard" aria-label="Dashboard financeiro">
+        <div className="period-tabs" role="tablist" aria-label="Período financeiro">{periods.map((item) => <button className={period === item.id ? 'period-tab active' : 'period-tab'} type="button" role="tab" aria-selected={period === item.id} key={item.id} onClick={() => setPeriod(item.id)}>{item.label}</button>)}</div>
+        <div className="finance-summary" aria-label="Resumo financeiro"><div className="finance-metric panel"><span className="metric-label">Total no período</span><strong>{formatCurrency(periodTotal)}</strong></div><div className="finance-metric panel"><span className="metric-label">Vendas no período</span><strong>{periodSales.length}</strong></div></div>
+        <section className="panel sales-chart" aria-label="Gráfico de vendas"><div className="chart-grid" aria-hidden="true"><span /><span /><span /><span /></div>{chartMax > 0 && <svg className="chart-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d={chartPath} /></svg>}<div className="chart-labels">{dates.map((date) => <span key={date}>{formatChartDate(date)}</span>)}</div></section>
+      </section>
 
-        <section className="panel sales-history">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">HISTÓRICO</span>
-              <h2>Vendas registradas</h2>
-            </div>
-            <Receipt size={19} className="section-muted-icon" />
-          </div>
-          {status === 'loading' && <div className="data-state">Carregando histórico...</div>}
-          {status === 'error' && <div className="data-state" role="alert">Não foi possível carregar o histórico.</div>}
-          {status === 'ready' && sales.length === 0 && <div className="empty-history"><CalendarDays size={22} /><p>Nenhuma venda registrada ainda.</p><span>As vendas convertidas de um lead também aparecerão aqui.</span></div>}
-          {sales.length > 0 && <div className="sales-list">{sales.map((sale) => <article className="sale-row" key={sale.id}><div><strong>{sale.businessName}</strong><span>{sale.service}</span></div><div className="sale-row-meta"><time>{formatDate(sale.soldAt)}</time><strong>{formatCurrency(sale.amount)}</strong></div></article>)}</div>}
-        </section>
-      </div>
+      <section className="panel sales-history">
+        <div className="section-heading"><div><span className="eyebrow">HISTÓRICO</span><h2>Vendas registradas</h2></div><Receipt size={19} className="section-muted-icon" /></div>
+        {status === 'loading' && <div className="data-state">Carregando histórico...</div>}
+        {status === 'error' && <div className="data-state" role="alert">Não foi possível carregar o histórico.</div>}
+        {status === 'ready' && sales.length === 0 && <div className="empty-history"><CalendarDays size={22} /><p>Nenhuma venda registrada ainda.</p><span>As vendas convertidas de um lead também aparecerão aqui.</span></div>}
+        {sales.length > 0 && <div className="sales-list">{sales.map((sale) => <article className="sale-row" key={sale.id}><div><strong>{sale.businessName}</strong><span>{sale.service}</span></div><div className="sale-row-meta"><time>{formatDate(sale.soldAt)}</time><strong>{formatCurrency(sale.amount)}</strong></div></article>)}</div>}
+      </section>
+
+      {showSaleForm && <div className="sale-modal-backdrop" role="presentation" onMouseDown={() => setShowSaleForm(false)}><form className="sale-modal panel" role="dialog" aria-modal="true" aria-labelledby="sale-modal-title" onSubmit={handleSubmit} onMouseDown={(event) => event.stopPropagation()}><div className="section-heading"><div><span className="eyebrow">NOVA VENDA</span><h2 id="sale-modal-title">Adicionar ao histórico</h2></div><button className="icon-button" type="button" aria-label="Fechar formulário" onClick={() => setShowSaleForm(false)}><X size={17} /></button></div><div className="finance-entry-grid"><label className="finance-field"><span>Comércio ou cliente</span><input autoFocus value={businessName} onChange={(event) => setBusinessName(event.target.value)} placeholder="Ex.: Padaria Central" /></label><label className="finance-field"><span>O que foi vendido</span><input value={service} onChange={(event) => setService(event.target.value)} placeholder="Ex.: Site institucional" /></label><label className="finance-field"><span>Valor</span><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="R$ 0,00" /></label><label className="finance-field"><span>Data</span><input type="date" value={soldAt} onChange={(event) => setSoldAt(event.target.value)} /></label></div><div className="panel-actions"><button className="primary-button" type="submit">Registrar venda</button>{feedback && <span className="form-feedback" role="alert">{feedback}</span>}</div></form></div>}
     </section>
   )
 }

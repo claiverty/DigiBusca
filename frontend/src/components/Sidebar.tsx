@@ -21,7 +21,7 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
 
       <nav className="main-nav" aria-label="Navegação principal">
         {links.map(({ label, icon: Icon, view }) => (
-          <button className={`nav-item${view === activeView && label === 'Buscar leads' ? ' active' : ''}`} key={label} type="button" onClick={() => onNavigate(view)}>
+          <button className={`nav-item${view === activeView ? ' active' : ''}`} key={label} type="button" onClick={() => onNavigate(view)}>
             <Icon size={18} strokeWidth={1.8} />
             {label}
           </button>
