@@ -8,10 +8,12 @@ const port = Number(process.env.PORT ?? 3001)
 const leadProvider = new MockLeadProvider(mockLeads)
 const savedLeads = new Map<string, (typeof mockLeads)[number]>()
 const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
+const allowedOrigins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173'])
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown) {
+  const origin = response.req.headers.origin
   response.writeHead(statusCode, {
-    'Access-Control-Allow-Origin': 'http://127.0.0.1:5173',
+    'Access-Control-Allow-Origin': origin && allowedOrigins.has(origin) ? origin : 'http://127.0.0.1:5173',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Content-Type': 'application/json; charset=utf-8',
