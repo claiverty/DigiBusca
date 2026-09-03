@@ -30,6 +30,16 @@ BrandMyMac e BrandMyLaptop são referências de clareza, espaço, personalidade 
 - Jornada guiada com passos curtos.
 - Tabela financeira simples e legível.
 
+## Organização no código
+
+- `frontend/src/styles/tokens.css`: cores, tipografia, raios, sombras e dimensões compartilhadas.
+- `frontend/src/styles/base.css`: reset, tipografia base, superfícies e controles reutilizáveis.
+- `frontend/src/App.css`: somente o shell da aplicação e o layout geral.
+- `frontend/src/pages/*.css`: composição visual de cada tela.
+- `frontend/src/components/*.css`: estilos específicos do componente correspondente.
+
+Novos valores visuais devem entrar primeiro nos tokens. Componentes não devem criar uma segunda paleta ou repetir sombras e raios sem necessidade.
+
 ## Tom de texto
 
 Direto, humano e confiante. Evitar jargão técnico, excesso de texto e mensagens que prometam mais do que os dados comprovam.

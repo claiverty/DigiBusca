@@ -1,0 +1,14 @@
+.app-shell { display: flex; min-height: 100vh; }
+.content { flex: 1; min-width: 0; width: min(var(--content-max-width), 100%); margin: 0 auto; padding: 86px 54px 80px; }
+
+@media (max-width: 820px) {
+  .content { padding: 56px 22px 48px; }
+}
+
+@media (max-width: 720px) {
+  .content { padding-top: 52px; }
+}
+
+@media (max-width: 590px) {
+  .content { padding: 44px 16px 42px; }
+}

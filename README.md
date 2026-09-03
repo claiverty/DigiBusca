@@ -13,6 +13,15 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 - [Requisitos do MVP](REQUISITOS-MVP.md)
 - [Direção de design](DESIGN-SYSTEM.md)
 
+## Organização
+
+- `frontend/src/components/`: componentes de interface e seus estilos locais.
+- `frontend/src/pages/`: telas completas e suas regras de composição.
+- `frontend/src/styles/`: tokens do design system e estilos globais mínimos.
+- `frontend/src/data/`: dados mockados compatíveis com os contratos da API.
+- `backend/`: API Node.js, domínio, persistência e integrações.
+- `REQUISITOS-MVP.md` e `DESIGN-SYSTEM.md`: decisões do produto e da interface.
+
 ## Stack planejada
 
 - React, Vite e TypeScript no frontend

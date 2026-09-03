@@ -1,0 +1,28 @@
+:root {
+  --font-sans: -apple-system, "system-ui", "SF Pro Display", "SF Pro Text", Inter, "Inter Fallback", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  --color-background: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-text: #17181c;
+  --color-text-subtle: #77787f;
+  --color-text-muted: #92939a;
+  --color-text-faint: #999aa1;
+  --color-border: #e4e4e8;
+  --color-border-soft: #f0f0f2;
+  --color-accent: #1f34a6;
+  --color-accent-soft: #eef1ff;
+  --color-gold: #bd8a00;
+
+  --radius-control: 999px;
+  --radius-sm: 10px;
+  --radius-md: 15px;
+  --radius-lg: 16px;
+
+  --shadow-panel: 0 14px 36px rgba(25, 26, 32, .06);
+  --shadow-card: 0 8px 22px rgba(25, 26, 32, .035);
+  --shadow-control: 0 5px 14px rgba(25, 26, 32, .04);
+  --shadow-button: 0 6px 12px rgba(25, 26, 32, .14);
+
+  --content-max-width: 1120px;
+  --sidebar-width: 236px;
+}

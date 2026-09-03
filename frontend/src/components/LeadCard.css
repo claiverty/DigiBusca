@@ -1,0 +1,19 @@
+.lead-list { display: grid; gap: 10px; }
+.lead-card { padding: 19px 20px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-card); transition: border-color .2s, box-shadow .2s, transform .2s; }
+.lead-card:hover { border-color: #c9d0ff; box-shadow: 0 12px 26px rgba(25, 26, 32, .07); transform: translateY(-1px); }
+.lead-card-topline, .lead-heading, .lead-meta, .lead-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.opportunity-pill { display: inline-flex; padding: 5px 8px; border-radius: 7px; color: #4052c0; background: var(--color-accent-soft); font-size: 10px; font-weight: 600; }
+.score { color: #8d8e96; font-size: 11px; }
+.lead-heading { align-items: flex-start; margin-top: 14px; }
+.lead-heading h3 { font-size: 16px; letter-spacing: -.02em; }
+.lead-heading p { margin-top: 4px; color: #8b8c93; font-size: 12px; }
+.lead-meta { justify-content: flex-start; flex-wrap: wrap; margin-top: 17px; color: #85868d; font-size: 11px; }
+.lead-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.lead-meta span:last-child { color: var(--color-gold); }
+.lead-card-footer { align-items: flex-end; margin-top: 19px; padding-top: 14px; border-top: 1px solid var(--color-border-soft); }
+.diagnosis-preview { max-width: 70%; color: #707179; font-size: 12px; line-height: 1.45; }
+
+@media (max-width: 590px) {
+  .lead-card-footer { align-items: flex-start; flex-direction: column; }
+  .diagnosis-preview { max-width: 100%; }
+}
