@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config frontend/vite.config.ts",
-    "build": "tsc -p frontend/tsconfig.app.json && vite build --config frontend/vite.config.ts",
+    "backend:build": "tsc -p backend/tsconfig.json",
+    "backend:start": "node backend/dist/http/server.js",
+    "build": "npm run backend:build && tsc -p frontend/tsconfig.app.json && vite build --config frontend/vite.config.ts",
     "preview": "vite preview --config frontend/vite.config.ts"
   },
   "dependencies": {

@@ -31,5 +31,5 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 
 ## Estado atual
 
-Documentação e decisões iniciais. O primeiro teste será realizado em Formosa-GO.
+Frontend inicial e API local de busca com dados mockados. O primeiro teste será realizado em Formosa-GO.
 # DigiBusca
