@@ -1,4 +1,5 @@
 import type { Lead, LeadUpdate, SearchLeadsResponse } from '../types'
+import type { CreateSaleInput, Sale } from '../types/sales'
 
 type SearchLeadsParams = {
   city: string
@@ -62,6 +63,33 @@ export async function updateLead(leadId: string, changes: LeadUpdate): Promise<L
   }
 
   const payload = await response.json() as { data: Lead }
+  return payload.data
+}
+
+export async function getSales(): Promise<Sale[]> {
+  const response = await fetch(`${apiBaseUrl}/sales`)
+
+  if (!response.ok) {
+    throw new Error('Não foi possível carregar o histórico financeiro.')
+  }
+
+  const payload = await response.json() as { data: Sale[] }
+  return payload.data
+}
+
+export async function createSale(input: CreateSaleInput): Promise<Sale> {
+  const response = await fetch(`${apiBaseUrl}/sales`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível registrar a venda.')
+  }
+
+  const payload = await response.json() as { data: Sale }
   return payload.data
 }
 

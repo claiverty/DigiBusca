@@ -48,7 +48,7 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 - Conversão integrada: ao converter um lead em cliente/venda dentro da ficha, criar o registro financeiro automaticamente com os dados já conhecidos, permitindo apenas completar ou ajustar o necessário.
 - Lançamento manual: permitir registrar uma venda externa diretamente no Financeiro, mesmo sem lead associado.
 - Jornada guiada: buscar, qualificar, abordar, acompanhar e registrar resultado.
-- Dashboard com total de leads, leads por status, follow-ups próximos, vendas, custos e lucro estimado.
+- Dashboard com total de leads, leads por status, follow-ups próximos e resumo de vendas do período.
 - Exportação dos leads salvos para CSV.
 - Identificação da origem e da data da última atualização de cada dado.
 
@@ -84,7 +84,7 @@ Equipes, permissões, planos, créditos, cobrança, métricas avançadas e expan
 - **Lead:** empresa, tipo de oportunidade, pontuação, diagnóstico, serviço recomendado, status e data de criação.
 - **Interação:** lead, canal, data, observação e resultado.
 - **Tarefa:** lead, descrição, prazo, prioridade e conclusão.
-- **Venda:** estrutura a confirmar a partir da aba Financeiro da Aivio; não adicionar campos além dos necessários para reproduzir seu fluxo.
+- **Venda:** comércio ou cliente, serviço vendido, valor, data e lead associado opcional; não adicionar campos além dos necessários para reproduzir o fluxo da Aivio.
 
 ## Regras de qualificação
 

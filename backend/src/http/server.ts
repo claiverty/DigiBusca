@@ -3,10 +3,13 @@ import { executeSearchLeads } from '../application/searchLeads.js'
 import { mockLeads } from '../data/mockLeads.js'
 import { MockLeadProvider } from '../integrations/mockLeadProvider.js'
 import type { LeadStatus, LeadUpdate } from '../contracts/lead.js'
+import type { CreateSaleInput } from '../contracts/sale.js'
+import { SalesStore } from '../data/salesStore.js'
 
 const port = Number(process.env.PORT ?? 3001)
 const leadProvider = new MockLeadProvider(mockLeads)
 const savedLeads = new Map<string, (typeof mockLeads)[number]>()
+const salesStore = new SalesStore()
 const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
 const allowedOrigins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173'])
 
@@ -47,6 +50,25 @@ function readJsonBody(request: IncomingMessage): Promise<unknown> {
   })
 }
 
+function parseSaleInput(value: unknown): CreateSaleInput | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const { businessName, service, amount, soldAt, leadId } = value
+  if (typeof businessName !== 'string' || !businessName.trim() || typeof service !== 'string' || !service.trim() || typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0 || typeof soldAt !== 'string' || !soldAt) {
+    return undefined
+  }
+
+  return {
+    businessName: businessName.trim(),
+    service: service.trim(),
+    amount,
+    soldAt,
+    ...(typeof leadId === 'string' && leadId ? { leadId } : {}),
+  }
+}
+
 function getSearchParams(request: IncomingMessage) {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
   return {
@@ -66,6 +88,7 @@ const server = createServer(async (request, response) => {
   if (request.method !== 'GET') {
     const saveMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/save$/)
     const updateMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)$/)
+    const salesMatch = requestUrl.pathname === '/api/sales'
 
     if (saveMatch && (request.method === 'POST' || request.method === 'DELETE')) {
       const lead = await leadProvider.findById(saveMatch[1])
@@ -127,6 +150,26 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (salesMatch && request.method === 'POST') {
+      let body: unknown
+
+      try {
+        body = await readJsonBody(request)
+      } catch {
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+
+      const input = parseSaleInput(body)
+      if (!input) {
+        sendJson(response, 400, { error: 'Informe comércio, serviço, valor e data da venda.' })
+        return
+      }
+
+      sendJson(response, 201, { data: salesStore.create(input) })
+      return
+    }
+
     sendJson(response, 405, { error: 'Método não permitido.' })
     return
   }
@@ -138,6 +181,11 @@ const server = createServer(async (request, response) => {
 
   if (requestUrl.pathname === '/api/saved-leads') {
     sendJson(response, 200, { data: Array.from(savedLeads.values()) })
+    return
+  }
+
+  if (requestUrl.pathname === '/api/sales') {
+    sendJson(response, 200, { data: salesStore.list() })
     return
   }
 

@@ -29,5 +29,7 @@ As regras de qualificação, acesso a dados e integração com Google Places dev
 - `POST /api/leads/:id/save`: salva um lead encontrado.
 - `DELETE /api/leads/:id/save`: remove um lead salvo.
 - `PATCH /api/leads/:id`: atualiza status, observações, follow-up e rascunho da abordagem.
+- `GET /api/sales`: lista o histórico de vendas.
+- `POST /api/sales`: registra uma venda manual ou vinculada a um lead.
 
 O servidor usa apenas módulos nativos do Node neste momento. Isso mantém o MVP sem custo. Os leads salvos ficam temporariamente em memória até a integração com Supabase. A interface `LeadProvider` deixa a troca futura do mock pelo Google Places isolada, sem alterar o caso de uso ou o frontend.

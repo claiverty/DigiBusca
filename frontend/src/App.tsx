@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
 import { LeadDetail } from './components/LeadDetail'
-import { Sidebar } from './components/Sidebar'
+import { Sidebar, type AppView } from './components/Sidebar'
+import { FinancePage } from './pages/FinancePage'
 import { SearchPage } from './pages/SearchPage'
-import { getSavedLeads, removeSavedLead, saveLead, updateLead } from './services/leadsService'
+import { createSale, getSavedLeads, removeSavedLead, saveLead, updateLead } from './services/leadsService'
 import type { Lead, LeadUpdate } from './types'
+import type { CreateSaleInput } from './types/sales'
 import './App.css'
 
 function App() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  const [activeView, setActiveView] = useState<AppView>('search')
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
@@ -38,15 +41,28 @@ function App() {
     setSelectedLead(updatedLead)
   }
 
+  async function registerSaleFromLead(input: Omit<CreateSaleInput, 'businessName' | 'leadId'>) {
+    if (!selectedLead) {
+      return
+    }
+
+    await createSale({ ...input, businessName: selectedLead.name, leadId: selectedLead.id })
+  }
+
+  function handleNavigate(view: AppView) {
+    setSelectedLead(null)
+    setActiveView(view)
+  }
+
   if (selectedLead) {
-    return <div className="app-shell"><Sidebar /><main className="content"><LeadDetail lead={selectedLead} isSaved={savedLeadIds.has(selectedLead.id)} onBack={() => setSelectedLead(null)} onToggleSave={() => toggleSavedLead(selectedLead)} onUpdateLead={updateSelectedLead} /></main></div>
+    return <div className="app-shell"><Sidebar activeView="search" onNavigate={handleNavigate} /><main className="content"><LeadDetail lead={selectedLead} isSaved={savedLeadIds.has(selectedLead.id)} onBack={() => setSelectedLead(null)} onToggleSave={() => toggleSavedLead(selectedLead)} onUpdateLead={updateSelectedLead} onRegisterSale={registerSaleFromLead} /></main></div>
   }
 
   return (
     <div className="app-shell">
-      <Sidebar />
+      <Sidebar activeView={activeView} onNavigate={handleNavigate} />
       <main className="content">
-        <SearchPage onSelectLead={setSelectedLead} />
+        {activeView === 'finance' ? <FinancePage /> : <SearchPage onSelectLead={setSelectedLead} />}
       </main>
     </div>
   )

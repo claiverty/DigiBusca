@@ -27,6 +27,11 @@
   gap: 16px;
 }
 
+.sale-from-lead {
+  display: grid;
+  gap: 16px;
+}
+
 .detail-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

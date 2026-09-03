@@ -1,19 +1,25 @@
 import { ArrowLeft, Bookmark, ExternalLink, MessageCircle, Phone } from 'lucide-react'
 import { useState } from 'react'
 import type { Lead, LeadStatus, LeadUpdate } from '../types'
+import type { CreateSaleInput } from '../types/sales'
 import './LeadDetail.css'
 
-type LeadDetailProps = { lead: Lead; isSaved: boolean; onBack: () => void; onToggleSave: () => Promise<void>; onUpdateLead: (changes: LeadUpdate) => Promise<void> }
+type LeadDetailProps = { lead: Lead; isSaved: boolean; onBack: () => void; onToggleSave: () => Promise<void>; onUpdateLead: (changes: LeadUpdate) => Promise<void>; onRegisterSale: (input: Omit<CreateSaleInput, 'businessName' | 'leadId'>) => Promise<void> }
 
 const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
 
-export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead }: LeadDetailProps) {
+export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead, onRegisterSale }: LeadDetailProps) {
   const [message, setMessage] = useState(lead.draftMessage ?? `Olá, ${lead.name}! Encontrei o perfil de vocês e percebi uma oportunidade de apresentar melhor o negócio online. Posso te mostrar uma ideia?`)
   const [status, setStatus] = useState<LeadStatus>(lead.status)
   const [notes, setNotes] = useState(lead.notes ?? '')
   const [nextFollowUp, setNextFollowUp] = useState(lead.nextFollowUp ?? '')
   const [isSaving, setIsSaving] = useState(false)
   const [feedback, setFeedback] = useState('')
+  const [saleService, setSaleService] = useState('')
+  const [saleAmount, setSaleAmount] = useState('')
+  const [saleDate, setSaleDate] = useState(new Date().toISOString().slice(0, 10))
+  const [saleFeedback, setSaleFeedback] = useState('')
+  const [isRegisteringSale, setIsRegisteringSale] = useState(false)
   const whatsappLink = `https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
 
   async function handleToggleSave() {
@@ -41,6 +47,28 @@ export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead }
       setFeedback(error instanceof Error ? error.message : 'Não foi possível salvar as alterações.')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleRegisterSale() {
+    const amount = Number(saleAmount.replace(',', '.'))
+    setSaleFeedback('')
+
+    if (!saleService.trim() || !Number.isFinite(amount) || amount < 0 || !saleDate) {
+      setSaleFeedback('Informe serviço, valor e data da venda.')
+      return
+    }
+
+    setIsRegisteringSale(true)
+    try {
+      await onRegisterSale({ service: saleService, amount, soldAt: saleDate })
+      setSaleService('')
+      setSaleAmount('')
+      setSaleFeedback('Venda registrada no Financeiro.')
+    } catch (error) {
+      setSaleFeedback(error instanceof Error ? error.message : 'Não foi possível registrar a venda.')
+    } finally {
+      setIsRegisteringSale(false)
     }
   }
 
@@ -97,6 +125,23 @@ export function LeadDetail({ lead, isSaved, onBack, onToggleSave, onUpdateLead }
             <div className="panel-actions follow-up-actions">
               <button className="primary-button" type="button" onClick={() => void handleSaveChanges()} disabled={isSaving}>{isSaving ? 'Salvando...' : 'Salvar acompanhamento'}</button>
               {feedback && <span className="save-feedback" role="status">{feedback}</span>}
+            </div>
+          </div>
+          <div className="panel sale-from-lead">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">CONVERSÃO</span>
+                <h2>Registrar venda deste lead</h2>
+              </div>
+            </div>
+            <div className="detail-form-grid">
+              <label className="detail-field"><span>Serviço vendido</span><input value={saleService} onChange={(event) => setSaleService(event.target.value)} placeholder="Ex.: Site institucional" /></label>
+              <label className="detail-field"><span>Valor</span><input inputMode="decimal" value={saleAmount} onChange={(event) => setSaleAmount(event.target.value)} placeholder="R$ 0,00" /></label>
+            </div>
+            <label className="detail-field"><span>Data da venda</span><input type="date" value={saleDate} onChange={(event) => setSaleDate(event.target.value)} /></label>
+            <div className="panel-actions follow-up-actions">
+              <button className="primary-button" type="button" onClick={() => void handleRegisterSale()} disabled={isRegisteringSale}>{isRegisteringSale ? 'Registrando...' : 'Registrar venda'}</button>
+              {saleFeedback && <span className="save-feedback" role="status">{saleFeedback}</span>}
             </div>
           </div>
         </div>
