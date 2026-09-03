@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { executeSearchLeads } from '../application/searchLeads.js'
 import { mockLeads } from '../data/mockLeads.js'
-import type { SearchLeadsResponse } from '../contracts/lead.js'
-import { searchLeads } from '../domain/searchLeads.js'
+import { MockLeadProvider } from '../integrations/mockLeadProvider.js'
 
 const port = Number(process.env.PORT ?? 3001)
+const leadProvider = new MockLeadProvider(mockLeads)
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
@@ -21,7 +22,7 @@ function getSearchParams(request: IncomingMessage) {
   }
 }
 
-const server = createServer((request, response) => {
+const server = createServer(async (request, response) => {
   if (request.method !== 'GET') {
     sendJson(response, 405, { error: 'Método não permitido.' })
     return
@@ -40,11 +41,7 @@ const server = createServer((request, response) => {
       return
     }
 
-    const data = searchLeads(mockLeads, query)
-    const payload: SearchLeadsResponse = {
-      data,
-      meta: { total: data.length, city: query.city, segment: query.segment },
-    }
+    const payload = await executeSearchLeads(leadProvider, query)
 
     sendJson(response, 200, payload)
     return
