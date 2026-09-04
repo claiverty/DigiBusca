@@ -1,10 +1,10 @@
 import { Compass, LayoutDashboard, LogOut, Settings, Wallet } from 'lucide-react'
 import './Sidebar.css'
 
-export type AppView = 'search' | 'finance'
+export type AppView = 'overview' | 'search' | 'finance'
 
 const links = [
-  { label: 'Visão geral', icon: LayoutDashboard, view: 'search' as AppView },
+  { label: 'Visão geral', icon: LayoutDashboard, view: 'overview' as AppView },
   { label: 'Buscar leads', icon: Compass, view: 'search' as AppView },
   { label: 'Financeiro', icon: Wallet, view: 'finance' as AppView },
 ]

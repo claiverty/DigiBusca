@@ -28,7 +28,7 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 - Backend: Node.js e TypeScript.
 - Persistência inicial: PostgreSQL pelo Supabase, com migrations para facilitar manutenção e eventual migração.
 - Desenvolvimento inicial: dados mockados com o mesmo contrato previsto para a integração Google Places.
-- Contas desde o início: login social, login por e-mail e senha, criação de conta, recuperação de senha, logout e isolamento dos dados por usuário usando Supabase Auth. O cadastro e o primeiro acesso em um dispositivo novo usam link de confirmação no MVP; código numérico depende de SMTP externo.
+- Contas desde o início: login social, login por e-mail e senha, criação de conta, recuperação de senha, logout e isolamento dos dados por usuário usando Supabase Auth. A verificação de e-mail e de novo dispositivo fica para uma etapa posterior; no MVP o acesso é direto após o login.
 - E-mails de autenticação: usar o serviço padrão do Supabase durante a validação local, sem exigir domínio próprio. SMTP externo fica como etapa posterior, caso o produto seja escalado.
 
 ## Escopo do MVP completo

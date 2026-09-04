@@ -3,6 +3,7 @@ import { useAuth } from './auth/AuthGate'
 import { LeadDetail } from './components/LeadDetail'
 import { Sidebar, type AppView } from './components/Sidebar'
 import { FinancePage } from './pages/FinancePage'
+import { OverviewPage } from './pages/OverviewPage'
 import { SearchPage } from './pages/SearchPage'
 import {
   createSale,
@@ -18,7 +19,7 @@ import './App.css'
 function App() {
   const { user, signOut } = useAuth()
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
-  const [activeView, setActiveView] = useState<AppView>('search')
+  const [activeView, setActiveView] = useState<AppView>('overview')
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
@@ -96,7 +97,9 @@ function App() {
         onSignOut={() => void signOut()}
       />
       <main className="content">
-        {activeView === 'finance' ? <FinancePage /> : <SearchPage onSelectLead={setSelectedLead} />}
+        {activeView === 'overview' && <OverviewPage onNavigate={setActiveView} />}
+        {activeView === 'finance' && <FinancePage />}
+        {activeView === 'search' && <SearchPage onSelectLead={setSelectedLead} />}
       </main>
     </div>
   )
