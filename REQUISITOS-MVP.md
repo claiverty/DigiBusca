@@ -107,12 +107,12 @@ Equipes, permissões, planos, créditos, cobrança, métricas avançadas e expan
 O projeto deve manter responsabilidades separadas desde a primeira implementação:
 
 - **Frontend:** telas, navegação, formulários, filtros, estados de carregamento e apresentação dos dados.
-- **Backend/API:** autenticação futura, validação, busca, paginação, filtros, persistência e respostas para o frontend.
+- **Backend/API:** autenticação, validação, busca, paginação, filtros, persistência e respostas para o frontend.
 - **Domínio:** regras de qualificação, pontuação, status do funil, follow-ups e cálculos financeiros, sem depender da interface.
 - **Integrações:** adaptadores isolados para Google Places e, futuramente, canais de contato. Nenhuma credencial deve ficar no frontend.
 - **Canais no MVP:** links nativos para abrir WhatsApp/e-mail com dados preenchidos; o envio final acontece no aplicativo do usuário.
-- **Persistência:** modelos e repositórios para empresas, leads, interações, tarefas e vendas.
-- **Contas e segurança:** Supabase Auth desde o início; registros de negócio devem possuir vínculo com a conta proprietária e políticas de acesso devem impedir que um usuário veja dados de outro.
+- **Persistência:** Supabase/PostgreSQL com migration versionada; leads salvos e vendas possuem vínculo com a conta proprietária.
+- **Contas e segurança:** Supabase Auth desde o início; o backend valida o JWT e o RLS aplica uma segunda camada com `auth.uid()` para impedir que um usuário veja ou altere dados de outro.
 - **Configuração:** variáveis de ambiente, URLs e chaves mantidas fora do código-fonte.
 - **Observabilidade:** erros, buscas e falhas de integração devem ser registráveis sem expor dados sensíveis.
 

@@ -4,12 +4,12 @@ import { mockLeads } from '../data/mockLeads.js'
 import { MockLeadProvider } from '../integrations/mockLeadProvider.js'
 import type { LeadStatus, LeadUpdate } from '../contracts/lead.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
-import { SalesStore } from '../data/salesStore.js'
+import { authenticateRequest } from '../config/supabase.js'
+import { SupabaseStore } from '../data/supabaseStore.js'
 
 const port = Number(process.env.PORT ?? 3001)
 const leadProvider = new MockLeadProvider(mockLeads)
-const savedLeads = new Map<string, (typeof mockLeads)[number]>()
-const salesStore = new SalesStore()
+const persistenceStore = new SupabaseStore()
 const leadStatuses: LeadStatus[] = [
   'Novo',
   'Contatado',
@@ -26,7 +26,7 @@ function sendJson(response: ServerResponse, statusCode: number, payload: unknown
     'Access-Control-Allow-Origin':
       origin && allowedOrigins.has(origin) ? origin : 'http://127.0.0.1:5173',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Content-Type': 'application/json; charset=utf-8',
   })
   response.end(JSON.stringify(payload))
@@ -105,6 +105,19 @@ const server = createServer(async (request, response) => {
 
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
 
+  if (requestUrl.pathname === '/api/health') {
+    sendJson(response, 200, { status: 'ok', service: 'digibusca-backend' })
+    return
+  }
+
+  const authentication = await authenticateRequest(request.headers.authorization)
+  if (!authentication) {
+    sendJson(response, 401, { error: 'Faça login para acessar os dados da sua conta.' })
+    return
+  }
+
+  const { accessToken, user } = authentication
+
   if (request.method !== 'GET') {
     const saveMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/save$/)
     const updateMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)$/)
@@ -119,12 +132,12 @@ const server = createServer(async (request, response) => {
       }
 
       if (request.method === 'POST') {
-        savedLeads.set(lead.id, lead)
-        sendJson(response, 200, { data: lead })
+        const savedLead = await persistenceStore.saveLead(accessToken, user.id, lead)
+        sendJson(response, 200, { data: savedLead })
         return
       }
 
-      savedLeads.delete(lead.id)
+      await persistenceStore.removeSavedLead(accessToken, user.id, lead.id)
       sendJson(response, 204, null)
       return
     }
@@ -157,16 +170,17 @@ const server = createServer(async (request, response) => {
       if (body.draftMessage !== undefined)
         changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
 
-      const updatedLead = await leadProvider.update(updateMatch[1], changes)
+      const originalLead = await leadProvider.findById(updateMatch[1])
 
-      if (!updatedLead) {
+      if (!originalLead) {
         sendJson(response, 404, { error: 'Lead não encontrado.' })
         return
       }
 
-      if (savedLeads.has(updatedLead.id)) {
-        savedLeads.set(updatedLead.id, updatedLead)
-      }
+      const updatedLead = await persistenceStore.saveLead(accessToken, user.id, {
+        ...originalLead,
+        ...changes,
+      })
 
       sendJson(response, 200, { data: updatedLead })
       return
@@ -188,7 +202,9 @@ const server = createServer(async (request, response) => {
         return
       }
 
-      sendJson(response, 201, { data: salesStore.create(input) })
+      sendJson(response, 201, {
+        data: await persistenceStore.createSale(accessToken, user.id, input),
+      })
       return
     }
 
@@ -196,18 +212,15 @@ const server = createServer(async (request, response) => {
     return
   }
 
-  if (request.url?.startsWith('/api/health')) {
-    sendJson(response, 200, { status: 'ok', service: 'digibusca-backend' })
-    return
-  }
-
   if (requestUrl.pathname === '/api/saved-leads') {
-    sendJson(response, 200, { data: Array.from(savedLeads.values()) })
+    sendJson(response, 200, {
+      data: await persistenceStore.listSavedLeads(accessToken, user.id),
+    })
     return
   }
 
   if (requestUrl.pathname === '/api/sales') {
-    sendJson(response, 200, { data: salesStore.list() })
+    sendJson(response, 200, { data: await persistenceStore.listSales(accessToken, user.id) })
     return
   }
 

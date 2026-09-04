@@ -31,6 +31,6 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 
 ## Estado atual
 
-Frontend inicial e API local de busca com dados mockados. As fases de prospecção, acompanhamento comercial e controle financeiro simples já estão disponíveis no preview local. A próxima etapa conecta o Supabase Auth e a persistência por usuário. O primeiro teste será realizado em Formosa-GO.
+Frontend inicial e API local de busca com dados mockados. As fases de prospecção, acompanhamento comercial e controle financeiro simples já estão disponíveis no preview local. O Supabase Auth e a persistência por usuário já estão preparados; a busca real do Google Places continua como próxima integração. O primeiro teste será realizado em Formosa-GO.
 
 # DigiBusca
