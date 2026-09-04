@@ -5,7 +5,6 @@ import { createUserSupabaseClient } from '../config/supabase.js'
 
 type SavedLeadRow = {
   lead_id: string
-  lead_data: Lead
   status: LeadStatus
   notes: string | null
   next_follow_up: string | null
@@ -21,9 +20,17 @@ type SaleRow = {
   sold_at: string
 }
 
-function mapSavedLead(row: SavedLeadRow): Lead {
+export type SavedLeadState = {
+  leadId: string
+  status: LeadStatus
+  notes?: string
+  nextFollowUp?: string
+  draftMessage?: string
+}
+
+function mapSavedLeadState(row: SavedLeadRow): SavedLeadState {
   return {
-    ...row.lead_data,
+    leadId: row.lead_id,
     status: row.status,
     notes: row.notes ?? undefined,
     nextFollowUp: row.next_follow_up ?? undefined,
@@ -53,15 +60,15 @@ export class SupabaseStore {
     return createUserSupabaseClient(accessToken)
   }
 
-  async listSavedLeads(accessToken: string, userId: string): Promise<Lead[]> {
+  async listSavedLeadStates(accessToken: string, userId: string): Promise<SavedLeadState[]> {
     const { data, error } = await this.client(accessToken)
       .from('saved_leads')
-      .select('lead_id, lead_data, status, notes, next_follow_up, draft_message')
+      .select('lead_id, status, notes, next_follow_up, draft_message')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
 
     throwIfError(error)
-    return (data as SavedLeadRow[]).map(mapSavedLead)
+    return (data as SavedLeadRow[]).map(mapSavedLeadState)
   }
 
   async saveLead(accessToken: string, userId: string, lead: Lead): Promise<Lead> {
@@ -71,7 +78,7 @@ export class SupabaseStore {
         {
           user_id: userId,
           lead_id: lead.id,
-          lead_data: lead,
+          lead_data: { id: lead.id },
           status: lead.status,
           notes: lead.notes ?? null,
           next_follow_up: lead.nextFollowUp ?? null,
@@ -80,23 +87,27 @@ export class SupabaseStore {
         },
         { onConflict: 'user_id,lead_id' },
       )
-      .select('lead_id, lead_data, status, notes, next_follow_up, draft_message')
+      .select('lead_id, status, notes, next_follow_up, draft_message')
       .single()
 
     throwIfError(error)
-    return mapSavedLead(data as SavedLeadRow)
+    return { ...lead, ...mapSavedLeadState(data as SavedLeadRow) }
   }
 
-  async getSavedLead(accessToken: string, userId: string, leadId: string): Promise<Lead | undefined> {
+  async getSavedLeadState(
+    accessToken: string,
+    userId: string,
+    leadId: string,
+  ): Promise<SavedLeadState | undefined> {
     const { data, error } = await this.client(accessToken)
       .from('saved_leads')
-      .select('lead_id, lead_data, status, notes, next_follow_up, draft_message')
+      .select('lead_id, status, notes, next_follow_up, draft_message')
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .maybeSingle()
 
     throwIfError(error)
-    return data ? mapSavedLead(data as SavedLeadRow) : undefined
+    return data ? mapSavedLeadState(data as SavedLeadRow) : undefined
   }
 
   async removeSavedLead(accessToken: string, userId: string, leadId: string): Promise<void> {

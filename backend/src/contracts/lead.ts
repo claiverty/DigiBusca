@@ -10,6 +10,7 @@ export type Lead = {
   rating: number
   reviews: number
   website?: string
+  googleMapsUri?: string
   opportunity: OpportunityType
   score: number
   diagnosis: string

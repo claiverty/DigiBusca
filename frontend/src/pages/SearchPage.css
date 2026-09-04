@@ -80,6 +80,13 @@ h1 {
   font-size: 14px;
 }
 
+.places-attribution {
+  margin: 18px 0 0;
+  color: #5e5e5e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 @media (max-width: 590px) {
   .page-header {
     margin-bottom: 25px;

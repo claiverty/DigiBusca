@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
-import type { LeadStatus, LeadUpdate } from '../contracts/lead.js'
+import type { Lead, LeadStatus, LeadUpdate } from '../contracts/lead.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
 import { authenticateRequest } from '../config/supabase.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
@@ -18,6 +18,15 @@ const leadStatuses: LeadStatus[] = [
   'Perdeu',
 ]
 const allowedOrigins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173'])
+
+function mergeSavedLeadState(lead: Lead, state: Awaited<ReturnType<SupabaseStore['getSavedLeadState']>>) {
+  if (!state) {
+    return lead
+  }
+
+  const { leadId: _leadId, ...userState } = state
+  return { ...lead, ...userState }
+}
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown) {
   const origin = response.req.headers.origin
@@ -175,9 +184,13 @@ const server = createServer(async (request, response) => {
       if (body.draftMessage !== undefined)
         changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
 
-      const originalLead =
-        (await leadProvider.findById(updateMatch[1])) ??
-        (await persistenceStore.getSavedLead(accessToken, user.id, updateMatch[1]))
+      const currentLead = await leadProvider.findById(updateMatch[1])
+      const savedState = await persistenceStore.getSavedLeadState(
+        accessToken,
+        user.id,
+        updateMatch[1],
+      )
+      const originalLead = currentLead ? mergeSavedLeadState(currentLead, savedState) : undefined
 
       if (!originalLead) {
         sendJson(response, 404, { error: 'Lead não encontrado.' })
@@ -220,9 +233,21 @@ const server = createServer(async (request, response) => {
   }
 
   if (requestUrl.pathname === '/api/saved-leads') {
-    sendJson(response, 200, {
-      data: await persistenceStore.listSavedLeads(accessToken, user.id),
-    })
+    const savedStates = await persistenceStore.listSavedLeadStates(accessToken, user.id)
+    const savedLeads = (
+      await Promise.all(
+        savedStates.map(async (savedState) => {
+          try {
+            const lead = await leadProvider.findById(savedState.leadId)
+            return lead ? mergeSavedLeadState(lead, savedState) : undefined
+          } catch {
+            return undefined
+          }
+        }),
+      )
+    ).filter((lead): lead is NonNullable<typeof lead> => Boolean(lead))
+
+    sendJson(response, 200, { data: savedLeads })
     return
   }
 

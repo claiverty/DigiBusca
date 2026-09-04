@@ -86,6 +86,9 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
             <LeadCard key={lead.id} lead={lead} onSelect={onSelectLead} />
           ))}
       </section>
+      <p className="places-attribution" translate="no">
+        Dados de lugares: Google Maps
+      </p>
     </>
   )
 }
