@@ -11,6 +11,8 @@ export type Lead = {
   reviews: number
   website?: string
   googleMapsUri?: string
+  source: 'Google Maps'
+  retrievedAt: string
   opportunity: OpportunityType
   score: number
   diagnosis: string

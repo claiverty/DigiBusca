@@ -22,6 +22,13 @@ const leadStatuses: LeadStatus[] = [
   'Perdeu',
 ]
 
+function formatRetrievedAt(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
+}
+
 export function LeadDetail({
   lead,
   isSaved,
@@ -286,11 +293,15 @@ export function LeadDetail({
                 <dt>Fonte</dt>
                 <dd>
                   <a href={lead.googleMapsUri} target="_blank" rel="noreferrer" translate="no">
-                    Google Maps <ExternalLink size={13} />
+                    {lead.source} <ExternalLink size={13} />
                   </a>
                 </dd>
               </div>
             )}
+            <div>
+              <dt>Consultado</dt>
+              <dd>{formatRetrievedAt(lead.retrievedAt)}</dd>
+            </div>
           </dl>
           <a className="contact-link" href={`tel:${lead.phone}`}>
             <Phone size={16} /> Ligar para a empresa

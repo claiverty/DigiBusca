@@ -40,6 +40,25 @@ function sendJson(response: ServerResponse, statusCode: number, payload: unknown
   response.end(JSON.stringify(payload))
 }
 
+function isAuthTokenError(error: unknown): boolean {
+  return error instanceof Error && error.message.toLowerCase().includes('jwt')
+}
+
+function sendRequestError(response: ServerResponse, error: unknown) {
+  if (response.headersSent) {
+    response.destroy()
+    return
+  }
+
+  if (isAuthTokenError(error)) {
+    sendJson(response, 401, { error: 'Sua sessão não é mais válida. Faça login novamente.' })
+    return
+  }
+
+  console.error('DigiBusca API:', error)
+  sendJson(response, 500, { error: 'Não foi possível concluir a operação agora.' })
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
@@ -107,7 +126,7 @@ function getSearchParams(request: IncomingMessage) {
   }
 }
 
-const server = createServer(async (request, response) => {
+async function handleRequest(request: IncomingMessage, response: ServerResponse) {
   if (request.method === 'OPTIONS') {
     sendJson(response, 204, null)
     return
@@ -281,6 +300,10 @@ const server = createServer(async (request, response) => {
   }
 
   sendJson(response, 404, { error: 'Rota não encontrada.' })
+}
+
+const server = createServer((request, response) => {
+  void handleRequest(request, response).catch((error) => sendRequestError(response, error))
 })
 
 server.listen(port, () => {

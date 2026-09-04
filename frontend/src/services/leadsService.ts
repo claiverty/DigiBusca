@@ -21,7 +21,14 @@ async function authenticatedFetch(input: string, init: RequestInit = {}): Promis
 
   const headers = new Headers(init.headers)
   headers.set('Authorization', `Bearer ${data.session.access_token}`)
-  return fetch(input, { ...init, headers })
+  const response = await fetch(input, { ...init, headers })
+
+  if (response.status === 401) {
+    await supabase.auth.signOut({ scope: 'local' })
+    throw new Error('Sua sessão expirou. Faça login novamente.')
+  }
+
+  return response
 }
 
 export async function searchLeads({

@@ -99,6 +99,8 @@ function mapPlace(place: GooglePlace): Lead | undefined {
     reviews: place.userRatingCount ?? 0,
     ...(place.websiteUri ? { website: place.websiteUri } : {}),
     ...(place.googleMapsUri ? { googleMapsUri: place.googleMapsUri } : {}),
+    source: 'Google Maps',
+    retrievedAt: new Date().toISOString(),
     opportunity,
     score: getScore(place, opportunity),
     diagnosis: getDiagnosis(place, opportunity),
