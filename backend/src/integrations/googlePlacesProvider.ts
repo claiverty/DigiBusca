@@ -2,6 +2,9 @@ import type { Lead, LeadUpdate, SearchLeadsQuery } from '../contracts/lead.js'
 import type { LeadProvider } from '../application/searchLeads.js'
 
 const searchTextUrl = 'https://places.googleapis.com/v1/places:searchText'
+const searchCacheTtlMs = 5 * 60 * 1000
+const maxCachedSearches = 100
+const requestTimeoutMs = 10 * 1000
 const fieldMask = [
   'places.id',
   'places.displayName',
@@ -103,6 +106,7 @@ function mapPlace(place: GooglePlace): Lead | undefined {
 export class GooglePlacesProvider implements LeadProvider {
   private readonly apiKey: string | undefined
   private readonly leadsById = new Map<string, Lead>()
+  private readonly searchCache = new Map<string, { expiresAt: number; leads: Lead[] }>()
 
   constructor(apiKey = process.env.GOOGLE_MAPS_API_KEY) {
     this.apiKey = apiKey?.trim() || undefined
@@ -119,6 +123,15 @@ export class GooglePlacesProvider implements LeadProvider {
       )
     }
 
+    const cacheKey = [query.city, query.segment, query.languageCode, query.regionCode]
+      .map((value) => value?.trim().toLocaleLowerCase('pt-BR') ?? '')
+      .join('|')
+    const cachedSearch = this.searchCache.get(cacheKey)
+
+    if (cachedSearch && cachedSearch.expiresAt > Date.now()) {
+      return [...cachedSearch.leads]
+    }
+
     const body: Record<string, unknown> = {
       textQuery: buildTextQuery(query),
       maxResultCount: 20,
@@ -132,15 +145,31 @@ export class GooglePlacesProvider implements LeadProvider {
       body.regionCode = query.regionCode.toUpperCase()
     }
 
-    const response = await fetch(searchTextUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': this.apiKey,
-        'X-Goog-FieldMask': fieldMask,
-      },
-      body: JSON.stringify(body),
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
+
+    let response: Response
+
+    try {
+      response = await fetch(searchTextUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': this.apiKey,
+          'X-Goog-FieldMask': fieldMask,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Google Places demorou para responder. Tente novamente em instantes.')
+      }
+
+      throw new Error('Não foi possível conectar ao Google Places agora.')
+    } finally {
+      clearTimeout(timeout)
+    }
 
     const payload = (await response.json().catch(() => null)) as
       | (GooglePlacesResponse & { error?: { message?: string } })
@@ -157,7 +186,20 @@ export class GooglePlacesProvider implements LeadProvider {
       this.leadsById.set(lead.id, lead)
     }
 
-    return leads.sort((left, right) => right.score - left.score)
+    const sortedLeads = leads.sort((left, right) => right.score - left.score)
+    this.searchCache.set(cacheKey, {
+      expiresAt: Date.now() + searchCacheTtlMs,
+      leads: sortedLeads,
+    })
+
+    if (this.searchCache.size > maxCachedSearches) {
+      const oldestKey = this.searchCache.keys().next().value
+      if (oldestKey) {
+        this.searchCache.delete(oldestKey)
+      }
+    }
+
+    return [...sortedLeads]
   }
 
   async findById(id: string): Promise<Lead | undefined> {

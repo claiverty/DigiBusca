@@ -239,6 +239,11 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (query.city.length > 120 || (query.segment && query.segment.length > 120)) {
+      sendJson(response, 400, { error: 'A localização e o segmento precisam ser mais curtos.' })
+      return
+    }
+
     try {
       const payload = await executeSearchLeads(leadProvider, query)
       sendJson(response, 200, payload)

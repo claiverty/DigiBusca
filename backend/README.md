@@ -35,4 +35,4 @@ As regras de qualificação, acesso a dados e integração com Google Places dev
 
 Todas as rotas de negócio exigem um token Bearer do Supabase Auth. O backend valida o token e executa as consultas com o JWT do usuário, enquanto o PostgreSQL aplica RLS para impedir acesso cruzado entre contas. A migration está em `supabase/migrations/001_initial_persistence.sql`.
 
-A busca usa o `GooglePlacesProvider`. A chave fica somente no ambiente do backend, os campos retornados são limitados por field mask e os resultados ficam em cache durante a sessão do servidor para permitir salvar e editar um lead encontrado.
+A busca usa o `GooglePlacesProvider`. A chave fica somente no ambiente do backend, os campos retornados são limitados por field mask, buscas repetidas ficam em cache por cinco minutos e os resultados permanecem disponíveis durante a sessão do servidor para permitir salvar e editar um lead encontrado.
