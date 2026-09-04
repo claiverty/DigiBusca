@@ -4,6 +4,7 @@ import {
   type PropsWithChildren,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
@@ -99,12 +100,13 @@ export function AuthGate({ children }: PropsWithChildren) {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [isCreatingAccount, setIsCreatingAccount] = useState(false)
-  const [verificationCode, setVerificationCode] = useState('')
   const [verificationMode, setVerificationMode] = useState<'email-signup' | 'device'>('device')
   const [verificationRequestedFor, setVerificationRequestedFor] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [feedback, setFeedback] = useState('')
+  const awaitingSignupConfirmation = useRef(false)
+  const awaitingDeviceLink = useRef(false)
 
   useEffect(() => {
     if (!supabase) {
@@ -129,6 +131,14 @@ export function AuthGate({ children }: PropsWithChildren) {
     const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (event === 'PASSWORD_RECOVERY') {
         setIsPasswordRecovery(true)
+      }
+
+      if (event === 'SIGNED_IN' && (awaitingSignupConfirmation.current || awaitingDeviceLink.current)) {
+        window.localStorage.setItem(DEVICE_TRUST_KEY, 'true')
+        awaitingSignupConfirmation.current = false
+        awaitingDeviceLink.current = false
+        setIsDeviceVerified(true)
+        setFeedback('E-mail confirmado. Tudo pronto.')
       }
 
       setSession(nextSession)
@@ -163,7 +173,7 @@ export function AuthGate({ children }: PropsWithChildren) {
 
     if (verificationRequestedFor !== sessionEmail) {
       setVerificationRequestedFor(sessionEmail)
-      void sendVerificationCode(sessionEmail, false)
+      void sendVerificationLink(sessionEmail, false)
     }
   }, [session, verificationRequestedFor])
 
@@ -183,7 +193,7 @@ export function AuthGate({ children }: PropsWithChildren) {
     }
   }
 
-  async function sendVerificationCode(targetEmail: string, shouldCreateUser: boolean) {
+  async function sendVerificationLink(targetEmail: string, shouldCreateUser: boolean) {
     if (!supabase) {
       return false
     }
@@ -191,15 +201,16 @@ export function AuthGate({ children }: PropsWithChildren) {
     setError('')
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: targetEmail,
-      options: { shouldCreateUser },
+      options: { shouldCreateUser, emailRedirectTo: window.location.origin },
     })
 
     if (otpError) {
-      setError('Não foi possível enviar o código. Confira o e-mail e tente novamente.')
+      setError('Não foi possível enviar o link. Confira o e-mail e tente novamente.')
       return false
     }
 
-    setFeedback(`Enviamos um código de verificação para ${targetEmail}.`)
+    awaitingDeviceLink.current = !shouldCreateUser
+    setFeedback(`Enviamos um link de verificação para ${targetEmail}.`)
     return true
   }
 
@@ -250,45 +261,17 @@ export function AuthGate({ children }: PropsWithChildren) {
     }
 
     if (isCreatingAccount) {
+      awaitingSignupConfirmation.current = true
       setVerificationMode('email-signup')
-      setVerificationCode('')
       setAuthScreen('verify')
-      setFeedback(`Enviamos um código de confirmação para ${email.trim()}.`)
+      setFeedback(`Enviamos um link de confirmação para ${email.trim()}.`)
       return
     }
 
     setSession(result.data.session)
   }
 
-  async function handleCodeSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    if (verificationCode.trim().length !== 6 || !supabase) {
-      setError('Digite o código de 6 dígitos enviado para seu e-mail.')
-      return
-    }
-
-    setIsSubmitting(true)
-    setError('')
-    const { data, error: verifyError } = await supabase.auth.verifyOtp({
-      email,
-      token: verificationCode.trim(),
-      type: 'email',
-    })
-    setIsSubmitting(false)
-
-    if (verifyError || !data.session) {
-      setError('Esse código é inválido ou expirou. Solicite um novo código.')
-      return
-    }
-
-    window.localStorage.setItem(DEVICE_TRUST_KEY, 'true')
-    setSession(data.session)
-    setIsDeviceVerified(true)
-    setFeedback('Dispositivo verificado. Tudo pronto.')
-  }
-
-  async function handleResendCode() {
+  async function handleResendLink() {
     if (!supabase) {
       return
     }
@@ -303,12 +286,12 @@ export function AuthGate({ children }: PropsWithChildren) {
       })
 
       if (resendError) {
-        setError('Não foi possível reenviar o código. Tente novamente em instantes.')
+        setError('Não foi possível reenviar o link. Tente novamente em instantes.')
       } else {
-        setFeedback(`Enviamos um novo código de confirmação para ${email}.`)
+        setFeedback(`Enviamos um novo link de confirmação para ${email}.`)
       }
     } else {
-      await sendVerificationCode(email, false)
+      await sendVerificationLink(email, false)
     }
     setIsSubmitting(false)
   }
@@ -368,9 +351,10 @@ export function AuthGate({ children }: PropsWithChildren) {
   function handleBackToProviders() {
     setError('')
     setFeedback('')
-    setVerificationCode('')
     setPassword('')
     setConfirmPassword('')
+    awaitingSignupConfirmation.current = false
+    awaitingDeviceLink.current = false
     setIsCreatingAccount(false)
     setAuthScreen('providers')
   }
@@ -382,10 +366,11 @@ export function AuthGate({ children }: PropsWithChildren) {
 
     await supabase.auth.signOut()
     window.localStorage.removeItem(DEVICE_TRUST_KEY)
+    awaitingSignupConfirmation.current = false
+    awaitingDeviceLink.current = false
     setSession(null)
     setIsDeviceVerified(false)
     setAuthScreen('providers')
-    setVerificationCode('')
     setPassword('')
     setConfirmPassword('')
     setIsPasswordRecovery(false)
@@ -577,42 +562,31 @@ export function AuthGate({ children }: PropsWithChildren) {
           )}
 
           {authScreen === 'verify' && (
-            <form className="auth-form" onSubmit={handleCodeSubmit}>
+            <div className="auth-form">
               <div className="verification-icon" aria-hidden="true">
                 <ShieldCheck size={21} />
               </div>
               <span className="eyebrow">
                 {verificationMode === 'device' ? 'NOVO DISPOSITIVO' : 'VERIFICAÇÃO'}
               </span>
-              <h1 id="auth-title">Confirme seu acesso.</h1>
+              <h1 id="auth-title">
+                {verificationMode === 'device' ? 'Confirme seu dispositivo.' : 'Confirme seu e-mail.'}
+              </h1>
               <p>
-                Digite o código de 6 dígitos enviado para <strong>{email}</strong>.
+                {verificationMode === 'device'
+                  ? 'Enviamos um link para o e-mail da sua conta. Abra-o para liberar este navegador.'
+                  : 'Enviamos um link para o seu e-mail. Abra-o para confirmar sua conta.'}{' '}
+                <strong>{email}</strong>.
               </p>
-              <label className="auth-field verification-field">
-                <span>Código de verificação</span>
-                <input
-                  autoFocus
-                  inputMode="numeric"
-                  maxLength={6}
-                  pattern="[0-9]{6}"
-                  value={verificationCode}
-                  onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, ''))}
-                  placeholder="000000"
-                  autoComplete="one-time-code"
-                />
-              </label>
-              <button className="email-submit-button" type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Verificando...' : 'Confirmar código'}
-              </button>
               <button
                 className="auth-resend-button"
                 type="button"
                 disabled={isSubmitting}
-                onClick={() => void handleResendCode()}
+                onClick={() => void handleResendLink()}
               >
-                <RotateCw size={14} aria-hidden="true" /> Reenviar código
+                <RotateCw size={14} aria-hidden="true" /> Reenviar link
               </button>
-            </form>
+            </div>
           )}
 
           {error && (
@@ -679,33 +653,17 @@ export function AuthGate({ children }: PropsWithChildren) {
           </div>
           <span className="eyebrow">VERIFICAÇÃO DE ACESSO</span>
           <h1 id="device-auth-title">Confirme seu dispositivo.</h1>
-          <p>Enviamos um código para o e-mail da sua conta antes de liberar este navegador.</p>
-          <form className="auth-form" onSubmit={handleCodeSubmit}>
-            <label className="auth-field verification-field">
-              <span>Código de verificação</span>
-              <input
-                autoFocus
-                inputMode="numeric"
-                maxLength={6}
-                pattern="[0-9]{6}"
-                value={verificationCode}
-                onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, ''))}
-                placeholder="000000"
-                autoComplete="one-time-code"
-              />
-            </label>
-            <button className="email-submit-button" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Verificando...' : 'Confirmar código'}
-            </button>
+          <p>Enviamos um link para o e-mail da sua conta antes de liberar este navegador.</p>
+          <div className="auth-form">
             <button
               className="auth-resend-button"
               type="button"
               disabled={isSubmitting}
-              onClick={() => void handleResendCode()}
+              onClick={() => void handleResendLink()}
             >
-              <RotateCw size={14} aria-hidden="true" /> Reenviar código
+              <RotateCw size={14} aria-hidden="true" /> Reenviar link
             </button>
-          </form>
+          </div>
           {error && (
             <p className="auth-error" role="alert">
               {error}

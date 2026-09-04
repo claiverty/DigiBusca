@@ -11,7 +11,7 @@ As regras de qualificação, acesso a dados e integração com Google Places dev
 - persistência no Supabase/PostgreSQL
 - autenticação e autorização
 - adaptador do Google Places
-- configuração de e-mail transacional mantida no Supabase Auth, usando Resend como SMTP
+- configuração de e-mail de autenticação mantida no Supabase Auth durante o MVP
 
 ## Estrutura atual
 
