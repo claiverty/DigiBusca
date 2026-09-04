@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from './auth/AuthGate'
 import { LeadDetail } from './components/LeadDetail'
 import { Sidebar, type AppView } from './components/Sidebar'
 import { FinancePage } from './pages/FinancePage'
@@ -15,6 +16,7 @@ import type { CreateSaleInput } from './types/sales'
 import './App.css'
 
 function App() {
+  const { user, signOut } = useAuth()
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [activeView, setActiveView] = useState<AppView>('search')
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
@@ -65,7 +67,12 @@ function App() {
   if (selectedLead) {
     return (
       <div className="app-shell">
-        <Sidebar activeView="search" onNavigate={handleNavigate} />
+        <Sidebar
+          activeView="search"
+          onNavigate={handleNavigate}
+          userEmail={user.email ?? 'Conta conectada'}
+          onSignOut={() => void signOut()}
+        />
         <main className="content">
           <LeadDetail
             lead={selectedLead}
@@ -82,7 +89,12 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar activeView={activeView} onNavigate={handleNavigate} />
+      <Sidebar
+        activeView={activeView}
+        onNavigate={handleNavigate}
+        userEmail={user.email ?? 'Conta conectada'}
+        onSignOut={() => void signOut()}
+      />
       <main className="content">
         {activeView === 'finance' ? <FinancePage /> : <SearchPage onSelectLead={setSelectedLead} />}
       </main>

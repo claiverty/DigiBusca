@@ -1,5 +1,12 @@
-import { type FormEvent, type PropsWithChildren, useEffect, useState } from 'react'
-import type { Session } from '@supabase/supabase-js'
+import {
+  createContext,
+  type FormEvent,
+  type PropsWithChildren,
+  useContext,
+  useEffect,
+  useState,
+} from 'react'
+import type { Session, User } from '@supabase/supabase-js'
 import { ArrowLeft, Mail, RotateCw, ShieldCheck } from 'lucide-react'
 import { FaApple, FaFacebookF, FaGithub, FaGoogle } from 'react-icons/fa'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
@@ -23,6 +30,20 @@ const providerIcons = {
   apple: FaApple,
   facebook: FaFacebookF,
 } satisfies Record<AuthProvider, typeof FaGoogle>
+
+type AuthContextValue = { user: User; signOut: () => Promise<void> }
+
+const AuthContext = createContext<AuthContextValue | null>(null)
+
+export function useAuth() {
+  const auth = useContext(AuthContext)
+
+  if (!auth) {
+    throw new Error('useAuth precisa ser usado dentro de AuthGate.')
+  }
+
+  return auth
+}
 
 export function AuthGate({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null)
@@ -189,6 +210,21 @@ export function AuthGate({ children }: PropsWithChildren) {
     setFeedback('')
     setVerificationCode('')
     setAuthScreen('providers')
+  }
+
+  async function handleSignOut() {
+    if (!supabase) {
+      return
+    }
+
+    await supabase.auth.signOut()
+    window.localStorage.removeItem(DEVICE_TRUST_KEY)
+    setSession(null)
+    setIsDeviceVerified(false)
+    setAuthScreen('providers')
+    setVerificationCode('')
+    setFeedback('')
+    setError('')
   }
 
   if (!isSupabaseConfigured) {
@@ -400,5 +436,9 @@ export function AuthGate({ children }: PropsWithChildren) {
     )
   }
 
-  return children
+  return (
+    <AuthContext.Provider value={{ user: session.user, signOut: handleSignOut }}>
+      {children}
+    </AuthContext.Provider>
+  )
 }

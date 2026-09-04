@@ -1,4 +1,4 @@
-import { Compass, LayoutDashboard, Settings, Wallet } from 'lucide-react'
+import { Compass, LayoutDashboard, LogOut, Settings, Wallet } from 'lucide-react'
 import './Sidebar.css'
 
 export type AppView = 'search' | 'finance'
@@ -9,9 +9,14 @@ const links = [
   { label: 'Financeiro', icon: Wallet, view: 'finance' as AppView },
 ]
 
-type SidebarProps = { activeView: AppView; onNavigate: (view: AppView) => void }
+type SidebarProps = {
+  activeView: AppView
+  onNavigate: (view: AppView) => void
+  userEmail: string
+  onSignOut: () => void
+}
 
-export function Sidebar({ activeView, onNavigate }: SidebarProps) {
+export function Sidebar({ activeView, onNavigate, userEmail, onSignOut }: SidebarProps) {
   return (
     <header className="sidebar">
       <div className="brand-mark" aria-label="DigiBusca">
@@ -33,10 +38,23 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
         ))}
       </nav>
 
-      <button className="nav-item settings-link" type="button">
-        <Settings size={18} strokeWidth={1.8} />
-        Configurações
-      </button>
+      <div className="sidebar-footer">
+        <button className="nav-item settings-link" type="button">
+          <Settings size={18} strokeWidth={1.8} />
+          Configurações
+        </button>
+        <div className="account-row">
+          <span className="account-avatar" aria-hidden="true">
+            {userEmail.charAt(0).toUpperCase()}
+          </span>
+          <span className="account-email" title={userEmail}>
+            {userEmail}
+          </span>
+          <button className="account-signout" type="button" onClick={onSignOut} aria-label="Sair">
+            <LogOut size={16} strokeWidth={1.8} />
+          </button>
+        </div>
+      </div>
     </header>
   )
 }
