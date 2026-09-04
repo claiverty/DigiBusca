@@ -87,6 +87,18 @@ export class SupabaseStore {
     return mapSavedLead(data as SavedLeadRow)
   }
 
+  async getSavedLead(accessToken: string, userId: string, leadId: string): Promise<Lead | undefined> {
+    const { data, error } = await this.client(accessToken)
+      .from('saved_leads')
+      .select('lead_id, lead_data, status, notes, next_follow_up, draft_message')
+      .eq('user_id', userId)
+      .eq('lead_id', leadId)
+      .maybeSingle()
+
+    throwIfError(error)
+    return data ? mapSavedLead(data as SavedLeadRow) : undefined
+  }
+
   async removeSavedLead(accessToken: string, userId: string, leadId: string): Promise<void> {
     const { error } = await this.client(accessToken)
       .from('saved_leads')

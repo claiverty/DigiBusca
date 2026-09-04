@@ -32,8 +32,8 @@ export function SearchPanel({
         <input
           value={city}
           onChange={(event) => onCityChange(event.target.value)}
-          aria-label="Cidade ou região"
-          placeholder="Cidade ou região"
+          aria-label="Cidade, região ou país"
+          placeholder="Ex.: Lisboa, Portugal"
         />
       </div>
       <select

@@ -18,7 +18,7 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 - `frontend/src/components/`: componentes de interface e seus estilos locais.
 - `frontend/src/pages/`: telas completas e suas regras de composição.
 - `frontend/src/styles/`: tokens do design system e estilos globais mínimos.
-- `backend/src/data/`: dados mockados compatíveis com os contratos da API.
+- `backend/src/data/`: persistência e acesso aos dados do produto.
 - `backend/`: API Node.js, domínio, persistência e integrações.
 - `REQUISITOS-MVP.md` e `DESIGN-SYSTEM.md`: decisões do produto e da interface.
 
@@ -28,10 +28,10 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 - Node.js e TypeScript no backend
 - PostgreSQL e Supabase Auth
 - Supabase Auth para autenticação e e-mails de teste no MVP
-- Dados mockados antes da integração com Google Places
+- Busca real de negócios pelo Google Places API (New)
 
 ## Estado atual
 
-Frontend inicial e API local de busca com dados mockados. As fases de prospecção, acompanhamento comercial e controle financeiro simples já estão disponíveis no preview local. O Supabase Auth e a persistência por usuário já estão preparados; os e-mails usam o serviço padrão do Supabase durante a validação local. A busca real do Google Places continua como próxima integração. O primeiro teste será realizado em Formosa-GO.
+Frontend e API local de busca com Google Places API (New). As fases de prospecção, acompanhamento comercial e controle financeiro simples já estão disponíveis no preview local. O Supabase Auth e a persistência por usuário já estão preparados; os e-mails usam o serviço padrão do Supabase durante a validação local. A busca aceita qualquer cidade, região ou país informado pelo usuário. A chave do Google fica somente no ambiente do backend.
 
 # DigiBusca

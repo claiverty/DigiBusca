@@ -1,14 +1,13 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { executeSearchLeads } from '../application/searchLeads.js'
-import { mockLeads } from '../data/mockLeads.js'
-import { MockLeadProvider } from '../integrations/mockLeadProvider.js'
+import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import type { LeadStatus, LeadUpdate } from '../contracts/lead.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
 import { authenticateRequest } from '../config/supabase.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
 
 const port = Number(process.env.PORT ?? 3001)
-const leadProvider = new MockLeadProvider(mockLeads)
+const leadProvider = new GooglePlacesProvider()
 const persistenceStore = new SupabaseStore()
 const leadStatuses: LeadStatus[] = [
   'Novo',
@@ -94,6 +93,8 @@ function getSearchParams(request: IncomingMessage) {
   return {
     city: requestUrl.searchParams.get('city')?.trim() ?? '',
     segment: requestUrl.searchParams.get('segment')?.trim() || 'Todos os segmentos',
+    languageCode: requestUrl.searchParams.get('languageCode')?.trim() || undefined,
+    regionCode: requestUrl.searchParams.get('regionCode')?.trim() || undefined,
   }
 }
 
@@ -106,7 +107,11 @@ const server = createServer(async (request, response) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
 
   if (requestUrl.pathname === '/api/health') {
-    sendJson(response, 200, { status: 'ok', service: 'digibusca-backend' })
+    sendJson(response, 200, {
+      status: 'ok',
+      service: 'digibusca-backend',
+      searchProvider: leadProvider.isConfigured ? 'google-places' : 'google-places-not-configured',
+    })
     return
   }
 
@@ -124,20 +129,20 @@ const server = createServer(async (request, response) => {
     const salesMatch = requestUrl.pathname === '/api/sales'
 
     if (saveMatch && (request.method === 'POST' || request.method === 'DELETE')) {
-      const lead = await leadProvider.findById(saveMatch[1])
-
-      if (!lead) {
-        sendJson(response, 404, { error: 'Lead não encontrado.' })
-        return
-      }
-
       if (request.method === 'POST') {
+        const lead = await leadProvider.findById(saveMatch[1])
+
+        if (!lead) {
+          sendJson(response, 404, { error: 'Lead não encontrado. Faça a busca novamente.' })
+          return
+        }
+
         const savedLead = await persistenceStore.saveLead(accessToken, user.id, lead)
         sendJson(response, 200, { data: savedLead })
         return
       }
 
-      await persistenceStore.removeSavedLead(accessToken, user.id, lead.id)
+      await persistenceStore.removeSavedLead(accessToken, user.id, saveMatch[1])
       sendJson(response, 204, null)
       return
     }
@@ -170,7 +175,9 @@ const server = createServer(async (request, response) => {
       if (body.draftMessage !== undefined)
         changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
 
-      const originalLead = await leadProvider.findById(updateMatch[1])
+      const originalLead =
+        (await leadProvider.findById(updateMatch[1])) ??
+        (await persistenceStore.getSavedLead(accessToken, user.id, updateMatch[1]))
 
       if (!originalLead) {
         sendJson(response, 404, { error: 'Lead não encontrado.' })
@@ -232,9 +239,14 @@ const server = createServer(async (request, response) => {
       return
     }
 
-    const payload = await executeSearchLeads(leadProvider, query)
-
-    sendJson(response, 200, payload)
+    try {
+      const payload = await executeSearchLeads(leadProvider, query)
+      sendJson(response, 200, payload)
+    } catch (error) {
+      sendJson(response, 503, {
+        error: error instanceof Error ? error.message : 'Não foi possível consultar os negócios agora.',
+      })
+    }
     return
   }
 

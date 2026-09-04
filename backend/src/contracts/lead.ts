@@ -24,6 +24,8 @@ export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draft
 export type SearchLeadsQuery = {
   city: string
   segment?: string
+  languageCode?: string
+  regionCode?: string
 }
 
 export type SearchLeadsResponse = {
