@@ -7,7 +7,7 @@ import {
   useState,
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
-import { ArrowLeft, Mail, RotateCw, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, Mail, RotateCw, ShieldCheck } from 'lucide-react'
 import { FaApple, FaFacebookF, FaGithub, FaGoogle } from 'react-icons/fa'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import './AuthGate.css'
@@ -20,7 +20,7 @@ const providers = [
 ] as const
 
 type AuthProvider = (typeof providers)[number]['id']
-type AuthScreen = 'providers' | 'email' | 'verify'
+type AuthScreen = 'providers' | 'email' | 'forgot' | 'verify' | 'reset'
 
 const DEVICE_TRUST_KEY = 'digibusca:trusted-device'
 
@@ -34,6 +34,50 @@ const providerIcons = {
 type AuthContextValue = { user: User; signOut: () => Promise<void> }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+
+type PasswordFieldProps = {
+  label: string
+  value: string
+  placeholder: string
+  autoComplete: string
+  autoFocus?: boolean
+  onChange: (value: string) => void
+}
+
+function PasswordField({
+  label,
+  value,
+  placeholder,
+  autoComplete,
+  autoFocus = false,
+  onChange,
+}: PasswordFieldProps) {
+  const [isVisible, setIsVisible] = useState(false)
+
+  return (
+    <label className="auth-field">
+      <span>{label}</span>
+      <span className="password-input-wrap">
+        <input
+          autoFocus={autoFocus}
+          type={isVisible ? 'text' : 'password'}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+        />
+        <button
+          className="password-visibility-button"
+          type="button"
+          aria-label={isVisible ? `Ocultar ${label.toLowerCase()}` : `Mostrar ${label.toLowerCase()}`}
+          onClick={() => setIsVisible((current) => !current)}
+        >
+          {isVisible ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+        </button>
+      </span>
+    </label>
+  )
+}
 
 export function useAuth() {
   const auth = useContext(AuthContext)
@@ -49,10 +93,14 @@ export function AuthGate({ children }: PropsWithChildren) {
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured)
   const [isDeviceVerified, setIsDeviceVerified] = useState(false)
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [authScreen, setAuthScreen] = useState<AuthScreen>('providers')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false)
   const [verificationCode, setVerificationCode] = useState('')
-  const [verificationMode, setVerificationMode] = useState<'email-login' | 'device'>('email-login')
+  const [verificationMode, setVerificationMode] = useState<'email-signup' | 'device'>('device')
   const [verificationRequestedFor, setVerificationRequestedFor] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -78,7 +126,11 @@ export function AuthGate({ children }: PropsWithChildren) {
       setIsLoading(false)
     })
 
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true)
+      }
+
       setSession(nextSession)
       setIsLoading(false)
     })
@@ -107,7 +159,6 @@ export function AuthGate({ children }: PropsWithChildren) {
 
     setIsDeviceVerified(false)
     setEmail(sessionEmail)
-    setVerificationMode('device')
     setAuthScreen('verify')
 
     if (verificationRequestedFor !== sessionEmail) {
@@ -160,15 +211,53 @@ export function AuthGate({ children }: PropsWithChildren) {
       return
     }
 
+    if (password.length < 8) {
+      setError('A senha precisa ter pelo menos 8 caracteres.')
+      return
+    }
+
+    if (isCreatingAccount && password !== confirmPassword) {
+      setError('As senhas não coincidem.')
+      return
+    }
+
+    if (!supabase) {
+      return
+    }
+
     setIsSubmitting(true)
-    setVerificationMode('email-login')
-    const sent = await sendVerificationCode(email.trim(), true)
+    setError('')
+    setFeedback('')
+    const result = isCreatingAccount
+      ? await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { emailRedirectTo: window.location.origin },
+        })
+      : await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        })
     setIsSubmitting(false)
 
-    if (sent) {
+    if (result.error) {
+      setError(
+        isCreatingAccount
+          ? 'Não foi possível criar a conta. Confira os dados e tente novamente.'
+          : 'E-mail ou senha inválidos.',
+      )
+      return
+    }
+
+    if (isCreatingAccount) {
+      setVerificationMode('email-signup')
       setVerificationCode('')
       setAuthScreen('verify')
+      setFeedback(`Enviamos um código de confirmação para ${email.trim()}.`)
+      return
     }
+
+    setSession(result.data.session)
   }
 
   async function handleCodeSubmit(event: FormEvent<HTMLFormElement>) {
@@ -200,15 +289,89 @@ export function AuthGate({ children }: PropsWithChildren) {
   }
 
   async function handleResendCode() {
+    if (!supabase) {
+      return
+    }
+
     setIsSubmitting(true)
-    await sendVerificationCode(email, verificationMode === 'email-login')
+    if (verificationMode === 'email-signup') {
+      setError('')
+      const { error: resendError } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+        options: { emailRedirectTo: window.location.origin },
+      })
+
+      if (resendError) {
+        setError('Não foi possível reenviar o código. Tente novamente em instantes.')
+      } else {
+        setFeedback(`Enviamos um novo código de confirmação para ${email}.`)
+      }
+    } else {
+      await sendVerificationCode(email, false)
+    }
     setIsSubmitting(false)
+  }
+
+  async function handleForgotPasswordSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!email.trim() || !supabase) {
+      setError('Digite um e-mail válido para continuar.')
+      return
+    }
+
+    setIsSubmitting(true)
+    setError('')
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin,
+    })
+    setIsSubmitting(false)
+
+    if (resetError) {
+      setError('Não foi possível enviar o link. Confira o e-mail e tente novamente.')
+      return
+    }
+
+    setFeedback('Enviamos um link de recuperação para seu e-mail.')
+  }
+
+  async function handlePasswordResetSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (password.length < 8) {
+      setError('A senha precisa ter pelo menos 8 caracteres.')
+      return
+    }
+
+    if (password !== confirmPassword || !supabase) {
+      setError('As senhas não coincidem.')
+      return
+    }
+
+    setIsSubmitting(true)
+    setError('')
+    const { error: updateError } = await supabase.auth.updateUser({ password })
+    setIsSubmitting(false)
+
+    if (updateError) {
+      setError('Não foi possível atualizar sua senha. Solicite um novo link.')
+      return
+    }
+
+    setPassword('')
+    setConfirmPassword('')
+    setIsPasswordRecovery(false)
+    setFeedback('Senha atualizada. Seu acesso está pronto.')
   }
 
   function handleBackToProviders() {
     setError('')
     setFeedback('')
     setVerificationCode('')
+    setPassword('')
+    setConfirmPassword('')
+    setIsCreatingAccount(false)
     setAuthScreen('providers')
   }
 
@@ -223,6 +386,9 @@ export function AuthGate({ children }: PropsWithChildren) {
     setIsDeviceVerified(false)
     setAuthScreen('providers')
     setVerificationCode('')
+    setPassword('')
+    setConfirmPassword('')
+    setIsPasswordRecovery(false)
     setFeedback('')
     setError('')
   }
@@ -318,8 +484,81 @@ export function AuthGate({ children }: PropsWithChildren) {
                 <ArrowLeft size={16} aria-hidden="true" /> Voltar
               </button>
               <span className="eyebrow">LOGIN COM E-MAIL</span>
-              <h1 id="auth-title">Entre sem criar senha.</h1>
-              <p>Enviaremos um código de acesso para confirmar seu e-mail.</p>
+              <h1 id="auth-title">{isCreatingAccount ? 'Crie sua conta.' : 'Entre na sua conta.'}</h1>
+              <p>
+                {isCreatingAccount
+                  ? 'Crie uma conta para organizar seus leads, abordagens e vendas.'
+                  : 'Use seu e-mail e senha para acessar seu espaço.'}
+              </p>
+              <label className="auth-field">
+                <span>Seu e-mail</span>
+                <input
+                  autoFocus
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="seu@email.com"
+                  autoComplete="email"
+                />
+              </label>
+              <PasswordField
+                label="Senha"
+                value={password}
+                onChange={setPassword}
+                placeholder="Mínimo de 8 caracteres"
+                autoComplete={isCreatingAccount ? 'new-password' : 'current-password'}
+              />
+              {isCreatingAccount && (
+                <PasswordField
+                  label="Confirme sua senha"
+                  value={confirmPassword}
+                  onChange={setConfirmPassword}
+                  placeholder="Digite a senha novamente"
+                  autoComplete="new-password"
+                />
+              )}
+              <button className="email-submit-button" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? 'Aguarde...' : isCreatingAccount ? 'Criar conta' : 'Entrar'}
+              </button>
+              <div className="auth-secondary-actions">
+                {!isCreatingAccount && (
+                  <button
+                    className="auth-link-button"
+                    type="button"
+                    onClick={() => {
+                      setError('')
+                      setFeedback('')
+                      setAuthScreen('forgot')
+                    }}
+                  >
+                    Esqueceu sua senha?
+                  </button>
+                )}
+                <button
+                  className="auth-link-button"
+                  type="button"
+                  onClick={() => {
+                    setError('')
+                    setFeedback('')
+                    setIsCreatingAccount((current) => !current)
+                    setPassword('')
+                    setConfirmPassword('')
+                  }}
+                >
+                  {isCreatingAccount ? 'Já tenho uma conta' : 'Criar uma conta'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {authScreen === 'forgot' && (
+            <form className="auth-form" onSubmit={handleForgotPasswordSubmit}>
+              <button className="auth-back-button" type="button" onClick={handleBackToProviders}>
+                <ArrowLeft size={16} aria-hidden="true" /> Voltar
+              </button>
+              <span className="eyebrow">RECUPERAÇÃO DE ACESSO</span>
+              <h1 id="auth-title">Recupere sua senha.</h1>
+              <p>Enviaremos um link seguro para você criar uma nova senha.</p>
               <label className="auth-field">
                 <span>Seu e-mail</span>
                 <input
@@ -332,7 +571,7 @@ export function AuthGate({ children }: PropsWithChildren) {
                 />
               </label>
               <button className="email-submit-button" type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Enviando código...' : 'Enviar código'}
+                {isSubmitting ? 'Enviando...' : 'Enviar link de recuperação'}
               </button>
             </form>
           )}
@@ -383,6 +622,48 @@ export function AuthGate({ children }: PropsWithChildren) {
           )}
           {feedback && <p className="auth-feedback">{feedback}</p>}
           {authScreen === 'providers' && <small>Você será redirecionado para o provedor escolhido.</small>}
+        </section>
+      </main>
+    )
+  }
+
+  if (isPasswordRecovery && session) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card panel" aria-labelledby="password-reset-title">
+          <div className="auth-brand" aria-label="DigiBusca">
+            <span className="auth-brand-mark" />
+            <span>DigiBusca</span>
+          </div>
+          <form className="auth-form" onSubmit={handlePasswordResetSubmit}>
+            <span className="eyebrow">NOVA SENHA</span>
+            <h1 id="password-reset-title">Escolha uma nova senha.</h1>
+            <p>Use pelo menos 8 caracteres para proteger sua conta.</p>
+            <PasswordField
+              label="Nova senha"
+              value={password}
+              onChange={setPassword}
+              placeholder="Mínimo de 8 caracteres"
+              autoComplete="new-password"
+              autoFocus
+            />
+            <PasswordField
+              label="Confirme sua senha"
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              placeholder="Digite a senha novamente"
+              autoComplete="new-password"
+            />
+            <button className="email-submit-button" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Atualizando...' : 'Atualizar senha'}
+            </button>
+          </form>
+          {error && (
+            <p className="auth-error" role="alert">
+              {error}
+            </p>
+          )}
+          {feedback && <p className="auth-feedback">{feedback}</p>}
         </section>
       </main>
     )

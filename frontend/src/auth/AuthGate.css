@@ -7,6 +7,7 @@
 }
 
 .auth-card {
+  position: relative;
   width: min(100%, 440px);
   padding: 42px;
   border-color: var(--color-border-soft);
@@ -17,7 +18,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 68px;
+  margin-bottom: 40px;
   font-size: 19px;
   font-weight: 700;
   letter-spacing: -0.05em;
@@ -146,6 +147,13 @@
   margin-top: 10px;
 }
 
+.auth-form > p {
+  margin-top: 18px;
+  color: var(--color-text-subtle);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
 .auth-back-button,
 .auth-resend-button {
   display: inline-flex;
@@ -159,7 +167,10 @@
 }
 
 .auth-back-button {
-  margin-bottom: 52px;
+  position: absolute;
+  top: 42px;
+  right: 42px;
+  margin-bottom: 0;
 }
 
 .auth-resend-button {
@@ -199,6 +210,36 @@
   font-size: 16px;
 }
 
+.password-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.password-input-wrap input {
+  padding-right: 50px;
+}
+
+.password-visibility-button {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--color-text-subtle);
+  background: transparent;
+  transform: translateY(-50%);
+}
+
+.password-visibility-button:hover {
+  color: var(--color-text);
+  background: var(--color-background);
+}
+
 .auth-field input:focus {
   border-color: #8c8e98;
   box-shadow: 0 0 0 4px rgba(23, 24, 28, 0.07);
@@ -230,6 +271,27 @@
 .email-submit-button:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+.auth-secondary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.auth-link-button {
+  padding: 0;
+  border: 0;
+  color: var(--color-text-subtle);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-link-button:hover {
+  color: var(--color-text);
 }
 
 .verification-icon {
@@ -289,6 +351,17 @@
   }
 
   .auth-brand {
-    margin-bottom: 54px;
+    margin-bottom: 32px;
+  }
+
+  .auth-back-button {
+    top: 28px;
+    right: 22px;
+  }
+
+  .auth-secondary-actions {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
   }
 }
