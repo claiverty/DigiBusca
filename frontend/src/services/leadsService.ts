@@ -9,7 +9,7 @@ type SearchLeadsParams = {
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001/api'
 
-async function authenticatedFetch(input: string, init: RequestInit = {}): Promise<Response> {
+export async function authenticatedFetch(input: string, init: RequestInit = {}): Promise<Response> {
   if (!supabase) {
     throw new Error('O Supabase ainda não está configurado.')
   }

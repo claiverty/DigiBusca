@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { LeadCard } from '../components/LeadCard'
 import { OpportunityTabs, opportunityFilters } from '../components/OpportunityTabs'
 import { ResultsHeader } from '../components/ResultsHeader'
-import { SearchPanel } from '../components/SearchPanel'
+import { SearchPanel, type SearchLocation } from '../components/SearchPanel'
 import { searchLeads } from '../services/leadsService'
 import type { Lead } from '../types'
 import './SearchPage.css'
@@ -10,32 +10,58 @@ import './SearchPage.css'
 type SearchPageProps = { onSelectLead: (lead: Lead) => void }
 
 export function SearchPage({ onSelectLead }: SearchPageProps) {
-  const [city, setCity] = useState('Formosa, Goiás')
-  const [segment, setSegment] = useState('Todos os segmentos')
+  const [countryCode, setCountryCode] = useState('BR')
+  const [stateCode, setStateCode] = useState('')
+  const [city, setCity] = useState('')
+  const [segment, setSegment] = useState('')
   const [activeFilter, setActiveFilter] = useState<(typeof opportunityFilters)[number]>('Todos')
   const [leads, setLeads] = useState<Lead[]>([])
   const [total, setTotal] = useState(0)
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
+  const [searchedLocation, setSearchedLocation] = useState('')
 
-  const loadLeads = useCallback(async () => {
+  const loadLeads = useCallback(async (location?: SearchLocation) => {
+    if (!location || !segment) {
+      setStatus('idle')
+      setLeads([])
+      setTotal(0)
+      return
+    }
+
+    const locationQuery = [location.cityName, location.stateName, location.countryName]
+      .filter(Boolean)
+      .join(', ')
+
     setStatus('loading')
     setErrorMessage('')
 
     try {
-      const response = await searchLeads({ city, segment })
+      const response = await searchLeads({ city: locationQuery, segment })
       setLeads(response.data)
       setTotal(response.meta.total)
+      setSearchedLocation(locationQuery)
       setStatus('success')
     } catch (error) {
       setStatus('error')
       setErrorMessage(error instanceof Error ? error.message : 'Não foi possível buscar os leads.')
     }
-  }, [city, segment])
+  }, [segment])
 
-  useEffect(() => {
-    void loadLeads()
-  }, [])
+  function handleCountryChange(nextCountryCode: string) {
+    setCountryCode(nextCountryCode)
+    setStateCode('')
+    setCity('')
+    setStatus('idle')
+    setSearchedLocation('')
+  }
+
+  function handleStateChange(nextStateCode: string) {
+    setStateCode(nextStateCode)
+    setCity('')
+    setStatus('idle')
+    setSearchedLocation('')
+  }
 
   const visibleLeads = useMemo(
     () =>
@@ -59,16 +85,25 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
       </header>
 
       <SearchPanel
+        countryCode={countryCode}
+        stateCode={stateCode}
         city={city}
         segment={segment}
+        onCountryChange={handleCountryChange}
+        onStateChange={handleStateChange}
         onCityChange={setCity}
         onSegmentChange={setSegment}
-        onSearch={() => void loadLeads()}
+        onSearch={(location) => void loadLeads(location)}
       />
-      <ResultsHeader city={city} total={total} />
-      <OpportunityTabs activeFilter={activeFilter} onFilterChange={setActiveFilter} />
+      {status !== 'idle' && <ResultsHeader city={searchedLocation} total={total} />}
+      {status !== 'idle' && (
+        <OpportunityTabs activeFilter={activeFilter} onFilterChange={setActiveFilter} />
+      )}
 
       <section className="lead-list" aria-label="Lista de leads">
+        {status === 'idle' && (
+          <div className="data-state">Informe uma cidade e escolha um segmento para começar.</div>
+        )}
         {status === 'loading' && <div className="data-state">Buscando oportunidades...</div>}
         {status === 'error' && (
           <div className="data-state" role="alert">
@@ -86,9 +121,11 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
             <LeadCard key={lead.id} lead={lead} onSelect={onSelectLead} />
           ))}
       </section>
-      <p className="places-attribution" translate="no">
-        Dados de lugares: Google Maps
-      </p>
+      {status === 'success' && (
+        <p className="places-attribution" translate="no">
+          Dados de lugares: Google Maps
+        </p>
+      )}
     </>
   )
 }

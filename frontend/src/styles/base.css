@@ -90,6 +90,12 @@ p {
   background: #303136;
 }
 
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
+}
+
 .secondary-button {
   padding: 10px 16px;
   border: 1px solid #e5e5e8;

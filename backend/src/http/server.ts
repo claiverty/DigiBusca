@@ -5,6 +5,7 @@ import type { Lead, LeadStatus, LeadUpdate } from '../contracts/lead.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
 import { authenticateRequest } from '../config/supabase.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
+import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 
 const port = Number(process.env.PORT ?? 3001)
 const leadProvider = new GooglePlacesProvider()
@@ -150,6 +151,34 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 
   const { accessToken, user } = authentication
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/locations/countries') {
+    sendJson(response, 200, { data: await listCountries() })
+    return
+  }
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/locations/states') {
+    const countryCode = requestUrl.searchParams.get('country')?.trim().toUpperCase()
+    if (!countryCode) {
+      sendJson(response, 400, { error: 'O parâmetro country é obrigatório.' })
+      return
+    }
+
+    sendJson(response, 200, { data: await listStates(countryCode) })
+    return
+  }
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/locations/cities') {
+    const countryCode = requestUrl.searchParams.get('country')?.trim().toUpperCase()
+    const stateCode = requestUrl.searchParams.get('state')?.trim().toUpperCase() || undefined
+    if (!countryCode) {
+      sendJson(response, 400, { error: 'O parâmetro country é obrigatório.' })
+      return
+    }
+
+    sendJson(response, 200, { data: await listCities(countryCode, stateCode) })
+    return
+  }
 
   if (request.method !== 'GET') {
     const saveMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/save$/)
