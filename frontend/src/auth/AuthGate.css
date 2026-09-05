@@ -19,9 +19,23 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 40px;
+  padding: 0;
+  border: 0;
+  color: var(--color-text);
+  background: transparent;
+  cursor: pointer;
   font-size: 19px;
   font-weight: 700;
   letter-spacing: -0.05em;
+}
+
+.auth-brand:hover {
+  opacity: 0.72;
+}
+
+.auth-brand:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
 }
 
 .auth-brand-mark {

@@ -274,7 +274,6 @@ export function AuthGate({ children }: PropsWithChildren) {
     setFeedback('')
     setPassword('')
     setConfirmPassword('')
-    setIsCreatingAccount(false)
     setAuthScreen('providers')
   }
 
@@ -300,7 +299,7 @@ export function AuthGate({ children }: PropsWithChildren) {
     setError('')
     setFeedback('')
     setIsCreatingAccount(true)
-    setAuthScreen('email')
+    setAuthScreen('providers')
     setIsLanding(false)
   }
 
@@ -324,10 +323,15 @@ export function AuthGate({ children }: PropsWithChildren) {
     return (
       <main className="auth-page">
         <section className="auth-card panel" aria-labelledby="auth-setup-title">
-          <div className="auth-brand" aria-label="DigiBusca">
+          <button
+            className="auth-brand"
+            type="button"
+            onClick={() => setIsLanding(true)}
+            aria-label="Voltar ao início"
+          >
             <span className="auth-brand-mark" />
             <span>DigiBusca</span>
-          </div>
+          </button>
           <span className="eyebrow">CONFIGURAÇÃO INICIAL</span>
           <h1 id="auth-setup-title">Sua conta começa aqui.</h1>
           <p>
@@ -363,15 +367,26 @@ export function AuthGate({ children }: PropsWithChildren) {
     return (
       <main className="auth-page">
         <section className="auth-card panel" aria-labelledby="auth-title">
-          <div className="auth-brand" aria-label="DigiBusca">
+          <button
+            className="auth-brand"
+            type="button"
+            onClick={() => setIsLanding(true)}
+            aria-label="Voltar ao início"
+          >
             <span className="auth-brand-mark" />
             <span>DigiBusca</span>
-          </div>
+          </button>
           {authScreen === 'providers' && (
             <>
               <span className="eyebrow">PROSPECÇÃO DIGITAL</span>
-              <h1 id="auth-title">Encontre sua próxima oportunidade.</h1>
-              <p>Entre para organizar seus leads, abordagens e vendas em um só lugar.</p>
+              <h1 id="auth-title">
+                {isCreatingAccount ? 'Crie sua conta.' : 'Encontre sua próxima oportunidade.'}
+              </h1>
+              <p>
+                {isCreatingAccount
+                  ? 'Comece a organizar seus leads, abordagens e vendas em um só lugar.'
+                  : 'Entre para organizar seus leads, abordagens e vendas em um só lugar.'}
+              </p>
               <div className="social-login-list">
                 {providers.map(({ id, label }) => {
                   const Icon = providerIcons[id]
@@ -404,10 +419,18 @@ export function AuthGate({ children }: PropsWithChildren) {
                 }}
               >
                 <Mail className="social-icon" aria-hidden="true" />
-                Login com e-mail
+                {isCreatingAccount ? 'Criar conta com e-mail' : 'Login com e-mail'}
               </button>
-              <button className="auth-home-link" type="button" onClick={() => setIsLanding(true)}>
-                Voltar ao início
+              <button
+                className="auth-home-link"
+                type="button"
+                onClick={() => {
+                  setError('')
+                  setFeedback('')
+                  setIsCreatingAccount((current) => !current)
+                }}
+              >
+                {isCreatingAccount ? 'Já tenho uma conta? Entrar' : 'Não tenho uma conta? Criar conta'}
               </button>
             </>
           )}
@@ -417,7 +440,9 @@ export function AuthGate({ children }: PropsWithChildren) {
               <button className="auth-back-button" type="button" onClick={handleBackToProviders}>
                 <ArrowLeft size={16} aria-hidden="true" /> Voltar
               </button>
-              <span className="eyebrow">LOGIN COM E-MAIL</span>
+              <span className="eyebrow">
+                {isCreatingAccount ? 'CADASTRO COM E-MAIL' : 'LOGIN COM E-MAIL'}
+              </span>
               <h1 id="auth-title">{isCreatingAccount ? 'Crie sua conta.' : 'Entre na sua conta.'}</h1>
               <p>
                 {isCreatingAccount
