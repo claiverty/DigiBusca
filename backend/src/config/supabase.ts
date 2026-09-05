@@ -1,8 +1,8 @@
 import dotenv from 'dotenv'
 import { createClient, type User } from '@supabase/supabase-js'
 
-dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'frontend/.env' })
-dotenv.config()
+dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
+dotenv.config({ path: 'frontend/.env' })
 
 const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY
