@@ -17,6 +17,7 @@ const brazilStateCodes: Record<string, string> = {
   Bahia: 'BA',
   Ceará: 'CE',
   'Distrito Federal': 'DF',
+  'Federal District': 'DF',
   'Espírito Santo': 'ES',
   Goiás: 'GO',
   Maranhão: 'MA',
@@ -25,6 +26,7 @@ const brazilStateCodes: Record<string, string> = {
   'Minas Gerais': 'MG',
   Pará: 'PA',
   Paraíba: 'PB',
+  Paraiba: 'PB',
   Paraná: 'PR',
   Pernambuco: 'PE',
   Piauí: 'PI',
@@ -86,7 +88,11 @@ export async function listStates(countryCode: string) {
   return regions
     .map((state) => ({
       code: country.ISO === 'BR' ? brazilStateCodes[state.adminName1] ?? state.adminCode1 : state.adminCode1,
-      name: state.adminName1,
+      name: country.ISO === 'BR' && state.adminName1 === 'Federal District'
+        ? 'Distrito Federal'
+        : country.ISO === 'BR' && state.adminName1 === 'Paraiba'
+          ? 'Paraíba'
+          : state.adminName1,
     }))
     .sort((first, second) => first.name.localeCompare(second.name))
 }
@@ -112,7 +118,12 @@ export async function listCities(countryCode: string, stateCode?: string) {
 
   const cities = await Promise.all(
     selectedStates.map(async (state) => {
-      const file = join(dataRoot, 'dist', 'region_city_data', country.country, `${state.name}.json`)
+      const datasetName = country.ISO === 'BR' && state.code === 'DF'
+        ? 'Federal District'
+        : country.ISO === 'BR' && state.code === 'PB'
+          ? 'Paraiba'
+          : state.name
+      const file = join(dataRoot, 'dist', 'region_city_data', country.country, `${datasetName}.json`)
       try {
         const data = await readJson<{ cities: CityRow[] }>(file)
         return data.cities
