@@ -111,7 +111,7 @@ function LocationCombobox({
         (option) =>
           !query ||
           [option.label, option.value, ...(option.searchTerms ?? [])].some((term) =>
-            normalizeLocation(term).includes(query),
+            normalizeLocation(term).startsWith(query),
           ),
       )
   }, [options, value])
@@ -302,7 +302,11 @@ export function SearchPanel({
     value: country.code,
     label: countryLabel(country),
   })).sort((first, second) => first.label.localeCompare(second.label, 'pt-BR'))
-  const stateOptions = states.map((state) => ({ value: stateLabel(state), label: stateLabel(state) }))
+  const stateOptions = states.map((state) => ({
+    value: stateLabel(state),
+    label: stateLabel(state),
+    searchTerms: [state.code, state.name],
+  }))
   const cityOptions = cities.map((availableCity) => ({
     value: availableCity.name,
     label: availableCity.name,
