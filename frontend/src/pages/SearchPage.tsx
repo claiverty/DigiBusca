@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { LeadCard } from '../components/LeadCard'
 import { OpportunityTabs, opportunityFilters } from '../components/OpportunityTabs'
 import { ResultsHeader } from '../components/ResultsHeader'
@@ -20,35 +20,47 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
   const [searchedLocation, setSearchedLocation] = useState('')
+  const lastQuery = useRef<{ city: string; segment: string } | null>(null)
+  const requestId = useRef(0)
+  const inFlight = useRef(false)
 
-  const loadLeads = useCallback(async (location?: SearchLocation) => {
-    if (!location || !segment) {
-      setStatus('idle')
-      setLeads([])
-      setTotal(0)
-      return
-    }
-
-    const locationQuery = [location.cityName, location.stateName, location.countryName]
-      .filter(Boolean)
-      .join(', ')
+  async function loadLeads(location?: SearchLocation) {
+    if (inFlight.current) return
+    const query = location
+      ? {
+          city: [location.cityName, location.stateName, location.countryName]
+            .filter(Boolean)
+            .join(', '),
+          segment,
+        }
+      : lastQuery.current
+    if (!query?.segment) return
+    lastQuery.current = query
+    const currentRequest = ++requestId.current
+    inFlight.current = true
 
     setStatus('loading')
     setErrorMessage('')
+    setSearchedLocation(query.city)
+    setTotal(0)
 
     try {
-      const response = await searchLeads({ city: locationQuery, segment })
+      const response = await searchLeads(query)
+      if (currentRequest !== requestId.current) return
       setLeads(response.data)
       setTotal(response.meta.total)
-      setSearchedLocation(locationQuery)
       setStatus('success')
     } catch (error) {
+      if (currentRequest !== requestId.current) return
       setStatus('error')
       setErrorMessage(error instanceof Error ? error.message : 'Não foi possível buscar os leads.')
+    } finally {
+      inFlight.current = false
     }
-  }, [segment])
+  }
 
   function handleCountryChange(nextCountryCode: string) {
+    requestId.current += 1
     setCountryCode(nextCountryCode)
     setStateCode('')
     setCity('')
@@ -57,6 +69,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
   }
 
   function handleStateChange(nextStateCode: string) {
+    requestId.current += 1
     setStateCode(nextStateCode)
     setCity('')
     setStatus('idle')
@@ -89,6 +102,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         stateCode={stateCode}
         city={city}
         segment={segment}
+        isSearching={status === 'loading'}
         onCountryChange={handleCountryChange}
         onStateChange={handleStateChange}
         onCityChange={setCity}

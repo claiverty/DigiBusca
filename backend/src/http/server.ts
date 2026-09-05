@@ -228,7 +228,9 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       if (body.status !== undefined) changes.status = body.status as LeadStatus
       if (body.notes !== undefined) changes.notes = typeof body.notes === 'string' ? body.notes : ''
       if (body.nextFollowUp !== undefined)
-        changes.nextFollowUp = typeof body.nextFollowUp === 'string' ? body.nextFollowUp : undefined
+        changes.nextFollowUp = typeof body.nextFollowUp === 'string' && body.nextFollowUp
+          ? body.nextFollowUp
+          : undefined
       if (body.draftMessage !== undefined)
         changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
 

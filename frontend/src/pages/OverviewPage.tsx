@@ -8,6 +8,7 @@ import './OverviewPage.css'
 
 type OverviewPageProps = {
   onNavigate: (view: AppView) => void
+  onSelectLead: (lead: Lead) => void
 }
 
 type OverviewStatus = 'loading' | 'ready' | 'error'
@@ -43,7 +44,7 @@ function isWithinNextWeek(value?: string) {
   return followUp >= today && followUp <= nextWeek
 }
 
-export function OverviewPage({ onNavigate }: OverviewPageProps) {
+export function OverviewPage({ onNavigate, onSelectLead }: OverviewPageProps) {
   const [leads, setLeads] = useState<Lead[]>([])
   const [sales, setSales] = useState<Sale[]>([])
   const [status, setStatus] = useState<OverviewStatus>('loading')
@@ -136,7 +137,7 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
               <span className="eyebrow">ACOMPANHAMENTO</span>
               <h2>Leads recentes</h2>
             </div>
-            <button className="text-button" type="button" onClick={() => onNavigate('search')}>
+            <button className="text-button" type="button" onClick={() => onNavigate('saved')}>
               Ver todos <ArrowUpRight size={15} />
             </button>
           </div>
@@ -154,6 +155,9 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
                   <div>
                     <strong>{lead.name}</strong>
                     <span>{lead.opportunity}</span>
+                    <button className="text-button" type="button" onClick={() => onSelectLead(lead)}>
+                      Abrir ficha
+                    </button>
                   </div>
                   <div className="overview-record-meta">
                     <span>{lead.status}</span>

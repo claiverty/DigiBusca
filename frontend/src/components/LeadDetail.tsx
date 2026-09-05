@@ -57,6 +57,8 @@ export function LeadDetail({
     setIsSaving(true)
     try {
       await onToggleSave()
+    } catch {
+      setFeedback('Não foi possível alterar o lead salvo. Tente novamente.')
     } finally {
       setIsSaving(false)
     }
@@ -70,7 +72,7 @@ export function LeadDetail({
       await onUpdateLead({
         status,
         notes,
-        nextFollowUp: nextFollowUp || undefined,
+        nextFollowUp,
         draftMessage: message,
       })
       setFeedback('Alterações salvas.')
@@ -108,7 +110,7 @@ export function LeadDetail({
   return (
     <section className="detail-view">
       <button className="back-button" type="button" onClick={onBack}>
-        <ArrowLeft size={16} /> Voltar para resultados
+        <ArrowLeft size={16} /> Voltar
       </button>
       <div className="detail-header">
         <div>

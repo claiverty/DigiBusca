@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from './auth/AuthGate'
 import { LeadDetail } from './components/LeadDetail'
 import { Sidebar, type AppView } from './components/Sidebar'
 import { FinancePage } from './pages/FinancePage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SearchPage } from './pages/SearchPage'
+import { SavedLeadsPage } from './pages/SavedLeadsPage'
 import {
   createSale,
   getSavedLeads,
@@ -21,16 +22,21 @@ function App() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [activeView, setActiveView] = useState<AppView>('overview')
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
+  const savedLeads = useRef(new Map<string, Lead>())
 
   useEffect(() => {
     void getSavedLeads()
-      .then((leads) => setSavedLeadIds(new Set(leads.map((lead) => lead.id))))
+      .then((leads) => {
+        savedLeads.current = new Map(leads.map((lead) => [lead.id, lead]))
+        setSavedLeadIds(new Set(leads.map((lead) => lead.id)))
+      })
       .catch(() => undefined)
   }, [])
 
   async function toggleSavedLead(lead: Lead) {
     if (savedLeadIds.has(lead.id)) {
       await removeSavedLead(lead.id)
+      savedLeads.current.delete(lead.id)
       setSavedLeadIds((current) => {
         const next = new Set(current)
         next.delete(lead.id)
@@ -39,7 +45,8 @@ function App() {
       return
     }
 
-    await saveLead(lead.id)
+    const saved = await saveLead(lead.id)
+    savedLeads.current.set(lead.id, saved)
     setSavedLeadIds((current) => new Set(current).add(lead.id))
   }
 
@@ -49,7 +56,9 @@ function App() {
     }
 
     const updatedLead = await updateLead(selectedLead.id, changes)
+    savedLeads.current.set(updatedLead.id, updatedLead)
     setSelectedLead(updatedLead)
+    setSavedLeadIds((current) => new Set(current).add(updatedLead.id))
   }
 
   async function registerSaleFromLead(input: Omit<CreateSaleInput, 'businessName' | 'leadId'>) {
@@ -69,7 +78,7 @@ function App() {
     return (
       <div className="app-shell">
         <Sidebar
-          activeView="search"
+          activeView={activeView}
           onNavigate={handleNavigate}
           userEmail={user.email ?? 'Conta conectada'}
           onSignOut={() => void signOut()}
@@ -97,9 +106,22 @@ function App() {
         onSignOut={() => void signOut()}
       />
       <main className="content">
-        {activeView === 'overview' && <OverviewPage onNavigate={setActiveView} />}
+        {activeView === 'overview' && (
+          <OverviewPage onNavigate={handleNavigate} onSelectLead={setSelectedLead} />
+        )}
+        {activeView === 'saved' && (
+          <SavedLeadsPage
+            onSelectLead={(lead) => {
+              setSavedLeadIds((current) => new Set(current).add(lead.id))
+              setSelectedLead(lead)
+            }}
+            onSearch={() => handleNavigate('search')}
+          />
+        )}
         {activeView === 'finance' && <FinancePage />}
-        {activeView === 'search' && <SearchPage onSelectLead={setSelectedLead} />}
+        {activeView === 'search' && (
+          <SearchPage onSelectLead={(lead) => setSelectedLead(savedLeads.current.get(lead.id) ?? lead)} />
+        )}
       </main>
     </div>
   )

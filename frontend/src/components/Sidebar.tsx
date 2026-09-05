@@ -1,11 +1,12 @@
-import { Compass, LayoutDashboard, LogOut, Settings, Wallet } from 'lucide-react'
+import { Bookmark, Compass, LayoutDashboard, LogOut, Settings, Wallet } from 'lucide-react'
 import './Sidebar.css'
 
-export type AppView = 'overview' | 'search' | 'finance'
+export type AppView = 'overview' | 'search' | 'saved' | 'finance'
 
 const links = [
   { label: 'Visão geral', icon: LayoutDashboard, view: 'overview' as AppView },
   { label: 'Buscar leads', icon: Compass, view: 'search' as AppView },
+  { label: 'Meus leads', icon: Bookmark, view: 'saved' as AppView },
   { label: 'Financeiro', icon: Wallet, view: 'finance' as AppView },
 ]
 
@@ -30,6 +31,8 @@ export function Sidebar({ activeView, onNavigate, userEmail, onSignOut }: Sideba
             className={`nav-item${view === activeView ? ' active' : ''}`}
             key={label}
             type="button"
+            aria-current={view === activeView ? 'page' : undefined}
+            title={label}
             onClick={() => onNavigate(view)}
           >
             <Icon size={18} strokeWidth={1.8} />

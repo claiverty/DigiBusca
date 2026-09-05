@@ -17,6 +17,7 @@ type SearchPanelProps = {
   stateCode: string
   city: string
   segment: string
+  isSearching?: boolean
   onCountryChange: (countryCode: string) => void
   onStateChange: (stateCode: string) => void
   onCityChange: (city: string) => void
@@ -37,6 +38,7 @@ export function SearchPanel({
   stateCode,
   city,
   segment,
+  isSearching = false,
   onCountryChange,
   onStateChange,
   onCityChange,
@@ -235,6 +237,7 @@ export function SearchPanel({
         type="button"
         onClick={handleSearch}
         disabled={
+          isSearching ||
           hasLocationError ||
           !selectedCountry ||
           !city ||
@@ -244,7 +247,7 @@ export function SearchPanel({
         }
       >
         <Search size={17} aria-hidden="true" />
-        Buscar oportunidades
+        {isSearching ? 'Buscando...' : 'Buscar oportunidades'}
       </button>
       {hasLocationError && (
         <span className="search-location-error" role="alert">
