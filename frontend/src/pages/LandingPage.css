@@ -117,10 +117,10 @@
 
 .landing-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: center;
   gap: 12px;
-  margin-top: 33px;
+  margin-top: 24px;
 }
 
 .landing-primary-action,
@@ -172,7 +172,7 @@
 .landing-hero-frame {
   width: min(100%, 1180px);
   aspect-ratio: 16 / 9;
-  margin-top: 40px;
+  margin-top: 32px;
   text-align: left;
 }
 
@@ -1341,13 +1341,24 @@
 
 @media (max-width: 440px) {
   .landing-actions {
-    display: grid;
-    width: 100%;
+    display: flex;
+    gap: clamp(6px, 2.8vw, 12px);
+    width: auto;
   }
 
   .landing-actions .landing-primary-action,
   .landing-actions .landing-secondary-action {
-    width: 100%;
+    min-height: clamp(36px, 11vw, 46px);
+    gap: clamp(5px, 1.8vw, 8px);
+    padding: clamp(8px, 2.7vw, 13px) clamp(9px, 3.2vw, 16px);
+    width: auto;
+    font-size: clamp(10px, 3.25vw, 13px);
+    white-space: nowrap;
+  }
+
+  .landing-actions svg {
+    width: clamp(12px, 4vw, 16px);
+    height: clamp(12px, 4vw, 16px);
   }
 
   .landing-frame-hint {

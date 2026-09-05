@@ -150,10 +150,6 @@ export function LandingPage({ onCreateAccount, onSignIn }: LandingPageProps) {
           <span className="landing-brand-mark" aria-hidden="true" />
           <span>DigiBusca</span>
         </a>
-        <nav className="landing-links" aria-label="Navegação da página">
-          <a href="#como-funciona">Como funciona</a>
-          <a href="#sistema">O sistema</a>
-        </nav>
         <button className="landing-login" type="button" onClick={onSignIn}>
           Entrar <ArrowUpRight size={16} aria-hidden="true" />
         </button>
@@ -170,6 +166,14 @@ export function LandingPage({ onCreateAccount, onSignIn }: LandingPageProps) {
             O DigiBusca encontra empresas, organiza seus contatos e mostra o que sua prospecção
             está trazendo de volta.
           </p>
+          <div className="landing-actions">
+            <button className="landing-primary-action" type="button" onClick={onCreateAccount}>
+              Criar minha conta <ArrowRight size={18} aria-hidden="true" />
+            </button>
+            <a className="landing-secondary-action" href="#como-funciona">
+              Ver como funciona
+            </a>
+          </div>
         </div>
 
         <div className="landing-hero-frame" aria-label="Demonstração navegável do DigiBusca">
