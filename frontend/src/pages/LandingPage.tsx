@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   MapPin,
   Search,
+  UserRound,
   Users,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -151,7 +152,7 @@ export function LandingPage({ onCreateAccount, onSignIn }: LandingPageProps) {
           <span>DigiBusca</span>
         </a>
         <button className="landing-login" type="button" onClick={onSignIn}>
-          Entrar <ArrowUpRight size={16} aria-hidden="true" />
+          Entrar <UserRound size={16} aria-hidden="true" />
         </button>
       </header>
 

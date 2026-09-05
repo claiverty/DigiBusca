@@ -70,6 +70,20 @@
   color: #17181c;
 }
 
+.landing-login {
+  min-height: 42px;
+  padding: 10px 15px;
+  border-radius: var(--radius-control);
+  color: #fff;
+  background: #17181c;
+  box-shadow: 0 7px 15px rgba(23, 24, 28, 0.12);
+}
+
+.landing-login:hover {
+  color: #fff;
+  background: #303136;
+}
+
 .landing-hero {
   display: grid;
   justify-items: center;
