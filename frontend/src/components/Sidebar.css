@@ -13,9 +13,23 @@
   align-items: center;
   gap: 10px;
   padding: 0 12px;
+  border: 0;
+  color: var(--color-text);
+  background: transparent;
+  cursor: pointer;
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.05em;
+  text-align: left;
+}
+
+.brand-mark:hover {
+  opacity: 0.72;
+}
+
+.brand-mark:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
 }
 
 .brand-dot {

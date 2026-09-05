@@ -15,15 +15,16 @@ type SidebarProps = {
   onNavigate: (view: AppView) => void
   userEmail: string
   onSignOut: () => void
+  onShowLanding: () => void
 }
 
-export function Sidebar({ activeView, onNavigate, userEmail, onSignOut }: SidebarProps) {
+export function Sidebar({ activeView, onNavigate, userEmail, onSignOut, onShowLanding }: SidebarProps) {
   return (
     <header className="sidebar">
-      <div className="brand-mark" aria-label="DigiBusca">
+      <button className="brand-mark" type="button" onClick={onShowLanding} aria-label="Ir para a página inicial">
         <span className="brand-dot" />
         <span>DigiBusca</span>
-      </div>
+      </button>
 
       <nav className="main-nav" aria-label="Navegação principal">
         {links.map(({ label, icon: Icon, view }) => (

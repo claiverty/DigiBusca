@@ -30,7 +30,11 @@ const providerIcons = {
   facebook: FaFacebookF,
 } satisfies Record<AuthProvider, typeof FaGoogle>
 
-type AuthContextValue = { user: User; signOut: () => Promise<void> }
+type AuthContextValue = {
+  user: User
+  signOut: () => Promise<void>
+  showLanding: () => void
+}
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
@@ -94,6 +98,7 @@ export function AuthGate({ children }: PropsWithChildren) {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [authScreen, setAuthScreen] = useState<AuthScreen>('providers')
   const [isLanding, setIsLanding] = useState(true)
+  const [isPublicLanding, setIsPublicLanding] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -274,6 +279,11 @@ export function AuthGate({ children }: PropsWithChildren) {
   }
 
   function handleOpenSignIn() {
+    if (session) {
+      setIsPublicLanding(false)
+      return
+    }
+
     setError('')
     setFeedback('')
     setIsCreatingAccount(false)
@@ -282,6 +292,11 @@ export function AuthGate({ children }: PropsWithChildren) {
   }
 
   function handleOpenCreateAccount() {
+    if (session) {
+      setIsPublicLanding(false)
+      return
+    }
+
     setError('')
     setFeedback('')
     setIsCreatingAccount(true)
@@ -507,6 +522,10 @@ export function AuthGate({ children }: PropsWithChildren) {
     )
   }
 
+  if (isPublicLanding) {
+    return <LandingPage onCreateAccount={handleOpenCreateAccount} onSignIn={handleOpenSignIn} />
+  }
+
   if (isPasswordRecovery && session) {
     return (
       <main className="auth-page">
@@ -550,7 +569,9 @@ export function AuthGate({ children }: PropsWithChildren) {
   }
 
   return (
-    <AuthContext.Provider value={{ user: session.user, signOut: handleSignOut }}>
+    <AuthContext.Provider
+      value={{ user: session.user, signOut: handleSignOut, showLanding: () => setIsPublicLanding(true) }}
+    >
       {children}
     </AuthContext.Provider>
   )

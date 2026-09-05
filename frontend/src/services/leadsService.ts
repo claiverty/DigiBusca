@@ -19,16 +19,24 @@ export async function authenticatedFetch(input: string, init: RequestInit = {}):
     throw new Error('Sua sessão expirou. Faça login novamente.')
   }
 
-  const headers = new Headers(init.headers)
-  headers.set('Authorization', `Bearer ${data.session.access_token}`)
-  const response = await fetch(input, { ...init, headers })
+  const requestWithSession = (accessToken: string) => {
+    const headers = new Headers(init.headers)
+    headers.set('Authorization', `Bearer ${accessToken}`)
+    return fetch(input, { ...init, headers })
+  }
 
-  if (response.status === 401) {
-    await supabase.auth.signOut({ scope: 'local' })
+  const response = await requestWithSession(data.session.access_token)
+
+  if (response.status !== 401) {
+    return response
+  }
+
+  const { data: refreshedData, error: refreshError } = await supabase.auth.refreshSession()
+  if (refreshError || !refreshedData.session) {
     throw new Error('Sua sessão expirou. Faça login novamente.')
   }
 
-  return response
+  return requestWithSession(refreshedData.session.access_token)
 }
 
 export async function searchLeads({

@@ -18,7 +18,7 @@ import type { CreateSaleInput } from './types/sales'
 import './App.css'
 
 function App() {
-  const { user, signOut } = useAuth()
+  const { user, signOut, showLanding } = useAuth()
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [activeView, setActiveView] = useState<AppView>('overview')
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
@@ -82,6 +82,7 @@ function App() {
           onNavigate={handleNavigate}
           userEmail={user.email ?? 'Conta conectada'}
           onSignOut={() => void signOut()}
+          onShowLanding={showLanding}
         />
         <main className="content">
           <LeadDetail
@@ -104,6 +105,7 @@ function App() {
         onNavigate={handleNavigate}
         userEmail={user.email ?? 'Conta conectada'}
         onSignOut={() => void signOut()}
+        onShowLanding={showLanding}
       />
       <main className="content">
         {activeView === 'overview' && (
