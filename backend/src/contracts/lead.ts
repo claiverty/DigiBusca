@@ -1,4 +1,5 @@
-export type OpportunityType = 'Sem site' | 'Site desatualizado' | 'Perfil incompleto'
+export const opportunityTypes = ['Sem site', 'Site identificado', 'Perfil incompleto'] as const
+export type OpportunityType = (typeof opportunityTypes)[number]
 export type LeadStatus = 'Novo' | 'Contatado' | 'Respondeu' | 'Proposta' | 'Ganhou' | 'Perdeu'
 
 export type Lead = {
@@ -27,6 +28,7 @@ export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draft
 export type SearchLeadsQuery = {
   city: string
   segment?: string
+  opportunity?: OpportunityType
   languageCode?: string
   regionCode?: string
   pageToken?: string

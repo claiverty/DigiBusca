@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
-import type { Lead, LeadStatus, LeadUpdate } from '../contracts/lead.js'
+import { opportunityTypes, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
 import { authenticateRequest } from '../config/supabase.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
@@ -119,9 +119,12 @@ function parseSaleInput(value: unknown): CreateSaleInput | undefined {
 
 function getSearchParams(request: IncomingMessage) {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
+  const opportunity = requestUrl.searchParams.get('opportunity')?.trim()
+
   return {
     city: requestUrl.searchParams.get('city')?.trim() ?? '',
     segment: requestUrl.searchParams.get('segment')?.trim() || 'Todos os segmentos',
+    opportunity: opportunity || undefined,
     languageCode: requestUrl.searchParams.get('languageCode')?.trim() || undefined,
     regionCode: requestUrl.searchParams.get('regionCode')?.trim() || undefined,
     pageToken: requestUrl.searchParams.get('pageToken')?.trim() || undefined,
@@ -308,7 +311,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 
   if (requestUrl.pathname === '/api/leads') {
-    const query = getSearchParams(request)
+    const { opportunity, ...query } = getSearchParams(request)
 
     if (!query.city) {
       sendJson(response, 400, { error: 'O parâmetro city é obrigatório.' })
@@ -324,8 +327,16 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
 
+    if (opportunity && !opportunityTypes.includes(opportunity as OpportunityType)) {
+      sendJson(response, 400, { error: 'O filtro de oportunidade é inválido.' })
+      return
+    }
+
     try {
-      const payload = await executeSearchLeads(leadProvider, query)
+      const payload = await executeSearchLeads(leadProvider, {
+        ...query,
+        ...(opportunity ? { opportunity: opportunity as OpportunityType } : {}),
+      })
       sendJson(response, 200, payload)
     } catch (error) {
       sendJson(response, 503, {

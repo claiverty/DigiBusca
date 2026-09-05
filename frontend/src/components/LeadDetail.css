@@ -197,6 +197,11 @@ textarea:focus {
   font-weight: 600;
 }
 
+.contact-link.contact-unavailable {
+  background: #f4f4f6;
+  color: var(--color-text-muted) !important;
+}
+
 @media (max-width: 590px) {
   .detail-grid {
     grid-template-columns: 1fr;

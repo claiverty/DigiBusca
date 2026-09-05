@@ -41,6 +41,44 @@ const brazilStateCodes: Record<string, string> = {
   Tocantins: 'TO',
 }
 
+const federalDistrictAdministrativeRegions = [
+  'Águas Claras',
+  'Água Quente',
+  'Arapoanga',
+  'Arniqueira',
+  'Brazlândia',
+  'Candangolândia',
+  'Ceilândia',
+  'Cruzeiro',
+  'Fercal',
+  'Gama',
+  'Guará',
+  'Itapoã',
+  'Jardim Botânico',
+  'Lago Norte',
+  'Lago Sul',
+  'Núcleo Bandeirante',
+  'Paranoá',
+  'Park Way',
+  'Planaltina',
+  'Plano Piloto',
+  'Recanto das Emas',
+  'Riacho Fundo',
+  'Riacho Fundo II',
+  'Samambaia',
+  'Santa Maria',
+  'São Sebastião',
+  'SCIA/Estrutural',
+  'SIA',
+  'Sobradinho',
+  'Sobradinho II',
+  'Sol Nascente/Pôr do Sol',
+  'Sudoeste/Octogonal',
+  'Taguatinga',
+  'Varjão',
+  'Vicente Pires',
+]
+
 async function readJson<T>(path: string): Promise<T> {
   return JSON.parse(await readFile(path, 'utf8')) as T
 }
@@ -104,6 +142,10 @@ export async function listCities(countryCode: string, stateCode?: string) {
   }
 
   if (country.ISO === 'BR' && stateCode) {
+    if (stateCode.toUpperCase() === 'DF') {
+      return federalDistrictAdministrativeRegions.map((name) => ({ name }))
+    }
+
     try {
       return await listBrazilCities(stateCode)
     } catch {

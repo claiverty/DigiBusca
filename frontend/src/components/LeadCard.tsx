@@ -1,10 +1,13 @@
 import { ArrowUpRight, MapPin, MessageCircle, Phone, Star } from 'lucide-react'
+import { hasContactPhone } from '../lib/phone'
 import type { Lead } from '../types'
 import './LeadCard.css'
 
 type LeadCardProps = { lead: Lead; onSelect: (lead: Lead) => void }
 
 export function LeadCard({ lead, onSelect }: LeadCardProps) {
+  const hasPhone = hasContactPhone(lead.phone)
+
   return (
     <article className="lead-card">
       <div className="lead-card-topline">
@@ -32,7 +35,7 @@ export function LeadCard({ lead, onSelect }: LeadCardProps) {
         </span>
         <span>
           <Phone size={15} />
-          {lead.phone}
+          {hasPhone ? lead.phone : 'Telefone não disponível'}
         </span>
         <span>
           <Star size={15} fill="currentColor" />

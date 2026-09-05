@@ -6,8 +6,10 @@ function getOpportunityContext(lead: Lead): string {
       return 'não encontrei um site listado nos dados públicos do Google'
     case 'Perfil incompleto':
       return 'algumas informações públicas ainda podem ser melhor organizadas para quem procura pelo Google'
-    case 'Site desatualizado':
+    case 'Site identificado':
       return 'vocês já têm um site e talvez exista espaço para deixá-lo mais claro para quem quer entrar em contato'
+    default:
+      return 'existem informações públicas que podem ser melhor apresentadas para quem procura pelo Google'
   }
 }
 

@@ -1,4 +1,4 @@
-export type OpportunityType = 'Sem site' | 'Site desatualizado' | 'Perfil incompleto'
+export type OpportunityType = 'Sem site' | 'Site identificado' | 'Perfil incompleto'
 export type LeadStatus = 'Novo' | 'Contatado' | 'Respondeu' | 'Proposta' | 'Ganhou' | 'Perdeu'
 
 export type Lead = {

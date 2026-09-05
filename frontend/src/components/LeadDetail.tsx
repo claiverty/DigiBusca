@@ -1,6 +1,7 @@
 import { ArrowLeft, Bookmark, ExternalLink, MessageCircle, Phone } from 'lucide-react'
 import { useState } from 'react'
 import { createApproachMessage } from '../lib/approachMessage'
+import { hasContactPhone } from '../lib/phone'
 import type { Lead, LeadStatus, LeadUpdate } from '../types'
 import type { CreateSaleInput } from '../types/sales'
 import './LeadDetail.css'
@@ -49,7 +50,10 @@ export function LeadDetail({
   const [saleDate, setSaleDate] = useState(new Date().toISOString().slice(0, 10))
   const [saleFeedback, setSaleFeedback] = useState('')
   const [isRegisteringSale, setIsRegisteringSale] = useState(false)
-  const whatsappLink = `https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
+  const hasPhone = hasContactPhone(lead.phone)
+  const whatsappLink = hasPhone
+    ? `https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
+    : undefined
 
   async function handleToggleSave() {
     setIsSaving(true)
@@ -149,9 +153,20 @@ export function LeadDetail({
               aria-label="Mensagem de abordagem"
             />
             <div className="panel-actions">
-              <a className="primary-button" href={whatsappLink} target="_blank" rel="noreferrer">
-                <MessageCircle size={17} /> Abrir no WhatsApp
-              </a>
+              {whatsappLink ? (
+                <a className="primary-button" href={whatsappLink} target="_blank" rel="noreferrer">
+                  <MessageCircle size={17} /> Abrir no WhatsApp
+                </a>
+              ) : (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled
+                  title="Este perfil não tem telefone público disponível."
+                >
+                  <MessageCircle size={17} /> WhatsApp indisponível
+                </button>
+              )}
               <button
                 className="secondary-button"
                 type="button"
@@ -303,9 +318,15 @@ export function LeadDetail({
               <dd>{formatRetrievedAt(lead.retrievedAt)}</dd>
             </div>
           </dl>
-          <a className="contact-link" href={`tel:${lead.phone}`}>
-            <Phone size={16} /> Ligar para a empresa
-          </a>
+          {hasPhone ? (
+            <a className="contact-link" href={`tel:${lead.phone}`}>
+              <Phone size={16} /> Ligar para a empresa
+            </a>
+          ) : (
+            <span className="contact-link contact-unavailable">
+              <Phone size={16} /> Telefone não disponível
+            </span>
+          )}
         </aside>
       </div>
     </section>

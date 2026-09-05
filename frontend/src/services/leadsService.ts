@@ -1,10 +1,11 @@
-import type { Lead, LeadUpdate, SearchLeadsResponse } from '../types'
+import type { Lead, LeadUpdate, OpportunityType, SearchLeadsResponse } from '../types'
 import type { CreateSaleInput, Sale } from '../types/sales'
 import { supabase } from '../lib/supabase'
 
 type SearchLeadsParams = {
   city: string
   segment: string
+  opportunity?: OpportunityType
   pageToken?: string
 }
 
@@ -43,9 +44,15 @@ export async function authenticatedFetch(input: string, init: RequestInit = {}):
 export async function searchLeads({
   city,
   segment,
+  opportunity,
   pageToken,
 }: SearchLeadsParams): Promise<SearchLeadsResponse> {
-  const params = new URLSearchParams({ city, segment, ...(pageToken ? { pageToken } : {}) })
+  const params = new URLSearchParams({
+    city,
+    segment,
+    ...(opportunity ? { opportunity } : {}),
+    ...(pageToken ? { pageToken } : {}),
+  })
   const response = await authenticatedFetch(`${apiBaseUrl}/leads?${params.toString()}`)
 
   if (!response.ok) {

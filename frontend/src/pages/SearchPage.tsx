@@ -1,22 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LeadCard } from '../components/LeadCard'
-import { OpportunityTabs, opportunityFilters } from '../components/OpportunityTabs'
 import { ResultsHeader } from '../components/ResultsHeader'
 import { SearchPanel, type SearchLocation } from '../components/SearchPanel'
 import { searchLeads } from '../services/leadsService'
-import type { Lead } from '../types'
+import type { Lead, OpportunityType } from '../types'
 import './SearchPage.css'
 
 type SearchPageProps = { onSelectLead: (lead: Lead) => void }
 
 type SearchStatus = 'idle' | 'loading' | 'success' | 'error'
-type SearchQuery = { city: string; segment: string }
+type SearchQuery = { city: string; segment: string; opportunity?: OpportunityType }
 type SearchCache = {
   countryCode: string
   stateCode: string
   city: string
   segment: string
-  activeFilter: (typeof opportunityFilters)[number]
+  opportunity: '' | OpportunityType
   pages: Lead[][]
   currentPage: number
   status: SearchStatus
@@ -32,7 +31,7 @@ const defaultSearchCache: SearchCache = {
   stateCode: '',
   city: '',
   segment: '',
-  activeFilter: 'Todos',
+  opportunity: '',
   pages: [],
   currentPage: 1,
   status: 'idle',
@@ -59,9 +58,12 @@ function getSearchCache(): SearchCache {
       stateCode: typeof parsed.stateCode === 'string' ? parsed.stateCode : '',
       city: typeof parsed.city === 'string' ? parsed.city : '',
       segment: typeof parsed.segment === 'string' ? parsed.segment : '',
-      activeFilter: opportunityFilters.includes(parsed.activeFilter ?? 'Todos')
-        ? (parsed.activeFilter ?? 'Todos')
-        : 'Todos',
+      opportunity:
+        parsed.opportunity === 'Sem site' ||
+        parsed.opportunity === 'Perfil incompleto' ||
+        parsed.opportunity === 'Site identificado'
+          ? parsed.opportunity
+          : '',
       pages: hasValidResults ? pages : [],
       currentPage:
         hasValidResults &&
@@ -77,7 +79,15 @@ function getSearchCache(): SearchCache {
         parsed.lastQuery &&
         typeof parsed.lastQuery.city === 'string' &&
         typeof parsed.lastQuery.segment === 'string'
-          ? parsed.lastQuery
+          ? {
+              city: parsed.lastQuery.city,
+              segment: parsed.lastQuery.segment,
+              ...(parsed.lastQuery.opportunity === 'Sem site' ||
+              parsed.lastQuery.opportunity === 'Perfil incompleto' ||
+              parsed.lastQuery.opportunity === 'Site identificado'
+                ? { opportunity: parsed.lastQuery.opportunity }
+                : {}),
+            }
           : null,
       nextPageToken: typeof parsed.nextPageToken === 'string' ? parsed.nextPageToken : undefined,
     }
@@ -100,7 +110,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
     stateCode,
     city,
     segment,
-    activeFilter,
+    opportunity,
     pages,
     currentPage,
     status,
@@ -142,6 +152,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
             .filter(Boolean)
             .join(', '),
           segment,
+          ...(opportunity ? { opportunity } : {}),
         }
       : lastQuery.current
     if (!query?.segment) return
@@ -230,14 +241,6 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
     updateSearchCache({ stateCode: nextStateCode, city: '', status: 'idle', searchedLocation: '' })
   }
 
-  const visibleLeads = useMemo(
-    () =>
-      activeFilter === 'Todos'
-        ? currentLeads
-        : currentLeads.filter((lead) => lead.opportunity === activeFilter),
-    [activeFilter, currentLeads],
-  )
-
   return (
     <>
       <header className="page-header">
@@ -258,6 +261,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         stateCode={stateCode}
         city={city}
         segment={segment}
+        opportunity={opportunity}
         isSearching={status === 'loading'}
         onCountryChange={handleCountryChange}
         onStateChange={handleStateChange}
@@ -267,16 +271,16 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         onSegmentChange={(nextSegment) =>
           updateSearchCache({ segment: nextSegment, status: 'idle', searchedLocation: '' })
         }
+        onOpportunityChange={(nextOpportunity) =>
+          updateSearchCache({
+            opportunity: nextOpportunity,
+            status: 'idle',
+            searchedLocation: '',
+          })
+        }
         onSearch={(location) => void loadLeads(location)}
       />
       {status !== 'idle' && <ResultsHeader city={searchedLocation} total={currentLeads.length} />}
-      {status !== 'idle' && (
-        <OpportunityTabs
-          activeFilter={activeFilter}
-          onFilterChange={(nextFilter) => updateSearchCache({ activeFilter: nextFilter })}
-        />
-      )}
-
       <section ref={leadListRef} className="lead-list" aria-label="Lista de leads">
         {status === 'idle' && (
           <div className="data-state">Informe uma cidade e escolha um segmento para começar.</div>
@@ -290,11 +294,11 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
             </button>
           </div>
         )}
-        {status === 'success' && visibleLeads.length === 0 && (
+        {status === 'success' && currentLeads.length === 0 && (
           <div className="data-state">Nenhuma oportunidade encontrada para esses filtros.</div>
         )}
       {status === 'success' &&
-          visibleLeads.map((lead) => (
+          currentLeads.map((lead) => (
             <LeadCard key={lead.id} lead={lead} onSelect={onSelectLead} />
           ))}
       </section>

@@ -4,7 +4,7 @@ import './OpportunityTabs.css'
 export const opportunityFilters: Array<'Todos' | OpportunityType> = [
   'Todos',
   'Sem site',
-  'Site desatualizado',
+  'Site identificado',
   'Perfil incompleto',
 ]
 

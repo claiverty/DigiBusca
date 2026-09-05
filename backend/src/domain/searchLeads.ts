@@ -1,7 +1,11 @@
 import type { Lead, SearchLeadsQuery } from '../contracts/lead.js'
 
-export function searchLeads(leads: Lead[], _query: SearchLeadsQuery): Lead[] {
+export function searchLeads(leads: Lead[], query: SearchLeadsQuery): Lead[] {
   // Location and segment filtering are performed by the external provider.
-  // The domain keeps the result deterministic for the UI by ranking the opportunities.
-  return [...leads].sort((left, right) => right.score - left.score)
+  // The opportunity type is derived from returned public data, so it is applied here.
+  const matchingLeads = query.opportunity
+    ? leads.filter((lead) => lead.opportunity === query.opportunity)
+    : leads
+
+  return [...matchingLeads].sort((left, right) => right.score - left.score)
 }
