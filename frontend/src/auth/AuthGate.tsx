@@ -10,6 +10,7 @@ import type { Session, User } from '@supabase/supabase-js'
 import { ArrowLeft, Eye, EyeOff, Mail } from 'lucide-react'
 import { FaApple, FaFacebookF, FaGithub, FaGoogle } from 'react-icons/fa'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { LandingPage } from '../pages/LandingPage'
 import './AuthGate.css'
 
 const providers = [
@@ -92,6 +93,7 @@ export function AuthGate({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured)
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [authScreen, setAuthScreen] = useState<AuthScreen>('providers')
+  const [isLanding, setIsLanding] = useState(true)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -271,6 +273,22 @@ export function AuthGate({ children }: PropsWithChildren) {
     setAuthScreen('providers')
   }
 
+  function handleOpenSignIn() {
+    setError('')
+    setFeedback('')
+    setIsCreatingAccount(false)
+    setAuthScreen('providers')
+    setIsLanding(false)
+  }
+
+  function handleOpenCreateAccount() {
+    setError('')
+    setFeedback('')
+    setIsCreatingAccount(true)
+    setAuthScreen('email')
+    setIsLanding(false)
+  }
+
   async function handleSignOut() {
     if (!supabase) {
       return
@@ -278,6 +296,7 @@ export function AuthGate({ children }: PropsWithChildren) {
 
     await supabase.auth.signOut()
     setSession(null)
+    setIsLanding(true)
     setAuthScreen('providers')
     setPassword('')
     setConfirmPassword('')
@@ -322,6 +341,10 @@ export function AuthGate({ children }: PropsWithChildren) {
   }
 
   if (!session) {
+    if (isLanding) {
+      return <LandingPage onCreateAccount={handleOpenCreateAccount} onSignIn={handleOpenSignIn} />
+    }
+
     return (
       <main className="auth-page">
         <section className="auth-card panel" aria-labelledby="auth-title">
@@ -367,6 +390,9 @@ export function AuthGate({ children }: PropsWithChildren) {
               >
                 <Mail className="social-icon" aria-hidden="true" />
                 Login com e-mail
+              </button>
+              <button className="auth-home-link" type="button" onClick={() => setIsLanding(true)}>
+                Voltar ao início
               </button>
             </>
           )}

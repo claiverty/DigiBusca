@@ -294,6 +294,21 @@
   color: var(--color-text);
 }
 
+.auth-home-link {
+  display: block;
+  margin: 20px auto 0;
+  padding: 0;
+  border: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-home-link:hover {
+  color: var(--color-text);
+}
+
 .verification-icon {
   display: grid;
   width: 44px;
