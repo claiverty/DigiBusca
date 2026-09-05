@@ -1,3 +1,4 @@
+import { ArrowUpRight, CalendarDays } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { LeadCard } from '../components/LeadCard'
 import { getSavedLeads } from '../services/leadsService'
@@ -10,6 +11,25 @@ type SavedLeadsPageProps = {
 }
 
 const statuses = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
+
+function toLocalDate(value: string) {
+  return new Date(`${value}T12:00:00`)
+}
+
+function getToday() {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return today
+}
+
+function formatFollowUpDate(value: string) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+  })
+    .format(toLocalDate(value))
+    .replace('.', '')
+}
 
 export function SavedLeadsPage({ onSelectLead, onSearch }: SavedLeadsPageProps) {
   const [leads, setLeads] = useState<Lead[]>([])
@@ -36,8 +56,7 @@ export function SavedLeadsPage({ onSelectLead, onSearch }: SavedLeadsPageProps) 
   }, [attempt])
 
   const visibleLeads = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    const today = getToday()
     const weekEnd = new Date(today)
     weekEnd.setDate(today.getDate() + 7)
     return leads.filter((lead) => {
@@ -45,12 +64,25 @@ export function SavedLeadsPage({ onSelectLead, onSearch }: SavedLeadsPageProps) 
       if (followUpFilter === 'Todos') return true
       if (followUpFilter === 'Sem agendamento') return !lead.nextFollowUp
       if (!lead.nextFollowUp) return false
-      const date = new Date(`${lead.nextFollowUp}T00:00:00`)
+      const date = toLocalDate(lead.nextFollowUp)
       return followUpFilter === 'Atrasados'
         ? date < today
         : date >= today && date < weekEnd
     })
   }, [leads, statusFilter, followUpFilter])
+
+  const agendaLeads = useMemo(() => {
+    const today = getToday()
+    const weekEnd = new Date(today)
+    weekEnd.setDate(today.getDate() + 7)
+
+    return leads
+      .filter((lead) => {
+        if (!lead.nextFollowUp || lead.status === 'Ganhou' || lead.status === 'Perdeu') return false
+        return toLocalDate(lead.nextFollowUp) < weekEnd
+      })
+      .sort((first, second) => first.nextFollowUp!.localeCompare(second.nextFollowUp!))
+  }, [leads])
 
   return (
     <section className="saved-leads-page">
@@ -61,6 +93,40 @@ export function SavedLeadsPage({ onSelectLead, onSearch }: SavedLeadsPageProps) 
           <p>Continue suas conversas e acompanhe os próximos contatos.</p>
         </div>
       </header>
+
+      {status === 'ready' && agendaLeads.length > 0 && (
+        <section className="follow-up-agenda panel" aria-labelledby="agenda-title">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">PRÓXIMOS 7 DIAS</span>
+              <h2 id="agenda-title">Sua agenda de contatos</h2>
+            </div>
+            <CalendarDays className="section-muted-icon" size={19} aria-hidden="true" />
+          </div>
+          <div className="follow-up-agenda-list">
+            {agendaLeads.map((lead) => {
+              const isOverdue = toLocalDate(lead.nextFollowUp!) < getToday()
+              return (
+                <button
+                  className="agenda-lead"
+                  key={lead.id}
+                  type="button"
+                  onClick={() => onSelectLead(lead)}
+                >
+                  <span className={isOverdue ? 'agenda-date overdue' : 'agenda-date'}>
+                    {isOverdue ? 'Atrasado' : formatFollowUpDate(lead.nextFollowUp!)}
+                  </span>
+                  <span className="agenda-lead-name">
+                    <strong>{lead.name}</strong>
+                    <small>{lead.status}</small>
+                  </span>
+                  <ArrowUpRight size={16} aria-hidden="true" />
+                </button>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       <div className="saved-leads-filters panel">
         <label>
@@ -112,7 +178,7 @@ export function SavedLeadsPage({ onSelectLead, onSearch }: SavedLeadsPageProps) 
                 <section key={lead.id} aria-label={lead.name}>
                   <p className="saved-lead-status">
                     {lead.status} · {lead.nextFollowUp
-                      ? `Próximo contato: ${new Date(`${lead.nextFollowUp}T12:00:00`).toLocaleDateString('pt-BR')}`
+                      ? `Próximo contato: ${toLocalDate(lead.nextFollowUp).toLocaleDateString('pt-BR')}`
                       : 'Sem contato agendado'}
                   </p>
                   <LeadCard lead={lead} onSelect={onSelectLead} />
