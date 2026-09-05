@@ -1354,6 +1354,18 @@
 }
 
 @media (max-width: 440px) {
+  .landing-login {
+    min-height: 34px;
+    gap: 4px;
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .landing-login svg {
+    width: 13px;
+    height: 13px;
+  }
+
   .landing-actions {
     display: flex;
     gap: clamp(6px, 2.8vw, 12px);
