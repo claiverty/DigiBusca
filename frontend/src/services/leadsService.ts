@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 type SearchLeadsParams = {
   city: string
   segment: string
+  pageToken?: string
 }
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001/api'
@@ -42,8 +43,9 @@ export async function authenticatedFetch(input: string, init: RequestInit = {}):
 export async function searchLeads({
   city,
   segment,
+  pageToken,
 }: SearchLeadsParams): Promise<SearchLeadsResponse> {
-  const params = new URLSearchParams({ city, segment })
+  const params = new URLSearchParams({ city, segment, ...(pageToken ? { pageToken } : {}) })
   const response = await authenticatedFetch(`${apiBaseUrl}/leads?${params.toString()}`)
 
   if (!response.ok) {

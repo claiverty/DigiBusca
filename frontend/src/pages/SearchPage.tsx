@@ -17,11 +17,12 @@ type SearchCache = {
   city: string
   segment: string
   activeFilter: (typeof opportunityFilters)[number]
-  leads: Lead[]
-  total: number
+  pages: Lead[][]
+  currentPage: number
   status: SearchStatus
   searchedLocation: string
   lastQuery: SearchQuery | null
+  nextPageToken?: string
 }
 
 const searchCacheKey = 'digibusca:lead-search'
@@ -32,8 +33,8 @@ const defaultSearchCache: SearchCache = {
   city: '',
   segment: '',
   activeFilter: 'Todos',
-  leads: [],
-  total: 0,
+  pages: [],
+  currentPage: 1,
   status: 'idle',
   searchedLocation: '',
   lastQuery: null,
@@ -44,8 +45,13 @@ function getSearchCache(): SearchCache {
     const saved = window.sessionStorage.getItem(searchCacheKey)
     if (!saved) return defaultSearchCache
 
-    const parsed = JSON.parse(saved) as Partial<SearchCache>
-    const hasValidResults = parsed.status === 'success' && Array.isArray(parsed.leads)
+    const parsed = JSON.parse(saved) as Partial<SearchCache> & { leads?: Lead[] }
+    const pages = Array.isArray(parsed.pages)
+      ? parsed.pages.filter((page): page is Lead[] => Array.isArray(page))
+      : Array.isArray(parsed.leads)
+        ? [parsed.leads]
+        : []
+    const hasValidResults = parsed.status === 'success' && pages.length > 0
 
     return {
       ...defaultSearchCache,
@@ -56,8 +62,14 @@ function getSearchCache(): SearchCache {
       activeFilter: opportunityFilters.includes(parsed.activeFilter ?? 'Todos')
         ? (parsed.activeFilter ?? 'Todos')
         : 'Todos',
-      leads: hasValidResults ? (parsed.leads ?? []) : [],
-      total: hasValidResults && typeof parsed.total === 'number' ? parsed.total : 0,
+      pages: hasValidResults ? pages : [],
+      currentPage:
+        hasValidResults &&
+        typeof parsed.currentPage === 'number' &&
+        parsed.currentPage >= 1 &&
+        parsed.currentPage <= pages.length
+          ? parsed.currentPage
+          : 1,
       status: hasValidResults ? 'success' : 'idle',
       searchedLocation:
         hasValidResults && typeof parsed.searchedLocation === 'string' ? parsed.searchedLocation : '',
@@ -67,6 +79,7 @@ function getSearchCache(): SearchCache {
         typeof parsed.lastQuery.segment === 'string'
           ? parsed.lastQuery
           : null,
+      nextPageToken: typeof parsed.nextPageToken === 'string' ? parsed.nextPageToken : undefined,
     }
   } catch {
     return defaultSearchCache
@@ -76,11 +89,25 @@ function getSearchCache(): SearchCache {
 export function SearchPage({ onSelectLead }: SearchPageProps) {
   const [searchCache, setSearchCache] = useState<SearchCache>(getSearchCache)
   const [errorMessage, setErrorMessage] = useState('')
+  const [loadMoreError, setLoadMoreError] = useState('')
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const lastQuery = useRef<SearchQuery | null>(searchCache.lastQuery)
   const requestId = useRef(0)
   const inFlight = useRef(false)
-  const { countryCode, stateCode, city, segment, activeFilter, leads, total, status, searchedLocation } =
-    searchCache
+  const leadListRef = useRef<HTMLElement>(null)
+  const {
+    countryCode,
+    stateCode,
+    city,
+    segment,
+    activeFilter,
+    pages,
+    currentPage,
+    status,
+    searchedLocation,
+    nextPageToken,
+  } = searchCache
+  const currentLeads = pages[currentPage - 1] ?? []
 
   useEffect(() => {
     window.sessionStorage.setItem(
@@ -91,6 +118,20 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
 
   function updateSearchCache(changes: Partial<SearchCache>) {
     setSearchCache((current) => ({ ...current, ...changes }))
+  }
+
+  function scrollToResults() {
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+
+    window.requestAnimationFrame(() => {
+      leadListRef.current?.scrollIntoView({ behavior, block: 'start' })
+    })
+  }
+
+  function selectPage(page: number) {
+    if (page === currentPage) return
+    updateSearchCache({ currentPage: page })
+    scrollToResults()
   }
 
   async function loadLeads(location?: SearchLocation) {
@@ -108,19 +149,68 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
     const currentRequest = ++requestId.current
     inFlight.current = true
 
-    updateSearchCache({ status: 'loading', searchedLocation: query.city, total: 0 })
+    updateSearchCache({
+      status: 'loading',
+      searchedLocation: query.city,
+      pages: [],
+      currentPage: 1,
+      nextPageToken: undefined,
+    })
     setErrorMessage('')
+    setLoadMoreError('')
 
     try {
       const response = await searchLeads(query)
       if (currentRequest !== requestId.current) return
-      updateSearchCache({ leads: response.data, total: response.meta.total, status: 'success' })
+      updateSearchCache({
+        pages: [response.data],
+        currentPage: 1,
+        status: 'success',
+        nextPageToken: response.meta.nextPageToken,
+      })
     } catch (error) {
       if (currentRequest !== requestId.current) return
       updateSearchCache({ status: 'error' })
       setErrorMessage(error instanceof Error ? error.message : 'Não foi possível buscar os leads.')
     } finally {
       inFlight.current = false
+    }
+  }
+
+  async function loadNextPage() {
+    const query = lastQuery.current
+    if (!query || !nextPageToken || inFlight.current) return
+
+    const currentRequest = ++requestId.current
+    inFlight.current = true
+    setIsLoadingMore(true)
+    setLoadMoreError('')
+
+    try {
+      const response = await searchLeads({ ...query, pageToken: nextPageToken })
+      if (currentRequest !== requestId.current) return
+
+      setSearchCache((current) => {
+        const knownLeadIds = new Set(current.pages.flatMap((page) => page.map((lead) => lead.id)))
+        const additionalLeads = response.data.filter((lead) => !knownLeadIds.has(lead.id))
+        const pages = [...current.pages, additionalLeads]
+
+        return {
+          ...current,
+          pages,
+          currentPage: pages.length,
+          nextPageToken: response.meta.nextPageToken,
+        }
+      })
+      scrollToResults()
+    } catch (error) {
+      if (currentRequest !== requestId.current) return
+      setLoadMoreError(
+        error instanceof Error ? error.message : 'Não foi possível carregar mais oportunidades.',
+      )
+    } finally {
+      inFlight.current = false
+      setIsLoadingMore(false)
     }
   }
 
@@ -142,8 +232,10 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
 
   const visibleLeads = useMemo(
     () =>
-      activeFilter === 'Todos' ? leads : leads.filter((lead) => lead.opportunity === activeFilter),
-    [activeFilter, leads],
+      activeFilter === 'Todos'
+        ? currentLeads
+        : currentLeads.filter((lead) => lead.opportunity === activeFilter),
+    [activeFilter, currentLeads],
   )
 
   return (
@@ -177,7 +269,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         }
         onSearch={(location) => void loadLeads(location)}
       />
-      {status !== 'idle' && <ResultsHeader city={searchedLocation} total={total} />}
+      {status !== 'idle' && <ResultsHeader city={searchedLocation} total={currentLeads.length} />}
       {status !== 'idle' && (
         <OpportunityTabs
           activeFilter={activeFilter}
@@ -185,7 +277,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         />
       )}
 
-      <section className="lead-list" aria-label="Lista de leads">
+      <section ref={leadListRef} className="lead-list" aria-label="Lista de leads">
         {status === 'idle' && (
           <div className="data-state">Informe uma cidade e escolha um segmento para começar.</div>
         )}
@@ -201,11 +293,53 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         {status === 'success' && visibleLeads.length === 0 && (
           <div className="data-state">Nenhuma oportunidade encontrada para esses filtros.</div>
         )}
-        {status === 'success' &&
+      {status === 'success' &&
           visibleLeads.map((lead) => (
             <LeadCard key={lead.id} lead={lead} onSelect={onSelectLead} />
           ))}
       </section>
+      {status === 'success' && currentLeads.length > 0 && (
+        <nav className="search-pagination" aria-label="Páginas de resultados">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => selectPage(currentPage - 1)}
+            disabled={currentPage === 1}
+          >
+            Anterior
+          </button>
+          <div className="pagination-pages">
+            {pages.map((_, index) => {
+              const page = index + 1
+              return (
+                <button
+                  key={page}
+                  className={page === currentPage ? 'selected' : ''}
+                  type="button"
+                  onClick={() => selectPage(page)}
+                  aria-current={page === currentPage ? 'page' : undefined}
+                  aria-label={`Página ${page}`}
+                >
+                  {page}
+                </button>
+              )
+            })}
+          </div>
+          {nextPageToken ? (
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void loadNextPage()}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore ? 'Buscando...' : 'Próxima'}
+            </button>
+          ) : (
+            <span className="pagination-complete">Última página</span>
+          )}
+          {loadMoreError && <span role="alert">{loadMoreError}</span>}
+        </nav>
+      )}
       {status === 'success' && (
         <p className="places-attribution" translate="no">
           Dados de lugares: Google Maps

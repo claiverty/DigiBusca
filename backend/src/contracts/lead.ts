@@ -29,6 +29,7 @@ export type SearchLeadsQuery = {
   segment?: string
   languageCode?: string
   regionCode?: string
+  pageToken?: string
 }
 
 export type SearchLeadsResponse = {
@@ -37,5 +38,6 @@ export type SearchLeadsResponse = {
     total: number
     city: string
     segment: string
+    nextPageToken?: string
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAuth } from './auth/AuthGate'
 import { LeadDetail } from './components/LeadDetail'
 import { Sidebar, type AppView } from './components/Sidebar'
@@ -23,6 +23,12 @@ function App() {
   const [activeView, setActiveView] = useState<AppView>('overview')
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
   const savedLeads = useRef(new Map<string, Lead>())
+
+  useLayoutEffect(() => {
+    if (selectedLead) {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    }
+  }, [selectedLead?.id])
 
   useEffect(() => {
     void getSavedLeads()

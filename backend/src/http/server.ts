@@ -124,6 +124,7 @@ function getSearchParams(request: IncomingMessage) {
     segment: requestUrl.searchParams.get('segment')?.trim() || 'Todos os segmentos',
     languageCode: requestUrl.searchParams.get('languageCode')?.trim() || undefined,
     regionCode: requestUrl.searchParams.get('regionCode')?.trim() || undefined,
+    pageToken: requestUrl.searchParams.get('pageToken')?.trim() || undefined,
   }
 }
 
@@ -314,7 +315,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
 
-    if (query.city.length > 120 || (query.segment && query.segment.length > 120)) {
+    if (
+      query.city.length > 120 ||
+      (query.segment && query.segment.length > 120) ||
+      (query.pageToken && query.pageToken.length > 2048)
+    ) {
       sendJson(response, 400, { error: 'A localização e o segmento precisam ser mais curtos.' })
       return
     }

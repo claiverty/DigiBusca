@@ -16,7 +16,7 @@ const placeFields = [
   'places.websiteUri',
   'places.googleMapsUri',
 ]
-const searchFieldMask = placeFields.join(',')
+const searchFieldMask = [...placeFields, 'nextPageToken'].join(',')
 const detailsFieldMask = placeFields.map((field) => field.replace('places.', '')).join(',')
 
 type GooglePlace = {
@@ -35,6 +35,7 @@ type GooglePlace = {
 
 type GooglePlacesResponse = {
   places?: GooglePlace[]
+  nextPageToken?: string
 }
 
 function isAllSegments(segment: string | undefined): boolean {
@@ -119,7 +120,7 @@ export class GooglePlacesProvider implements LeadProvider {
     return Boolean(this.apiKey)
   }
 
-  async search(query: SearchLeadsQuery): Promise<Lead[]> {
+  async search(query: SearchLeadsQuery) {
     if (!this.apiKey) {
       throw new Error(
         'A busca real ainda não está configurada. Adicione GOOGLE_MAPS_API_KEY ao .env do backend.',
@@ -128,7 +129,8 @@ export class GooglePlacesProvider implements LeadProvider {
 
     const body: Record<string, unknown> = {
       textQuery: buildTextQuery(query),
-      maxResultCount: 20,
+      pageSize: 20,
+      ...(query.pageToken ? { pageToken: query.pageToken } : {}),
     }
 
     if (query.languageCode) {
@@ -176,7 +178,10 @@ export class GooglePlacesProvider implements LeadProvider {
 
     const leads = (payload?.places ?? []).map(mapPlace).filter((lead): lead is Lead => Boolean(lead))
 
-    return leads.sort((left, right) => right.score - left.score)
+    return {
+      leads: leads.sort((left, right) => right.score - left.score),
+      ...(payload?.nextPageToken ? { nextPageToken: payload.nextPageToken } : {}),
+    }
   }
 
   async findById(id: string): Promise<Lead | undefined> {

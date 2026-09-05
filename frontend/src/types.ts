@@ -30,5 +30,6 @@ export type SearchLeadsResponse = {
     total: number
     city: string
     segment: string
+    nextPageToken?: string
   }
 }
