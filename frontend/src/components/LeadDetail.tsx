@@ -1,5 +1,6 @@
 import { ArrowLeft, Bookmark, ExternalLink, MessageCircle, Phone } from 'lucide-react'
 import { useState } from 'react'
+import { createApproachMessage } from '../lib/approachMessage'
 import type { Lead, LeadStatus, LeadUpdate } from '../types'
 import type { CreateSaleInput } from '../types/sales'
 import './LeadDetail.css'
@@ -37,10 +38,7 @@ export function LeadDetail({
   onUpdateLead,
   onRegisterSale,
 }: LeadDetailProps) {
-  const [message, setMessage] = useState(
-    lead.draftMessage ??
-      `Olá, ${lead.name}! Encontrei o perfil de vocês e percebi uma oportunidade de apresentar melhor o negócio online. Posso te mostrar uma ideia?`,
-  )
+  const [message, setMessage] = useState(lead.draftMessage ?? createApproachMessage(lead))
   const [status, setStatus] = useState<LeadStatus>(lead.status)
   const [notes, setNotes] = useState(lead.notes ?? '')
   const [nextFollowUp, setNextFollowUp] = useState(lead.nextFollowUp ?? '')

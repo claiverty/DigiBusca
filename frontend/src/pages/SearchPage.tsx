@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { LeadCard } from '../components/LeadCard'
 import { OpportunityTabs, opportunityFilters } from '../components/OpportunityTabs'
 import { ResultsHeader } from '../components/ResultsHeader'
@@ -9,20 +9,89 @@ import './SearchPage.css'
 
 type SearchPageProps = { onSelectLead: (lead: Lead) => void }
 
+type SearchStatus = 'idle' | 'loading' | 'success' | 'error'
+type SearchQuery = { city: string; segment: string }
+type SearchCache = {
+  countryCode: string
+  stateCode: string
+  city: string
+  segment: string
+  activeFilter: (typeof opportunityFilters)[number]
+  leads: Lead[]
+  total: number
+  status: SearchStatus
+  searchedLocation: string
+  lastQuery: SearchQuery | null
+}
+
+const searchCacheKey = 'digibusca:lead-search'
+
+const defaultSearchCache: SearchCache = {
+  countryCode: 'BR',
+  stateCode: '',
+  city: '',
+  segment: '',
+  activeFilter: 'Todos',
+  leads: [],
+  total: 0,
+  status: 'idle',
+  searchedLocation: '',
+  lastQuery: null,
+}
+
+function getSearchCache(): SearchCache {
+  try {
+    const saved = window.sessionStorage.getItem(searchCacheKey)
+    if (!saved) return defaultSearchCache
+
+    const parsed = JSON.parse(saved) as Partial<SearchCache>
+    const hasValidResults = parsed.status === 'success' && Array.isArray(parsed.leads)
+
+    return {
+      ...defaultSearchCache,
+      countryCode: typeof parsed.countryCode === 'string' ? parsed.countryCode : 'BR',
+      stateCode: typeof parsed.stateCode === 'string' ? parsed.stateCode : '',
+      city: typeof parsed.city === 'string' ? parsed.city : '',
+      segment: typeof parsed.segment === 'string' ? parsed.segment : '',
+      activeFilter: opportunityFilters.includes(parsed.activeFilter ?? 'Todos')
+        ? (parsed.activeFilter ?? 'Todos')
+        : 'Todos',
+      leads: hasValidResults ? (parsed.leads ?? []) : [],
+      total: hasValidResults && typeof parsed.total === 'number' ? parsed.total : 0,
+      status: hasValidResults ? 'success' : 'idle',
+      searchedLocation:
+        hasValidResults && typeof parsed.searchedLocation === 'string' ? parsed.searchedLocation : '',
+      lastQuery:
+        parsed.lastQuery &&
+        typeof parsed.lastQuery.city === 'string' &&
+        typeof parsed.lastQuery.segment === 'string'
+          ? parsed.lastQuery
+          : null,
+    }
+  } catch {
+    return defaultSearchCache
+  }
+}
+
 export function SearchPage({ onSelectLead }: SearchPageProps) {
-  const [countryCode, setCountryCode] = useState('BR')
-  const [stateCode, setStateCode] = useState('')
-  const [city, setCity] = useState('')
-  const [segment, setSegment] = useState('')
-  const [activeFilter, setActiveFilter] = useState<(typeof opportunityFilters)[number]>('Todos')
-  const [leads, setLeads] = useState<Lead[]>([])
-  const [total, setTotal] = useState(0)
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [searchCache, setSearchCache] = useState<SearchCache>(getSearchCache)
   const [errorMessage, setErrorMessage] = useState('')
-  const [searchedLocation, setSearchedLocation] = useState('')
-  const lastQuery = useRef<{ city: string; segment: string } | null>(null)
+  const lastQuery = useRef<SearchQuery | null>(searchCache.lastQuery)
   const requestId = useRef(0)
   const inFlight = useRef(false)
+  const { countryCode, stateCode, city, segment, activeFilter, leads, total, status, searchedLocation } =
+    searchCache
+
+  useEffect(() => {
+    window.sessionStorage.setItem(
+      searchCacheKey,
+      JSON.stringify({ ...searchCache, lastQuery: lastQuery.current }),
+    )
+  }, [searchCache])
+
+  function updateSearchCache(changes: Partial<SearchCache>) {
+    setSearchCache((current) => ({ ...current, ...changes }))
+  }
 
   async function loadLeads(location?: SearchLocation) {
     if (inFlight.current) return
@@ -39,20 +108,16 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
     const currentRequest = ++requestId.current
     inFlight.current = true
 
-    setStatus('loading')
+    updateSearchCache({ status: 'loading', searchedLocation: query.city, total: 0 })
     setErrorMessage('')
-    setSearchedLocation(query.city)
-    setTotal(0)
 
     try {
       const response = await searchLeads(query)
       if (currentRequest !== requestId.current) return
-      setLeads(response.data)
-      setTotal(response.meta.total)
-      setStatus('success')
+      updateSearchCache({ leads: response.data, total: response.meta.total, status: 'success' })
     } catch (error) {
       if (currentRequest !== requestId.current) return
-      setStatus('error')
+      updateSearchCache({ status: 'error' })
       setErrorMessage(error instanceof Error ? error.message : 'Não foi possível buscar os leads.')
     } finally {
       inFlight.current = false
@@ -61,19 +126,18 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
 
   function handleCountryChange(nextCountryCode: string) {
     requestId.current += 1
-    setCountryCode(nextCountryCode)
-    setStateCode('')
-    setCity('')
-    setStatus('idle')
-    setSearchedLocation('')
+    updateSearchCache({
+      countryCode: nextCountryCode,
+      stateCode: '',
+      city: '',
+      status: 'idle',
+      searchedLocation: '',
+    })
   }
 
   function handleStateChange(nextStateCode: string) {
     requestId.current += 1
-    setStateCode(nextStateCode)
-    setCity('')
-    setStatus('idle')
-    setSearchedLocation('')
+    updateSearchCache({ stateCode: nextStateCode, city: '', status: 'idle', searchedLocation: '' })
   }
 
   const visibleLeads = useMemo(
@@ -105,13 +169,20 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         isSearching={status === 'loading'}
         onCountryChange={handleCountryChange}
         onStateChange={handleStateChange}
-        onCityChange={setCity}
-        onSegmentChange={setSegment}
+        onCityChange={(nextCity) =>
+          updateSearchCache({ city: nextCity, status: 'idle', searchedLocation: '' })
+        }
+        onSegmentChange={(nextSegment) =>
+          updateSearchCache({ segment: nextSegment, status: 'idle', searchedLocation: '' })
+        }
         onSearch={(location) => void loadLeads(location)}
       />
       {status !== 'idle' && <ResultsHeader city={searchedLocation} total={total} />}
       {status !== 'idle' && (
-        <OpportunityTabs activeFilter={activeFilter} onFilterChange={setActiveFilter} />
+        <OpportunityTabs
+          activeFilter={activeFilter}
+          onFilterChange={(nextFilter) => updateSearchCache({ activeFilter: nextFilter })}
+        />
       )}
 
       <section className="lead-list" aria-label="Lista de leads">
