@@ -1,6 +1,7 @@
-import { ArrowUpRight, CalendarDays } from 'lucide-react'
+import { ArrowUpRight, CalendarDays, Download } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { LeadCard } from '../components/LeadCard'
+import { exportLeadsCsv } from '../services/exportLeadsCsv'
 import { getSavedLeads } from '../services/leadsService'
 import type { Lead } from '../types'
 import './SavedLeadsPage.css'
@@ -86,12 +87,17 @@ export function SavedLeadsPage({ onSelectLead, onSearch }: SavedLeadsPageProps) 
 
   return (
     <section className="saved-leads-page">
-      <header className="page-header">
+      <header className="page-header saved-leads-header">
         <div>
           <span className="eyebrow">ACOMPANHAMENTO</span>
           <h1>Meus leads</h1>
           <p>Continue suas conversas e acompanhe os próximos contatos.</p>
         </div>
+        {status === 'ready' && leads.length > 0 && (
+          <button className="secondary-button saved-leads-export" type="button" onClick={() => exportLeadsCsv(leads)}>
+            <Download size={16} aria-hidden="true" /> Exportar CSV
+          </button>
+        )}
       </header>
 
       {status === 'ready' && agendaLeads.length > 0 && (

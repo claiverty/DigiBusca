@@ -5,6 +5,11 @@
   margin: 28px 0 16px;
 }
 
+.saved-leads-export {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+
 .follow-up-agenda {
   margin-top: 28px;
 }
@@ -101,6 +106,16 @@
 }
 
 @media (max-width: 590px) {
+  .saved-leads-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .saved-leads-export {
+    margin-top: 0;
+  }
+
   .saved-leads-filters {
     grid-template-columns: minmax(0, 1fr);
   }
