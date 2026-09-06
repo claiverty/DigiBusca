@@ -14,10 +14,10 @@ import { LandingPage } from '../pages/LandingPage'
 import './AuthGate.css'
 
 const providers = [
-  { id: 'apple', label: 'Continue com Apple' },
-  { id: 'google', label: 'Continue com Google' },
-  { id: 'github', label: 'Continue com GitHub' },
-  { id: 'facebook', label: 'Continue com Facebook' },
+  { id: 'apple', label: 'Apple' },
+  { id: 'google', label: 'Google' },
+  { id: 'github', label: 'GitHub' },
+  { id: 'facebook', label: 'Facebook' },
 ] as const
 
 type AuthProvider = (typeof providers)[number]['id']
@@ -399,7 +399,7 @@ export function AuthGate({ children }: PropsWithChildren) {
                       onClick={() => void handleProviderLogin(id)}
                     >
                       <Icon className="social-icon" aria-hidden="true" />
-                      {label}
+                      {isCreatingAccount ? `Criar com ${label}` : `Continuar com ${label}`}
                     </button>
                   )
                 })}
