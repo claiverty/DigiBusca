@@ -8,7 +8,8 @@
 .landing-nav,
 .landing-hero,
 .landing-operations,
-.landing-system {
+.landing-system,
+.landing-faq {
   width: min(100% - 48px, 1240px);
   margin: 0 auto;
 }
@@ -740,6 +741,67 @@
   letter-spacing: -0.07em;
 }
 
+.landing-faq {
+  padding: 92px 6.5%;
+  border-top: 1px solid #e2e3e7;
+}
+
+.landing-faq-heading {
+  max-width: 660px;
+}
+
+.landing-faq-heading h2 {
+  margin: 15px 0 0;
+  font-size: clamp(2.5rem, 5.2vw, 4.7rem);
+  line-height: 0.92;
+  letter-spacing: -0.075em;
+}
+
+.landing-faq-list {
+  margin-top: 48px;
+  border-top: 1px solid #dedfe4;
+}
+
+.landing-faq-list details {
+  border-bottom: 1px solid #dedfe4;
+}
+
+.landing-faq-list summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 0;
+  color: #202126;
+  cursor: pointer;
+  font-size: 17px;
+  font-weight: 650;
+  list-style: none;
+}
+
+.landing-faq-list summary::-webkit-details-marker {
+  display: none;
+}
+
+.landing-faq-list summary svg {
+  flex: 0 0 auto;
+  color: #77787f;
+  transition: transform 180ms ease;
+}
+
+.landing-faq-list details[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.landing-faq-list p {
+  max-width: 700px;
+  margin: -2px 0 0;
+  padding: 0 0 22px;
+  color: #74757d;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
 .landing-closing {
   display: grid;
   justify-items: center;
@@ -819,7 +881,8 @@
   .landing-nav,
   .landing-hero,
   .landing-operations,
-  .landing-system {
+  .landing-system,
+  .landing-faq {
     width: min(100% - 32px, 1240px);
   }
 
@@ -1316,6 +1379,26 @@
     padding-bottom: 82px;
   }
 
+  .landing-faq {
+    padding-top: 72px;
+    padding-bottom: 72px;
+  }
+
+  .landing-faq-list {
+    margin-top: 34px;
+  }
+
+  .landing-faq-list summary {
+    gap: 16px;
+    padding: 18px 0;
+    font-size: 15px;
+  }
+
+  .landing-faq-list p {
+    padding-bottom: 18px;
+    font-size: 14px;
+  }
+
   .landing-closing {
     padding: 84px 20px;
   }
@@ -1329,7 +1412,7 @@
   .landing-footer nav {
     display: flex;
     justify-content: space-between;
-    gap: 10px;
+    gap: 8px;
     width: 100%;
   }
 

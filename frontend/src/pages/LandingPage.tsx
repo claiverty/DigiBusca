@@ -2,6 +2,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
+  ChevronDown,
   CircleDollarSign,
   Compass,
   LayoutDashboard,
@@ -26,6 +27,34 @@ const previewNavigation = [
   { id: 'leads', label: 'Meus leads', icon: Users },
   { id: 'finance', label: 'Financeiro', icon: CircleDollarSign },
 ] as const
+
+const faqItems = [
+  {
+    question: 'Como encontro novos leads?',
+    answer:
+      'Escolha país, estado, cidade e segmento. O DigiBusca reúne empresas da região para você decidir por onde começar.',
+  },
+  {
+    question: 'De onde vêm os dados das empresas?',
+    answer:
+      'Os resultados da busca usam dados do Google Maps. Assim, você parte de informações públicas que já ajudam a identificar a oportunidade.',
+  },
+  {
+    question: 'Consigo entrar em contato pelo DigiBusca?',
+    answer:
+      'Sim. A ficha prepara uma mensagem de abordagem e, quando houver telefone público, você pode abrir a conversa no WhatsApp.',
+  },
+  {
+    question: 'O que fica salvo nos meus leads?',
+    answer:
+      'Você salva os negócios que interessam, define o status, registra o próximo retorno e anota o contexto da conversa.',
+  },
+  {
+    question: 'Para que serve o Financeiro?',
+    answer:
+      'Para registrar vendas simples e enxergar o total do dia, da semana e do mês sem depender de planilhas paralelas.',
+  },
+]
 
 function ProductChrome() {
   return (
@@ -304,6 +333,24 @@ export function LandingPage({ onCreateAccount, onSignIn }: LandingPageProps) {
         </div>
       </section>
 
+      <section className="landing-faq" id="faq" aria-labelledby="faq-title">
+        <div className="landing-faq-heading">
+          <span className="eyebrow">DÚVIDAS RÁPIDAS</span>
+          <h2 id="faq-title">Tudo para começar a prospectar com mais clareza.</h2>
+        </div>
+        <div className="landing-faq-list">
+          {faqItems.map((item) => (
+            <details key={item.question}>
+              <summary>
+                <span>{item.question}</span>
+                <ChevronDown size={19} aria-hidden="true" />
+              </summary>
+              <p>{item.answer}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
       <section className="landing-closing" aria-labelledby="closing-title">
         <span className="eyebrow">SUA PRÓXIMA PROSPECÇÃO COMEÇA AQUI</span>
         <h2 id="closing-title">Abra o mapa. Encontre a oportunidade. Faça acontecer.</h2>
@@ -323,6 +370,7 @@ export function LandingPage({ onCreateAccount, onSignIn }: LandingPageProps) {
         <nav aria-label="Atalhos do rodapé">
           <a href="#como-funciona">Como funciona</a>
           <a href="#sistema">O sistema</a>
+          <a href="#faq">Dúvidas</a>
           <button type="button" onClick={onSignIn}>
             Entrar <ArrowUpRight size={16} aria-hidden="true" />
           </button>
