@@ -196,14 +196,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
 
     if (saveMatch && (request.method === 'POST' || request.method === 'DELETE')) {
       if (request.method === 'POST') {
-        const lead = await leadProvider.findById(saveMatch[1])
-
-        if (!lead) {
-          sendJson(response, 404, { error: 'Lead não encontrado. Faça a busca novamente.' })
-          return
-        }
-
-        const savedLead = await persistenceStore.saveLead(accessToken, user.id, lead)
+        const savedLead = await persistenceStore.saveLeadState(accessToken, user.id, saveMatch[1])
         sendJson(response, 200, { data: savedLead })
         return
       }
@@ -243,23 +236,12 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       if (body.draftMessage !== undefined)
         changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
 
-      const currentLead = await leadProvider.findById(updateMatch[1])
-      const savedState = await persistenceStore.getSavedLeadState(
+      const updatedLead = await persistenceStore.saveLeadState(
         accessToken,
         user.id,
         updateMatch[1],
+        changes,
       )
-      const originalLead = currentLead ? mergeSavedLeadState(currentLead, savedState) : undefined
-
-      if (!originalLead) {
-        sendJson(response, 404, { error: 'Lead não encontrado.' })
-        return
-      }
-
-      const updatedLead = await persistenceStore.saveLead(accessToken, user.id, {
-        ...originalLead,
-        ...changes,
-      })
 
       sendJson(response, 200, { data: updatedLead })
       return
@@ -288,6 +270,13 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     sendJson(response, 405, { error: 'Método não permitido.' })
+    return
+  }
+
+  if (requestUrl.pathname === '/api/saved-lead-ids') {
+    sendJson(response, 200, {
+      data: await persistenceStore.listSavedLeadStates(accessToken, user.id),
+    })
     return
   }
 

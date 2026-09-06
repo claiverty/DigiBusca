@@ -118,9 +118,9 @@ async function handleApiRequest(request: Request) {
         return jsonResponse(request, 204, null)
       }
 
-      const lead = await leadProvider.findById(saveMatch[1])
-      if (!lead) return jsonResponse(request, 404, { error: 'Lead não encontrado. Faça a busca novamente.' })
-      return jsonResponse(request, 200, { data: await persistenceStore.saveLead(accessToken, user.id, lead) })
+      return jsonResponse(request, 200, {
+        data: await persistenceStore.saveLeadState(accessToken, user.id, saveMatch[1]),
+      })
     }
 
     if (updateMatch && request.method === 'PATCH') {
@@ -140,13 +140,8 @@ async function handleApiRequest(request: Request) {
       }
       if (body.draftMessage !== undefined) changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
 
-      const currentLead = await leadProvider.findById(updateMatch[1])
-      const savedState = await persistenceStore.getSavedLeadState(accessToken, user.id, updateMatch[1])
-      const originalLead = currentLead ? mergeSavedLeadState(currentLead, savedState) : undefined
-      if (!originalLead) return jsonResponse(request, 404, { error: 'Lead não encontrado.' })
-
       return jsonResponse(request, 200, {
-        data: await persistenceStore.saveLead(accessToken, user.id, { ...originalLead, ...changes }),
+        data: await persistenceStore.saveLeadState(accessToken, user.id, updateMatch[1], changes),
       })
     }
 
@@ -172,6 +167,12 @@ async function handleApiRequest(request: Request) {
       }))
     ).filter((lead): lead is NonNullable<typeof lead> => Boolean(lead))
     return jsonResponse(request, 200, { data: savedLeads })
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/saved-lead-ids') {
+    return jsonResponse(request, 200, {
+      data: await persistenceStore.listSavedLeadStates(accessToken, user.id),
+    })
   }
 
   if (request.method === 'GET' && url.pathname === '/api/sales') {

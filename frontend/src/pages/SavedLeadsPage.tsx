@@ -7,6 +7,9 @@ import type { Lead } from '../types'
 import './SavedLeadsPage.css'
 
 type SavedLeadsPageProps = {
+  cachedLeads: Lead[]
+  savedLeadIds: Set<string>
+  onLeadsLoaded: (leads: Lead[]) => void
   onSelectLead: (lead: Lead) => void
   onSearch: () => void
 }
@@ -32,7 +35,13 @@ function formatFollowUpDate(value: string) {
     .replace('.', '')
 }
 
-export function SavedLeadsPage({ onSelectLead, onSearch }: SavedLeadsPageProps) {
+export function SavedLeadsPage({
+  cachedLeads,
+  savedLeadIds,
+  onLeadsLoaded,
+  onSelectLead,
+  onSearch,
+}: SavedLeadsPageProps) {
   const [leads, setLeads] = useState<Lead[]>([])
   const [status, setStatus] = useState('loading')
   const [attempt, setAttempt] = useState(0)
@@ -42,10 +51,21 @@ export function SavedLeadsPage({ onSelectLead, onSearch }: SavedLeadsPageProps) 
   useEffect(() => {
     let active = true
     setStatus('loading')
+
+    const cachedSavedLeads = cachedLeads.filter((lead) => savedLeadIds.has(lead.id))
+    if (cachedSavedLeads.length === savedLeadIds.size) {
+      setLeads(cachedSavedLeads)
+      setStatus('ready')
+      return () => {
+        active = false
+      }
+    }
+
     void getSavedLeads()
       .then((data) => {
         if (!active) return
         setLeads(data)
+        onLeadsLoaded(data)
         setStatus('ready')
       })
       .catch(() => {
@@ -54,7 +74,7 @@ export function SavedLeadsPage({ onSelectLead, onSearch }: SavedLeadsPageProps) 
     return () => {
       active = false
     }
-  }, [attempt])
+  }, [attempt, cachedLeads, onLeadsLoaded, savedLeadIds])
 
   const visibleLeads = useMemo(() => {
     const today = getToday()

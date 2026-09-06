@@ -8,6 +8,7 @@ import { SearchPage } from './pages/SearchPage'
 import { SavedLeadsPage } from './pages/SavedLeadsPage'
 import {
   createSale,
+  getSavedLeadIds,
   getSavedLeads,
   removeSavedLead,
   saveLead,
@@ -31,10 +32,9 @@ function App() {
   }, [selectedLead?.id])
 
   useEffect(() => {
-    void getSavedLeads()
-      .then((leads) => {
-        savedLeads.current = new Map(leads.map((lead) => [lead.id, lead]))
-        setSavedLeadIds(new Set(leads.map((lead) => lead.id)))
+    void getSavedLeadIds()
+      .then((leadIds) => {
+        setSavedLeadIds(new Set(leadIds))
       })
       .catch(() => undefined)
   }, [])
@@ -51,7 +51,7 @@ function App() {
       return
     }
 
-    const saved = await saveLead(lead.id)
+    const saved = await saveLead(lead)
     savedLeads.current.set(lead.id, saved)
     setSavedLeadIds((current) => new Set(current).add(lead.id))
   }
@@ -61,7 +61,7 @@ function App() {
       return
     }
 
-    const updatedLead = await updateLead(selectedLead.id, changes)
+    const updatedLead = await updateLead(selectedLead, changes)
     savedLeads.current.set(updatedLead.id, updatedLead)
     setSelectedLead(updatedLead)
     setSavedLeadIds((current) => new Set(current).add(updatedLead.id))
@@ -119,6 +119,11 @@ function App() {
         )}
         {activeView === 'saved' && (
           <SavedLeadsPage
+            cachedLeads={Array.from(savedLeads.current.values())}
+            savedLeadIds={savedLeadIds}
+            onLeadsLoaded={(leads) => {
+              savedLeads.current = new Map(leads.map((lead) => [lead.id, lead]))
+            }}
             onSelectLead={(lead) => {
               setSavedLeadIds((current) => new Set(current).add(lead.id))
               setSelectedLead(lead)

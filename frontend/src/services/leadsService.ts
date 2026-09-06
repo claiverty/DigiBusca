@@ -9,6 +9,14 @@ type SearchLeadsParams = {
   pageToken?: string
 }
 
+type SavedLeadState = {
+  leadId: string
+  status: Lead['status']
+  notes?: string
+  nextFollowUp?: string
+  draftMessage?: string
+}
+
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '/api'
 
 export async function authenticatedFetch(input: string, init: RequestInit = {}): Promise<Response> {
@@ -74,8 +82,24 @@ export async function getSavedLeads(): Promise<Lead[]> {
   return payload.data
 }
 
-export async function saveLead(leadId: string): Promise<Lead> {
-  const response = await authenticatedFetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/save`, {
+export async function getSavedLeadIds(): Promise<string[]> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/saved-lead-ids`)
+
+  if (!response.ok) {
+    throw new Error('Não foi possível carregar seus leads salvos.')
+  }
+
+  const payload = (await response.json()) as { data: SavedLeadState[] }
+  return payload.data.map((lead) => lead.leadId)
+}
+
+function mergeSavedLeadState(lead: Lead, state: SavedLeadState): Lead {
+  const { leadId: _leadId, ...changes } = state
+  return { ...lead, ...changes }
+}
+
+export async function saveLead(lead: Lead): Promise<Lead> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/leads/${encodeURIComponent(lead.id)}/save`, {
     method: 'POST',
   })
 
@@ -83,8 +107,8 @@ export async function saveLead(leadId: string): Promise<Lead> {
     throw new Error('Não foi possível salvar este lead.')
   }
 
-  const payload = (await response.json()) as { data: Lead }
-  return payload.data
+  const payload = (await response.json()) as { data: SavedLeadState }
+  return mergeSavedLeadState(lead, payload.data)
 }
 
 export async function removeSavedLead(leadId: string): Promise<void> {
@@ -97,8 +121,8 @@ export async function removeSavedLead(leadId: string): Promise<void> {
   }
 }
 
-export async function updateLead(leadId: string, changes: LeadUpdate): Promise<Lead> {
-  const response = await authenticatedFetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}`, {
+export async function updateLead(lead: Lead, changes: LeadUpdate): Promise<Lead> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/leads/${encodeURIComponent(lead.id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(changes),
@@ -109,8 +133,8 @@ export async function updateLead(leadId: string, changes: LeadUpdate): Promise<L
     throw new Error(payload?.error ?? 'Não foi possível atualizar este lead.')
   }
 
-  const payload = (await response.json()) as { data: Lead }
-  return payload.data
+  const payload = (await response.json()) as { data: SavedLeadState }
+  return mergeSavedLeadState(lead, payload.data)
 }
 
 export async function getSales(): Promise<Sale[]> {

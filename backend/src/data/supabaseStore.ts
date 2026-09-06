@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Lead, LeadStatus } from '../contracts/lead.js'
+import type { LeadStatus } from '../contracts/lead.js'
 import type { CreateSaleInput, Sale } from '../contracts/sale.js'
 import { createUserSupabaseClient } from '../config/supabase.js'
 
@@ -71,18 +71,25 @@ export class SupabaseStore {
     return (data as SavedLeadRow[]).map(mapSavedLeadState)
   }
 
-  async saveLead(accessToken: string, userId: string, lead: Lead): Promise<Lead> {
+  async saveLeadState(
+    accessToken: string,
+    userId: string,
+    leadId: string,
+    changes: Partial<Omit<SavedLeadState, 'leadId'>> = {},
+  ): Promise<SavedLeadState> {
     const { data, error } = await this.client(accessToken)
       .from('saved_leads')
       .upsert(
         {
           user_id: userId,
-          lead_id: lead.id,
-          lead_data: { id: lead.id },
-          status: lead.status,
-          notes: lead.notes ?? null,
-          next_follow_up: lead.nextFollowUp ?? null,
-          draft_message: lead.draftMessage ?? null,
+          lead_id: leadId,
+          // Only the Google Place ID is stored permanently. Business details stay in the
+          // active browser session and are requested from Google only when necessary.
+          lead_data: { id: leadId },
+          status: changes.status ?? 'Novo',
+          notes: changes.notes ?? null,
+          next_follow_up: changes.nextFollowUp ?? null,
+          draft_message: changes.draftMessage ?? null,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id,lead_id' },
@@ -91,7 +98,7 @@ export class SupabaseStore {
       .single()
 
     throwIfError(error)
-    return { ...lead, ...mapSavedLeadState(data as SavedLeadRow) }
+    return mapSavedLeadState(data as SavedLeadRow)
   }
 
   async getSavedLeadState(
