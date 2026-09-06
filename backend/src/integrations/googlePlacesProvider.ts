@@ -1,5 +1,6 @@
 import type { Lead, LeadUpdate, SearchLeadsQuery } from '../contracts/lead.js'
 import type { LeadProvider } from '../application/searchLeads.js'
+import { getGoogleMapsApiKey } from '../config/supabase.js'
 
 const searchTextUrl = 'https://places.googleapis.com/v1/places:searchText'
 const requestTimeoutMs = 10 * 1000
@@ -112,7 +113,7 @@ function mapPlace(place: GooglePlace): Lead | undefined {
 export class GooglePlacesProvider implements LeadProvider {
   private readonly apiKey: string | undefined
 
-  constructor(apiKey = process.env.GOOGLE_MAPS_API_KEY) {
+  constructor(apiKey = getGoogleMapsApiKey()) {
     this.apiKey = apiKey?.trim() || undefined
   }
 

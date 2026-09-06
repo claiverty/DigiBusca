@@ -1,6 +1,8 @@
 node_modules/
 frontend/dist/
 backend/dist/
+frontend/public/location-data/
+worker-dist/
 .env
 .env.*
 !.env.example

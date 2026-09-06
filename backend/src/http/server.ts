@@ -1,11 +1,16 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import dotenv from 'dotenv'
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import { opportunityTypes, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
-import { authenticateRequest } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment } from '../config/supabase.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
+
+dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
+dotenv.config({ path: 'frontend/.env' })
+configureRuntimeEnvironment(process.env)
 
 const port = Number(process.env.PORT ?? 3001)
 const leadProvider = new GooglePlacesProvider()

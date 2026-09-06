@@ -4,10 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --config frontend/vite.config.ts",
+    "locations:prepare": "node scripts/prepare-location-assets.mjs",
+    "dev": "npm run locations:prepare && vite --config frontend/vite.config.ts",
     "backend:build": "tsc -p backend/tsconfig.json",
     "backend:start": "node backend/dist/http/server.js",
-    "build": "npm run backend:build && tsc -p frontend/tsconfig.app.json && vite build --config frontend/vite.config.ts",
+    "build": "npm run locations:prepare && npm run backend:build && tsc -p frontend/tsconfig.app.json && vite build --config frontend/vite.config.ts",
+    "deploy:build": "npm run build && vite build --config backend/vite.worker.config.ts",
     "preview": "vite preview --config frontend/vite.config.ts"
   },
   "dependencies": {
@@ -25,6 +27,7 @@
   "devDependencies": {
     "@types/node": "^26.4.1",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.7"
+    "@types/react-dom": "^19.2.7",
+    "wrangler": "^4.129.0"
   }
 }
