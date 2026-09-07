@@ -27,9 +27,14 @@ As regras de qualificação, acesso a dados e integração com Google Places dev
 - `GET /api/health`: verifica se a API está disponível.
 - `GET /api/leads?city=Formosa%2C%20Goi%C3%A1s&segment=Todos%20os%20segmentos`: busca negócios reais pelo Google Places API (New). O campo `city` aceita cidade, região ou país.
 - `GET /api/saved-leads`: lista os leads salvos da conta autenticada.
+- `GET /api/saved-leads/:id`: atualiza os dados de um lead salvo apenas quando ele é aberto.
 - `POST /api/leads/:id/save`: salva um lead encontrado.
 - `DELETE /api/leads/:id/save`: remove um lead salvo.
 - `PATCH /api/leads/:id`: atualiza status, observações, follow-up e rascunho da abordagem.
+
+As consultas ao Google Places têm um limite leve por conta (12 buscas por minuto e 24 aberturas
+de lead por minuto) para evitar consumo acidental da API. É uma proteção de experiência; a
+configuração de cotas do Google continua sendo a fonte de limite global.
 - `GET /api/sales`: lista o histórico de vendas.
 - `POST /api/sales`: registra uma venda manual ou vinculada a um lead.
 

@@ -1411,8 +1411,9 @@
 
   .landing-footer nav {
     display: flex;
-    justify-content: space-between;
-    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px 14px;
     width: 100%;
   }
 

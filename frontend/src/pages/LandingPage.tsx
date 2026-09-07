@@ -17,6 +17,7 @@ import './LandingPage.css'
 type LandingPageProps = {
   onCreateAccount: () => void
   onSignIn: () => void
+  onShowLegalPage: (page: 'privacy' | 'terms') => void
 }
 
 type PreviewView = 'overview' | 'search' | 'leads' | 'finance'
@@ -169,7 +170,7 @@ function PreviewFinance() {
   )
 }
 
-export function LandingPage({ onCreateAccount, onSignIn }: LandingPageProps) {
+export function LandingPage({ onCreateAccount, onSignIn, onShowLegalPage }: LandingPageProps) {
   const [previewView, setPreviewView] = useState<PreviewView>('overview')
   const selectedPreview = previewNavigation.find((item) => item.id === previewView)!
 
@@ -371,6 +372,8 @@ export function LandingPage({ onCreateAccount, onSignIn }: LandingPageProps) {
           <a href="#como-funciona">Como funciona</a>
           <a href="#sistema">O sistema</a>
           <a href="#faq">Dúvidas</a>
+          <button type="button" onClick={() => onShowLegalPage('privacy')}>Privacidade</button>
+          <button type="button" onClick={() => onShowLegalPage('terms')}>Termos</button>
           <button type="button" onClick={onSignIn}>
             Entrar <ArrowUpRight size={16} aria-hidden="true" />
           </button>

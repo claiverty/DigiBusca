@@ -11,6 +11,7 @@ import { ArrowLeft, Eye, EyeOff, Mail } from 'lucide-react'
 import { FaGoogle } from 'react-icons/fa'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import { LandingPage } from '../pages/LandingPage'
+import { LegalPage } from '../pages/LegalPage'
 import './AuthGate.css'
 
 const providers = [
@@ -19,6 +20,7 @@ const providers = [
 
 type AuthProvider = (typeof providers)[number]['id']
 type AuthScreen = 'providers' | 'email' | 'forgot' | 'reset'
+type LegalPageName = 'privacy' | 'terms'
 
 const providerIcons = {
   google: FaGoogle,
@@ -93,6 +95,7 @@ export function AuthGate({ children }: PropsWithChildren) {
   const [authScreen, setAuthScreen] = useState<AuthScreen>('providers')
   const [isLanding, setIsLanding] = useState(true)
   const [isPublicLanding, setIsPublicLanding] = useState(false)
+  const [legalPage, setLegalPage] = useState<LegalPageName | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -280,6 +283,7 @@ export function AuthGate({ children }: PropsWithChildren) {
     setError('')
     setFeedback('')
     setIsCreatingAccount(false)
+    setLegalPage(null)
     setAuthScreen('providers')
     setIsLanding(false)
   }
@@ -293,6 +297,7 @@ export function AuthGate({ children }: PropsWithChildren) {
     setError('')
     setFeedback('')
     setIsCreatingAccount(true)
+    setLegalPage(null)
     setAuthScreen('providers')
     setIsLanding(false)
   }
@@ -354,8 +359,18 @@ export function AuthGate({ children }: PropsWithChildren) {
   }
 
   if (!session) {
+    if (legalPage) {
+      return <LegalPage page={legalPage} onBack={() => setLegalPage(null)} />
+    }
+
     if (isLanding) {
-      return <LandingPage onCreateAccount={handleOpenCreateAccount} onSignIn={handleOpenSignIn} />
+      return (
+        <LandingPage
+          onCreateAccount={handleOpenCreateAccount}
+          onSignIn={handleOpenSignIn}
+          onShowLegalPage={setLegalPage}
+        />
+      )
     }
 
     return (
@@ -542,7 +557,17 @@ export function AuthGate({ children }: PropsWithChildren) {
   }
 
   if (isPublicLanding) {
-    return <LandingPage onCreateAccount={handleOpenCreateAccount} onSignIn={handleOpenSignIn} />
+    if (legalPage) {
+      return <LegalPage page={legalPage} onBack={() => setLegalPage(null)} />
+    }
+
+    return (
+      <LandingPage
+        onCreateAccount={handleOpenCreateAccount}
+        onSignIn={handleOpenSignIn}
+        onShowLegalPage={setLegalPage}
+      />
+    )
   }
 
   if (isPasswordRecovery && session) {

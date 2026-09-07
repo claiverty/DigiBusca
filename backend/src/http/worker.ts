@@ -4,6 +4,7 @@ import { type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type Opp
 import type { CreateSaleInput } from '../contracts/sale.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
+import { checkRateLimit } from './rateLimit.js'
 
 type WorkerEnvironment = RuntimeEnvironment & {
   ASSETS?: { fetch(request: Request): Promise<Response> }
@@ -22,7 +23,7 @@ function mergeSavedLeadState(lead: Lead, state: Awaited<ReturnType<SupabaseStore
   return { ...lead, ...userState }
 }
 
-function jsonResponse(request: Request, status: number, payload: unknown) {
+function jsonResponse(request: Request, status: number, payload: unknown, extraHeaders?: HeadersInit) {
   const headers = new Headers({
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
@@ -31,6 +32,7 @@ function jsonResponse(request: Request, status: number, payload: unknown) {
   })
   const origin = request.headers.get('Origin')
   if (origin) headers.set('Access-Control-Allow-Origin', origin)
+  new Headers(extraHeaders).forEach((value, key) => headers.set(key, value))
 
   return new Response(status === 204 ? null : JSON.stringify(payload), { status, headers })
 }
@@ -108,6 +110,26 @@ async function handleApiRequest(request: Request) {
 
   const { accessToken, user } = authentication
 
+  function limitGoogleRequest(scope: 'search' | 'saved-lead') {
+    const limit = scope === 'search' ? 12 : 24
+    const result = checkRateLimit({
+      key: `${scope}:${user.id}`,
+      limit,
+      windowMs: 60_000,
+    })
+
+    if (result.allowed) return undefined
+
+    return jsonResponse(
+      request,
+      429,
+      {
+        error: 'Você fez muitas consultas em pouco tempo. Aguarde um instante antes de tentar novamente.',
+      },
+      { 'Retry-After': String(result.retryAfterSeconds) },
+    )
+  }
+
   if (request.method === 'POST' || request.method === 'PATCH' || request.method === 'DELETE') {
     const saveMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/save$/)
     const updateMatch = url.pathname.match(/^\/api\/leads\/([^/]+)$/)
@@ -167,6 +189,9 @@ async function handleApiRequest(request: Request) {
       return jsonResponse(request, 404, { error: 'Este lead não está salvo na sua conta.' })
     }
 
+    const rateLimitResponse = limitGoogleRequest('saved-lead')
+    if (rateLimitResponse) return rateLimitResponse
+
     try {
       const lead = await leadProvider.findById(savedState.leadId)
       if (!lead) {
@@ -200,6 +225,9 @@ async function handleApiRequest(request: Request) {
     if (opportunity && !opportunityTypes.includes(opportunity as OpportunityType)) {
       return jsonResponse(request, 400, { error: 'O filtro de oportunidade é inválido.' })
     }
+
+    const rateLimitResponse = limitGoogleRequest('search')
+    if (rateLimitResponse) return rateLimitResponse
 
     try {
       return jsonResponse(request, 200, {

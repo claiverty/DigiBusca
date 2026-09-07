@@ -1,0 +1,125 @@
+.legal-page {
+  min-height: 100vh;
+  padding: 32px;
+  background: var(--color-background);
+}
+
+.legal-card {
+  position: relative;
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 42px;
+  border-color: var(--color-border-soft);
+  box-shadow: var(--shadow-panel);
+}
+
+.legal-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  color: var(--color-text);
+  background: transparent;
+  cursor: pointer;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.05em;
+}
+
+.legal-brand-mark {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  background: var(--color-text);
+  box-shadow: 4px 4px 0 #d5d8ff;
+}
+
+.legal-back {
+  position: absolute;
+  top: 42px;
+  right: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  color: var(--color-text-subtle);
+  background: transparent;
+  font-size: 13px;
+}
+
+.legal-card > .eyebrow {
+  display: block;
+  margin-top: 48px;
+}
+
+.legal-card h1 {
+  max-width: 520px;
+  margin: 14px 0 0;
+  font-size: clamp(32px, 6vw, 48px);
+  line-height: 0.98;
+  letter-spacing: -0.065em;
+}
+
+.legal-intro {
+  max-width: 620px;
+  margin: 20px 0 0;
+  color: var(--color-text-subtle);
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.legal-content {
+  display: grid;
+  gap: 22px;
+  margin-top: 38px;
+}
+
+.legal-content section {
+  padding-top: 22px;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.legal-content h2 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: -0.03em;
+}
+
+.legal-content p,
+.legal-google-links {
+  margin: 8px 0 0;
+  color: var(--color-text-subtle);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.legal-google-links {
+  margin-top: 34px;
+}
+
+.legal-google-links a {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 560px) {
+  .legal-page {
+    padding: 16px;
+  }
+
+  .legal-card {
+    padding: 28px 22px;
+  }
+
+  .legal-back {
+    top: 31px;
+    right: 22px;
+  }
+
+  .legal-card > .eyebrow {
+    margin-top: 42px;
+  }
+}
