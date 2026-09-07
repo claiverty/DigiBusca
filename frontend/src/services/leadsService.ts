@@ -9,12 +9,13 @@ type SearchLeadsParams = {
   pageToken?: string
 }
 
-type SavedLeadState = {
+export type SavedLeadState = {
   leadId: string
   status: Lead['status']
   notes?: string
   nextFollowUp?: string
   draftMessage?: string
+  updatedAt: string
 }
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '/api'
@@ -71,14 +72,26 @@ export async function searchLeads({
   return response.json() as Promise<SearchLeadsResponse>
 }
 
-export async function getSavedLeads(): Promise<Lead[]> {
+export async function getSavedLeads(): Promise<SavedLeadState[]> {
   const response = await authenticatedFetch(`${apiBaseUrl}/saved-leads`)
 
   if (!response.ok) {
     throw new Error('Não foi possível carregar os leads salvos.')
   }
 
-  const payload = (await response.json()) as { data: Lead[] }
+  const payload = (await response.json()) as { data: SavedLeadState[] }
+  return payload.data
+}
+
+export async function getSavedLead(leadId: string): Promise<Lead> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/saved-leads/${encodeURIComponent(leadId)}`)
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível abrir este lead.')
+  }
+
+  const payload = (await response.json()) as { data: Lead }
   return payload.data
 }
 

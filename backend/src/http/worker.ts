@@ -155,18 +155,30 @@ async function handleApiRequest(request: Request) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/saved-leads') {
-    const savedStates = await persistenceStore.listSavedLeadStates(accessToken, user.id)
-    const savedLeads = (
-      await Promise.all(savedStates.map(async (savedState) => {
-        try {
-          const lead = await leadProvider.findById(savedState.leadId)
-          return lead ? mergeSavedLeadState(lead, savedState) : undefined
-        } catch {
-          return undefined
-        }
-      }))
-    ).filter((lead): lead is NonNullable<typeof lead> => Boolean(lead))
-    return jsonResponse(request, 200, { data: savedLeads })
+    return jsonResponse(request, 200, {
+      data: await persistenceStore.listSavedLeadStates(accessToken, user.id),
+    })
+  }
+
+  const savedLeadDetailMatch = url.pathname.match(/^\/api\/saved-leads\/([^/]+)$/)
+  if (request.method === 'GET' && savedLeadDetailMatch) {
+    const savedState = await persistenceStore.getSavedLeadState(accessToken, user.id, savedLeadDetailMatch[1])
+    if (!savedState) {
+      return jsonResponse(request, 404, { error: 'Este lead não está salvo na sua conta.' })
+    }
+
+    try {
+      const lead = await leadProvider.findById(savedState.leadId)
+      if (!lead) {
+        return jsonResponse(request, 404, { error: 'Não foi possível encontrar este negócio no Google agora.' })
+      }
+
+      return jsonResponse(request, 200, { data: mergeSavedLeadState(lead, savedState) })
+    } catch (error) {
+      return jsonResponse(request, 503, {
+        error: error instanceof Error ? error.message : 'Não foi possível atualizar os dados deste negócio agora.',
+      })
+    }
   }
 
   if (request.method === 'GET' && url.pathname === '/api/saved-lead-ids') {

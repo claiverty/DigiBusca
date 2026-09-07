@@ -8,8 +8,8 @@ import { SearchPage } from './pages/SearchPage'
 import { SavedLeadsPage } from './pages/SavedLeadsPage'
 import {
   createSale,
+  getSavedLead,
   getSavedLeadIds,
-  getSavedLeads,
   removeSavedLead,
   saveLead,
   updateLead,
@@ -75,6 +75,18 @@ function App() {
     await createSale({ ...input, businessName: selectedLead.name, leadId: selectedLead.id })
   }
 
+  async function openSavedLead(leadId: string) {
+    const cachedLead = savedLeads.current.get(leadId)
+    if (cachedLead) {
+      setSelectedLead(cachedLead)
+      return
+    }
+
+    const lead = await getSavedLead(leadId)
+    savedLeads.current.set(lead.id, lead)
+    setSelectedLead(lead)
+  }
+
   function handleNavigate(view: AppView) {
     setSelectedLead(null)
     setActiveView(view)
@@ -115,19 +127,12 @@ function App() {
       />
       <main className="content">
         {activeView === 'overview' && (
-          <OverviewPage onNavigate={handleNavigate} onSelectLead={setSelectedLead} />
+          <OverviewPage onNavigate={handleNavigate} />
         )}
         {activeView === 'saved' && (
           <SavedLeadsPage
             cachedLeads={Array.from(savedLeads.current.values())}
-            savedLeadIds={savedLeadIds}
-            onLeadsLoaded={(leads) => {
-              savedLeads.current = new Map(leads.map((lead) => [lead.id, lead]))
-            }}
-            onSelectLead={(lead) => {
-              setSavedLeadIds((current) => new Set(current).add(lead.id))
-              setSelectedLead(lead)
-            }}
+            onOpenLead={openSavedLead}
             onSearch={() => handleNavigate('search')}
           />
         )}

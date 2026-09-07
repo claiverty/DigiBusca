@@ -1,14 +1,12 @@
 import { ArrowUpRight, CalendarDays, CircleDollarSign, Compass, Users } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getSales, getSavedLeads } from '../services/leadsService'
-import type { Lead } from '../types'
+import { getSales, getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import type { Sale } from '../types/sales'
 import type { AppView } from '../components/Sidebar'
 import './OverviewPage.css'
 
 type OverviewPageProps = {
   onNavigate: (view: AppView) => void
-  onSelectLead: (lead: Lead) => void
 }
 
 type OverviewStatus = 'loading' | 'ready' | 'error'
@@ -44,8 +42,8 @@ function isWithinNextWeek(value?: string) {
   return followUp >= today && followUp <= nextWeek
 }
 
-export function OverviewPage({ onNavigate, onSelectLead }: OverviewPageProps) {
-  const [leads, setLeads] = useState<Lead[]>([])
+export function OverviewPage({ onNavigate }: OverviewPageProps) {
+  const [leads, setLeads] = useState<SavedLeadState[]>([])
   const [sales, setSales] = useState<Sale[]>([])
   const [status, setStatus] = useState<OverviewStatus>('loading')
 
@@ -151,17 +149,16 @@ export function OverviewPage({ onNavigate, onSelectLead }: OverviewPageProps) {
           ) : (
             <div className="overview-record-list">
               {recentLeads.map((lead) => (
-                <article className="overview-record" key={lead.id}>
+                <article className="overview-record" key={lead.leadId}>
                   <div>
-                    <strong>{lead.name}</strong>
-                    <span>{lead.opportunity}</span>
-                    <button className="text-button" type="button" onClick={() => onSelectLead(lead)}>
-                      Abrir ficha
+                    <strong>Lead salvo</strong>
+                    <span>{lead.nextFollowUp ? `Próximo contato: ${formatDate(lead.nextFollowUp)}` : 'Sem contato agendado'}</span>
+                    <button className="text-button" type="button" onClick={() => onNavigate('saved')}>
+                      Abrir acompanhamento
                     </button>
                   </div>
                   <div className="overview-record-meta">
                     <span>{lead.status}</span>
-                    <strong>{lead.score}%</strong>
                   </div>
                 </article>
               ))}

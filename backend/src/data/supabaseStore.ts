@@ -9,6 +9,7 @@ type SavedLeadRow = {
   notes: string | null
   next_follow_up: string | null
   draft_message: string | null
+  updated_at: string
 }
 
 type SaleRow = {
@@ -26,6 +27,7 @@ export type SavedLeadState = {
   notes?: string
   nextFollowUp?: string
   draftMessage?: string
+  updatedAt: string
 }
 
 function mapSavedLeadState(row: SavedLeadRow): SavedLeadState {
@@ -35,6 +37,7 @@ function mapSavedLeadState(row: SavedLeadRow): SavedLeadState {
     notes: row.notes ?? undefined,
     nextFollowUp: row.next_follow_up ?? undefined,
     draftMessage: row.draft_message ?? undefined,
+    updatedAt: row.updated_at,
   }
 }
 
@@ -63,7 +66,7 @@ export class SupabaseStore {
   async listSavedLeadStates(accessToken: string, userId: string): Promise<SavedLeadState[]> {
     const { data, error } = await this.client(accessToken)
       .from('saved_leads')
-      .select('lead_id, status, notes, next_follow_up, draft_message')
+      .select('lead_id, status, notes, next_follow_up, draft_message, updated_at')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
 
@@ -94,7 +97,7 @@ export class SupabaseStore {
         },
         { onConflict: 'user_id,lead_id' },
       )
-      .select('lead_id, status, notes, next_follow_up, draft_message')
+      .select('lead_id, status, notes, next_follow_up, draft_message, updated_at')
       .single()
 
     throwIfError(error)
@@ -108,7 +111,7 @@ export class SupabaseStore {
   ): Promise<SavedLeadState | undefined> {
     const { data, error } = await this.client(accessToken)
       .from('saved_leads')
-      .select('lead_id, status, notes, next_follow_up, draft_message')
+      .select('lead_id, status, notes, next_follow_up, draft_message, updated_at')
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .maybeSingle()

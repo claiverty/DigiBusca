@@ -1,16 +1,12 @@
-import { ArrowUpRight, CalendarDays, Download } from 'lucide-react'
+import { ArrowUpRight, CalendarDays, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { LeadCard } from '../components/LeadCard'
-import { exportLeadsCsv } from '../services/exportLeadsCsv'
-import { getSavedLeads } from '../services/leadsService'
+import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import type { Lead } from '../types'
 import './SavedLeadsPage.css'
 
 type SavedLeadsPageProps = {
   cachedLeads: Lead[]
-  savedLeadIds: Set<string>
-  onLeadsLoaded: (leads: Lead[]) => void
-  onSelectLead: (lead: Lead) => void
+  onOpenLead: (leadId: string) => Promise<void>
   onSearch: () => void
 }
 
@@ -37,35 +33,30 @@ function formatFollowUpDate(value: string) {
 
 export function SavedLeadsPage({
   cachedLeads,
-  savedLeadIds,
-  onLeadsLoaded,
-  onSelectLead,
+  onOpenLead,
   onSearch,
 }: SavedLeadsPageProps) {
-  const [leads, setLeads] = useState<Lead[]>([])
+  const [leads, setLeads] = useState<SavedLeadState[]>([])
   const [status, setStatus] = useState('loading')
   const [attempt, setAttempt] = useState(0)
   const [statusFilter, setStatusFilter] = useState('Todos')
   const [followUpFilter, setFollowUpFilter] = useState('Todos')
+  const [openingLeadId, setOpeningLeadId] = useState<string | null>(null)
+  const [openingError, setOpeningError] = useState('')
+
+  const cachedLeadById = useMemo(
+    () => new Map(cachedLeads.map((lead) => [lead.id, lead])),
+    [cachedLeads],
+  )
 
   useEffect(() => {
     let active = true
     setStatus('loading')
 
-    const cachedSavedLeads = cachedLeads.filter((lead) => savedLeadIds.has(lead.id))
-    if (cachedSavedLeads.length === savedLeadIds.size) {
-      setLeads(cachedSavedLeads)
-      setStatus('ready')
-      return () => {
-        active = false
-      }
-    }
-
     void getSavedLeads()
       .then((data) => {
         if (!active) return
         setLeads(data)
-        onLeadsLoaded(data)
         setStatus('ready')
       })
       .catch(() => {
@@ -74,7 +65,23 @@ export function SavedLeadsPage({
     return () => {
       active = false
     }
-  }, [attempt, cachedLeads, onLeadsLoaded, savedLeadIds])
+  }, [attempt])
+
+  async function openLead(leadId: string) {
+    setOpeningLeadId(leadId)
+    setOpeningError('')
+
+    try {
+      await onOpenLead(leadId)
+    } catch (error) {
+      setOpeningError(error instanceof Error ? error.message : 'Não foi possível atualizar este lead agora.')
+      setOpeningLeadId(null)
+    }
+  }
+
+  function getLeadName(lead: SavedLeadState) {
+    return cachedLeadById.get(lead.leadId)?.name ?? 'Lead salvo'
+  }
 
   const visibleLeads = useMemo(() => {
     const today = getToday()
@@ -113,11 +120,6 @@ export function SavedLeadsPage({
           <h1>Meus leads</h1>
           <p>Continue suas conversas e acompanhe os próximos contatos.</p>
         </div>
-        {status === 'ready' && leads.length > 0 && (
-          <button className="secondary-button saved-leads-export" type="button" onClick={() => exportLeadsCsv(leads)}>
-            <Download size={16} aria-hidden="true" /> Exportar CSV
-          </button>
-        )}
       </header>
 
       {status === 'ready' && agendaLeads.length > 0 && (
@@ -135,15 +137,15 @@ export function SavedLeadsPage({
               return (
                 <button
                   className="agenda-lead"
-                  key={lead.id}
+                  key={lead.leadId}
                   type="button"
-                  onClick={() => onSelectLead(lead)}
+                  onClick={() => void openLead(lead.leadId)}
                 >
                   <span className={isOverdue ? 'agenda-date overdue' : 'agenda-date'}>
                     {isOverdue ? 'Atrasado' : formatFollowUpDate(lead.nextFollowUp!)}
                   </span>
                   <span className="agenda-lead-name">
-                    <strong>{lead.name}</strong>
+                    <strong>{getLeadName(lead)}</strong>
                     <small>{lead.status}</small>
                   </span>
                   <ArrowUpRight size={16} aria-hidden="true" />
@@ -184,6 +186,7 @@ export function SavedLeadsPage({
           </button>
         </div>
       )}
+      {openingError && <p className="data-state" role="alert">{openingError}</p>}
       {status === 'ready' && (
         <>
           <p className="muted" role="status">
@@ -201,19 +204,30 @@ export function SavedLeadsPage({
           ) : (
             <div className="saved-leads-list">
               {visibleLeads.map((lead) => (
-                <section key={lead.id} aria-label={lead.name}>
+                <section className="saved-lead-summary panel" key={lead.leadId} aria-label="Lead salvo">
                   <p className="saved-lead-status">
                     {lead.status} · {lead.nextFollowUp
                       ? `Próximo contato: ${toLocalDate(lead.nextFollowUp).toLocaleDateString('pt-BR')}`
                       : 'Sem contato agendado'}
                   </p>
-                  <LeadCard lead={lead} onSelect={onSelectLead} />
+                  <h2>{getLeadName(lead)}</h2>
+                  <p>
+                    {lead.notes?.trim()
+                      || cachedLeadById.get(lead.leadId)?.category
+                      || 'Abra a ficha para atualizar os dados da empresa e continuar a abordagem.'}
+                  </p>
+                  <button
+                    className="secondary-button saved-lead-open"
+                    type="button"
+                    onClick={() => void openLead(lead.leadId)}
+                    disabled={openingLeadId === lead.leadId}
+                  >
+                    <RefreshCw size={16} aria-hidden="true" />
+                    {openingLeadId === lead.leadId ? 'Atualizando...' : 'Abrir e atualizar dados'}
+                  </button>
                 </section>
               ))}
             </div>
-          )}
-          {visibleLeads.length > 0 && (
-            <p className="places-attribution">Dados de lugares: Google Maps</p>
           )}
         </>
       )}
