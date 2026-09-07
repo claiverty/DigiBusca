@@ -1,0 +1,18 @@
+.date-picker { position: relative; }
+.date-picker-trigger { display: flex; width: 100%; min-height: 42px; align-items: center; justify-content: space-between; padding: 0 13px; border: 1px solid #e6e6e9; border-radius: var(--radius-control); color: var(--color-text); background: var(--color-surface); font-size: 13px; text-align: left; }
+.date-picker-trigger:hover, .date-picker-trigger:focus-visible { border-color: #aeb9ff; outline: 0; }
+.date-picker-trigger svg { color: var(--color-text-muted); }
+.date-picker-calendar { position: absolute; z-index: 3; top: calc(100% + 8px); right: 0; width: 272px; padding: 14px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); box-shadow: 0 18px 34px rgba(23, 24, 28, 0.14); }
+.date-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.date-picker-header strong { color: var(--color-text); font-size: 13px; text-transform: capitalize; }
+.date-picker-header button { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 50%; color: var(--color-text-muted); background: transparent; font-size: 24px; line-height: 1; }
+.date-picker-header button:hover { color: var(--color-text); background: var(--color-background); }
+.date-picker-weekdays, .date-picker-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.date-picker-weekdays { margin-bottom: 5px; color: var(--color-text-muted); font-size: 10px; font-weight: 700; text-align: center; }
+.date-picker-days button { display: grid; width: 100%; aspect-ratio: 1; padding: 0; place-items: center; border: 0; border-radius: 8px; color: var(--color-text); background: transparent; font-size: 12px; font-weight: 600; }
+.date-picker-days button:hover, .date-picker-days button.today { background: #f0f1f7; }
+.date-picker-days button.selected { color: #fff; background: var(--color-text); }
+.date-picker-actions { display: flex; justify-content: space-between; margin-top: 12px; }
+.date-picker-actions button { padding: 4px 0; border: 0; color: var(--color-text-subtle); background: transparent; font-size: 12px; font-weight: 700; }
+.date-picker-actions button:hover { color: var(--color-text); }
+@media (max-width: 590px) { .date-picker-calendar { right: auto; left: 0; width: min(272px, calc(100vw - 68px)); } }

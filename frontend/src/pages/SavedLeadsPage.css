@@ -77,16 +77,6 @@
   font-size: 13px;
 }
 
-.saved-leads-filters select {
-  width: 100%;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
 .saved-leads-list {
   display: grid;
   gap: 12px;

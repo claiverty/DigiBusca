@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { CalendarDays, Plus, Receipt, X } from 'lucide-react'
+import { CurrencyInput, currencyCentsToNumber } from '../components/CurrencyInput'
+import { DatePicker } from '../components/DatePicker'
+import { SaleServiceField } from '../components/SaleServiceField'
 import { createSale, getSales } from '../services/leadsService'
 import type { Sale } from '../types/sales'
 import './FinancePage.css'
@@ -12,17 +15,6 @@ const periods: Array<{ id: Period; label: string }> = [
   { id: '30d', label: 'Últimos 30 dias' },
   { id: 'all', label: 'Sempre' },
 ]
-
-const saleServiceOptions = [
-  'Site institucional',
-  'Landing page',
-  'Loja virtual',
-  'Identidade visual',
-  'Gestão de tráfego',
-  'Manutenção mensal',
-]
-
-const weekdays = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
 
 function dateKey(date: Date) {
   return date.toISOString().slice(0, 10)
@@ -37,132 +29,6 @@ function formatDate(value: string) {
 }
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
-}
-
-function sanitizeCurrency(value: string) {
-  return value.replace(/\D/g, '').replace(/^0+(?=\d)/, '')
-}
-
-function parseCurrency(value: string) {
-  const cents = Number(value.replace(/\D/g, ''))
-  return Number.isFinite(cents) ? cents / 100 : Number.NaN
-}
-
-function formatCurrencyInput(value: string) {
-  return value ? formatCurrency(parseCurrency(value)) : ''
-}
-
-function formatDateInput(value: string) {
-  const [year, month, day] = value.split('-')
-  return year && month && day ? `${day}/${month}/${year}` : 'Escolher data'
-}
-
-function getCalendarDate(value: string) {
-  const [year, month, day] = value.split('-').map(Number)
-  return new Date(year, month - 1, day)
-}
-
-function getDateKey(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-type SaleDatePickerProps = {
-  value: string
-  onChange: (value: string) => void
-}
-
-function SaleDatePicker({ value, onChange }: SaleDatePickerProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [visibleMonth, setVisibleMonth] = useState(() => getCalendarDate(value))
-  const year = visibleMonth.getFullYear()
-  const month = visibleMonth.getMonth()
-  const firstWeekday = new Date(year, month, 1).getDay()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const monthLabel = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(
-    visibleMonth,
-  )
-
-  function selectDate(day: number) {
-    const nextDate = new Date(year, month, day)
-    onChange(getDateKey(nextDate))
-    setVisibleMonth(nextDate)
-    setIsOpen(false)
-  }
-
-  return (
-    <div className="sale-date-picker">
-      <button
-        className="sale-date-trigger"
-        type="button"
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        onClick={() => setIsOpen((current) => !current)}
-      >
-        <span>{formatDateInput(value)}</span>
-        <CalendarDays size={17} aria-hidden="true" />
-      </button>
-      {isOpen && (
-        <div className="sale-calendar" role="dialog" aria-label="Escolher data da venda">
-          <div className="sale-calendar-header">
-            <button
-              type="button"
-              aria-label="Mês anterior"
-              onClick={() => setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
-            >
-              ‹
-            </button>
-            <strong>{monthLabel}</strong>
-            <button
-              type="button"
-              aria-label="Próximo mês"
-              onClick={() => setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
-            >
-              ›
-            </button>
-          </div>
-          <div className="sale-calendar-weekdays" aria-hidden="true">
-            {weekdays.map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}
-          </div>
-          <div className="sale-calendar-days">
-            {Array.from({ length: firstWeekday }, (_, index) => <span key={`empty-${index}`} />)}
-            {Array.from({ length: daysInMonth }, (_, index) => {
-              const day = index + 1
-              const date = new Date(year, month, day)
-              const dateKey = getDateKey(date)
-              const isSelected = dateKey === value
-              const isToday = dateKey === today()
-              return (
-                <button
-                  className={`${isSelected ? 'selected' : ''}${isToday ? ' today' : ''}`}
-                  key={dateKey}
-                  type="button"
-                  aria-pressed={isSelected}
-                  onClick={() => selectDate(day)}
-                >
-                  {day}
-                </button>
-              )
-            })}
-          </div>
-          <button
-            className="sale-calendar-today"
-            type="button"
-            onClick={() => {
-              const currentDate = new Date()
-              onChange(today())
-              setVisibleMonth(currentDate)
-              setIsOpen(false)
-            }}
-          >
-            Hoje
-          </button>
-        </div>
-      )}
-    </div>
-  )
 }
 
 function isInPeriod(value: string, period: Period) {
@@ -268,7 +134,7 @@ export function FinancePage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFeedback('')
-    const value = parseCurrency(amount)
+    const value = currencyCentsToNumber(amount)
     if (
       !businessName.trim() ||
       !service.trim() ||
@@ -456,37 +322,16 @@ export function FinancePage() {
               </label>
               <label className="finance-field">
                 <span>O que foi vendido</span>
-                <input
-                  list="sale-service-options"
-                  value={service}
-                  onChange={(event) => setService(event.target.value)}
-                  placeholder="Ex.: Site institucional"
-                />
-                <datalist id="sale-service-options">
-                  {saleServiceOptions.map((option) => <option key={option} value={option} />)}
-                </datalist>
+                <SaleServiceField value={service} onChange={setService} />
               </label>
               <label className="finance-field">
                 <span>Valor</span>
-                <input
-                  inputMode="decimal"
-                  value={formatCurrencyInput(amount)}
-                  onChange={(event) => setAmount(sanitizeCurrency(event.target.value))}
-                  placeholder="R$ 0,00"
-                />
+                <CurrencyInput value={amount} onChange={setAmount} />
               </label>
               <label className="finance-field">
                 <span>Data</span>
-                <SaleDatePicker value={soldAt} onChange={setSoldAt} />
+                <DatePicker value={soldAt} onChange={setSoldAt} />
               </label>
-            </div>
-            <div className="sale-service-suggestions" aria-label="Sugestões de serviço">
-              <span>Sugestões:</span>
-              {saleServiceOptions.map((option) => (
-                <button key={option} type="button" onClick={() => setService(option)}>
-                  {option}
-                </button>
-              ))}
             </div>
             <div className="panel-actions">
               <button className="primary-button" type="submit" disabled={isSubmitting}>

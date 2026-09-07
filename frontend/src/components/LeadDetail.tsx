@@ -2,6 +2,9 @@ import { ArrowLeft, Bookmark, ExternalLink, MessageCircle, Phone } from 'lucide-
 import { useState } from 'react'
 import { createApproachMessage } from '../lib/approachMessage'
 import { hasContactPhone } from '../lib/phone'
+import { CurrencyInput, currencyCentsToNumber } from './CurrencyInput'
+import { DatePicker } from './DatePicker'
+import { SaleServiceField } from './SaleServiceField'
 import type { Lead, LeadStatus, LeadUpdate } from '../types'
 import type { CreateSaleInput } from '../types/sales'
 import './LeadDetail.css'
@@ -86,7 +89,7 @@ export function LeadDetail({
   }
 
   async function handleRegisterSale() {
-    const amount = Number(saleAmount.replace(',', '.'))
+    const amount = currencyCentsToNumber(saleAmount)
     setSaleFeedback('')
 
     if (!saleService.trim() || !Number.isFinite(amount) || amount < 0 || !saleDate) {
@@ -195,11 +198,7 @@ export function LeadDetail({
               </label>
               <label className="detail-field">
                 <span>Próximo follow-up</span>
-                <input
-                  type="date"
-                  value={nextFollowUp}
-                  onChange={(event) => setNextFollowUp(event.target.value)}
-                />
+                <DatePicker value={nextFollowUp} onChange={setNextFollowUp} />
               </label>
             </div>
             <label className="detail-field">
@@ -237,29 +236,16 @@ export function LeadDetail({
             <div className="detail-form-grid">
               <label className="detail-field">
                 <span>Serviço vendido</span>
-                <input
-                  value={saleService}
-                  onChange={(event) => setSaleService(event.target.value)}
-                  placeholder="Ex.: Site institucional"
-                />
+                <SaleServiceField value={saleService} onChange={setSaleService} />
               </label>
               <label className="detail-field">
                 <span>Valor</span>
-                <input
-                  inputMode="decimal"
-                  value={saleAmount}
-                  onChange={(event) => setSaleAmount(event.target.value)}
-                  placeholder="R$ 0,00"
-                />
+                <CurrencyInput value={saleAmount} onChange={setSaleAmount} />
               </label>
             </div>
             <label className="detail-field">
               <span>Data da venda</span>
-              <input
-                type="date"
-                value={saleDate}
-                onChange={(event) => setSaleDate(event.target.value)}
-              />
+                <DatePicker value={saleDate} onChange={setSaleDate} />
             </label>
             <div className="panel-actions follow-up-actions">
               <button

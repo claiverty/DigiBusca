@@ -1,5 +1,6 @@
 import { ArrowUpRight, CalendarDays, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { FilterCombobox } from '../components/FilterCombobox'
 import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import type { Lead } from '../types'
 import './SavedLeadsPage.css'
@@ -159,21 +160,23 @@ export function SavedLeadsPage({
       <div className="saved-leads-filters panel">
         <label>
           Status
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option>Todos</option>
-            {statuses.map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
+          <FilterCombobox
+            id="saved-leads-status"
+            label="Status"
+            value={statusFilter}
+            options={['Todos', ...statuses]}
+            onChange={setStatusFilter}
+          />
         </label>
         <label>
           Próximo contato
-          <select value={followUpFilter} onChange={(event) => setFollowUpFilter(event.target.value)}>
-            <option>Todos</option>
-            <option>Atrasados</option>
-            <option>Próximos 7 dias</option>
-            <option>Sem agendamento</option>
-          </select>
+          <FilterCombobox
+            id="saved-leads-follow-up"
+            label="Próximo contato"
+            value={followUpFilter}
+            options={['Todos', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento']}
+            onChange={setFollowUpFilter}
+          />
         </label>
       </div>
 
