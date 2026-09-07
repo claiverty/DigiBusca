@@ -8,16 +8,13 @@ import {
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { ArrowLeft, Eye, EyeOff, Mail } from 'lucide-react'
-import { FaApple, FaFacebookF, FaGithub, FaGoogle } from 'react-icons/fa'
+import { FaGoogle } from 'react-icons/fa'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import { LandingPage } from '../pages/LandingPage'
 import './AuthGate.css'
 
 const providers = [
-  { id: 'apple', label: 'Apple' },
   { id: 'google', label: 'Google' },
-  { id: 'github', label: 'GitHub' },
-  { id: 'facebook', label: 'Facebook' },
 ] as const
 
 type AuthProvider = (typeof providers)[number]['id']
@@ -25,9 +22,6 @@ type AuthScreen = 'providers' | 'email' | 'forgot' | 'reset'
 
 const providerIcons = {
   google: FaGoogle,
-  github: FaGithub,
-  apple: FaApple,
-  facebook: FaFacebookF,
 } satisfies Record<AuthProvider, typeof FaGoogle>
 
 type AuthContextValue = {
