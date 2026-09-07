@@ -856,12 +856,17 @@
 }
 
 .landing-footer nav {
+  flex-wrap: wrap;
   justify-content: flex-end;
+  column-gap: 20px;
+  row-gap: 8px;
 }
 
 .landing-footer a,
 .landing-footer button {
   color: #c8c9cf;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .landing-footer a:hover,
