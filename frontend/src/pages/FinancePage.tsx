@@ -13,6 +13,17 @@ const periods: Array<{ id: Period; label: string }> = [
   { id: 'all', label: 'Sempre' },
 ]
 
+const saleServiceOptions = [
+  'Site institucional',
+  'Landing page',
+  'Loja virtual',
+  'Identidade visual',
+  'Gestão de tráfego',
+  'Manutenção mensal',
+]
+
+const weekdays = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
+
 function dateKey(date: Date) {
   return date.toISOString().slice(0, 10)
 }
@@ -26,6 +37,132 @@ function formatDate(value: string) {
 }
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+}
+
+function sanitizeCurrency(value: string) {
+  return value.replace(/\D/g, '').replace(/^0+(?=\d)/, '')
+}
+
+function parseCurrency(value: string) {
+  const cents = Number(value.replace(/\D/g, ''))
+  return Number.isFinite(cents) ? cents / 100 : Number.NaN
+}
+
+function formatCurrencyInput(value: string) {
+  return value ? formatCurrency(parseCurrency(value)) : ''
+}
+
+function formatDateInput(value: string) {
+  const [year, month, day] = value.split('-')
+  return year && month && day ? `${day}/${month}/${year}` : 'Escolher data'
+}
+
+function getCalendarDate(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+function getDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+type SaleDatePickerProps = {
+  value: string
+  onChange: (value: string) => void
+}
+
+function SaleDatePicker({ value, onChange }: SaleDatePickerProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [visibleMonth, setVisibleMonth] = useState(() => getCalendarDate(value))
+  const year = visibleMonth.getFullYear()
+  const month = visibleMonth.getMonth()
+  const firstWeekday = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const monthLabel = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(
+    visibleMonth,
+  )
+
+  function selectDate(day: number) {
+    const nextDate = new Date(year, month, day)
+    onChange(getDateKey(nextDate))
+    setVisibleMonth(nextDate)
+    setIsOpen(false)
+  }
+
+  return (
+    <div className="sale-date-picker">
+      <button
+        className="sale-date-trigger"
+        type="button"
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <span>{formatDateInput(value)}</span>
+        <CalendarDays size={17} aria-hidden="true" />
+      </button>
+      {isOpen && (
+        <div className="sale-calendar" role="dialog" aria-label="Escolher data da venda">
+          <div className="sale-calendar-header">
+            <button
+              type="button"
+              aria-label="Mês anterior"
+              onClick={() => setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
+            >
+              ‹
+            </button>
+            <strong>{monthLabel}</strong>
+            <button
+              type="button"
+              aria-label="Próximo mês"
+              onClick={() => setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
+            >
+              ›
+            </button>
+          </div>
+          <div className="sale-calendar-weekdays" aria-hidden="true">
+            {weekdays.map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}
+          </div>
+          <div className="sale-calendar-days">
+            {Array.from({ length: firstWeekday }, (_, index) => <span key={`empty-${index}`} />)}
+            {Array.from({ length: daysInMonth }, (_, index) => {
+              const day = index + 1
+              const date = new Date(year, month, day)
+              const dateKey = getDateKey(date)
+              const isSelected = dateKey === value
+              const isToday = dateKey === today()
+              return (
+                <button
+                  className={`${isSelected ? 'selected' : ''}${isToday ? ' today' : ''}`}
+                  key={dateKey}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => selectDate(day)}
+                >
+                  {day}
+                </button>
+              )
+            })}
+          </div>
+          <button
+            className="sale-calendar-today"
+            type="button"
+            onClick={() => {
+              const currentDate = new Date()
+              onChange(today())
+              setVisibleMonth(currentDate)
+              setIsOpen(false)
+            }}
+          >
+            Hoje
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function isInPeriod(value: string, period: Period) {
@@ -78,18 +215,30 @@ export function FinancePage() {
   const [amount, setAmount] = useState('')
   const [soldAt, setSoldAt] = useState(today())
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [feedback, setFeedback] = useState('')
   const [showSaleForm, setShowSaleForm] = useState(false)
   const [saleToast, setSaleToast] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
+    let active = true
+    setStatus('loading')
+
     void getSales()
       .then((items) => {
+        if (!active) return
         setSales(items)
         setStatus('ready')
       })
-      .catch(() => setStatus('error'))
-  }, [])
+      .catch(() => {
+        if (active) setStatus('error')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [loadAttempt])
 
   useEffect(() => {
     if (!showSaleForm) return
@@ -119,7 +268,7 @@ export function FinancePage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFeedback('')
-    const value = Number(amount.replace(',', '.'))
+    const value = parseCurrency(amount)
     if (
       !businessName.trim() ||
       !service.trim() ||
@@ -131,6 +280,7 @@ export function FinancePage() {
       return
     }
     try {
+      setIsSubmitting(true)
       const sale = await createSale({ businessName, service, amount: value, soldAt })
       setSales((current) => [sale, ...current])
       setBusinessName('')
@@ -142,6 +292,8 @@ export function FinancePage() {
       window.setTimeout(() => setSaleToast(''), 3000)
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Não foi possível registrar a venda.')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -233,7 +385,10 @@ export function FinancePage() {
         {status === 'loading' && <div className="data-state">Carregando histórico...</div>}
         {status === 'error' && (
           <div className="data-state" role="alert">
-            Não foi possível carregar o histórico.
+            <p>Não foi possível carregar o histórico.</p>
+            <button className="secondary-button" type="button" onClick={() => setLoadAttempt((value) => value + 1)}>
+              Tentar novamente
+            </button>
           </div>
         )}
         {status === 'ready' && sales.length === 0 && (
@@ -302,32 +457,40 @@ export function FinancePage() {
               <label className="finance-field">
                 <span>O que foi vendido</span>
                 <input
+                  list="sale-service-options"
                   value={service}
                   onChange={(event) => setService(event.target.value)}
                   placeholder="Ex.: Site institucional"
                 />
+                <datalist id="sale-service-options">
+                  {saleServiceOptions.map((option) => <option key={option} value={option} />)}
+                </datalist>
               </label>
               <label className="finance-field">
                 <span>Valor</span>
                 <input
                   inputMode="decimal"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
+                  value={formatCurrencyInput(amount)}
+                  onChange={(event) => setAmount(sanitizeCurrency(event.target.value))}
                   placeholder="R$ 0,00"
                 />
               </label>
               <label className="finance-field">
                 <span>Data</span>
-                <input
-                  type="date"
-                  value={soldAt}
-                  onChange={(event) => setSoldAt(event.target.value)}
-                />
+                <SaleDatePicker value={soldAt} onChange={setSoldAt} />
               </label>
             </div>
+            <div className="sale-service-suggestions" aria-label="Sugestões de serviço">
+              <span>Sugestões:</span>
+              {saleServiceOptions.map((option) => (
+                <button key={option} type="button" onClick={() => setService(option)}>
+                  {option}
+                </button>
+              ))}
+            </div>
             <div className="panel-actions">
-              <button className="primary-button" type="submit">
-                Registrar venda
+              <button className="primary-button" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? 'Registrando...' : 'Registrar venda'}
               </button>
               {feedback && (
                 <span className="form-feedback" role="alert">

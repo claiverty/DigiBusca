@@ -173,6 +173,142 @@
 .finance-field input:focus {
   border-color: #aeb9ff;
 }
+.sale-date-picker {
+  position: relative;
+}
+.sale-date-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 13px;
+  border: 1px solid #e6e6e9;
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font-size: 13px;
+  text-align: left;
+}
+.sale-date-trigger:hover,
+.sale-date-trigger:focus-visible {
+  border-color: #aeb9ff;
+  outline: 0;
+}
+.sale-date-trigger svg {
+  color: var(--color-text-muted);
+}
+.sale-calendar {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 272px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: 0 18px 34px rgba(23, 24, 28, 0.14);
+}
+.sale-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.sale-calendar-header strong {
+  color: var(--color-text);
+  font-size: 13px;
+  text-transform: capitalize;
+}
+.sale-calendar-header button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--color-text-muted);
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+}
+.sale-calendar-header button:hover {
+  color: var(--color-text);
+  background: var(--color-background);
+}
+.sale-calendar-weekdays,
+.sale-calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.sale-calendar-weekdays {
+  margin-bottom: 5px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+.sale-calendar-days button {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-text);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+}
+.sale-calendar-days button:hover,
+.sale-calendar-days button.today {
+  background: #f0f1f7;
+}
+.sale-calendar-days button.selected {
+  color: #fff;
+  background: var(--color-text);
+}
+.sale-calendar-today {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 4px 0;
+  border: 0;
+  color: var(--color-text-subtle);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+}
+.sale-calendar-today:hover {
+  color: var(--color-text);
+}
+.sale-service-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: -6px;
+}
+.sale-service-suggestions > span {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.sale-service-suggestions button {
+  padding: 5px 8px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 999px;
+  color: var(--color-text-subtle);
+  background: var(--color-background);
+  font-size: 11px;
+}
+.sale-service-suggestions button:hover {
+  border-color: #c8c9cf;
+  color: var(--color-text);
+}
 .finance-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -327,5 +463,10 @@
   }
   .sale-modal {
     padding: 20px;
+  }
+  .sale-calendar {
+    right: auto;
+    left: 0;
+    width: min(272px, calc(100vw - 68px));
   }
 }
