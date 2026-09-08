@@ -1,4 +1,4 @@
-import { Bookmark, Compass, LayoutDashboard, LogOut, Menu, Plus, Settings, Wallet, X } from 'lucide-react'
+import { Bookmark, Compass, LayoutDashboard, LogOut, Menu, Plus, Wallet, X } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import './Sidebar.css'
 
@@ -125,13 +125,6 @@ export function Sidebar({ activeView, onNavigate, userEmail, onSignOut, onShowLa
             </Fragment>
           ))}
         </nav>
-
-        <div className="sidebar-footer">
-          <button className="nav-item settings-link" type="button" title="Configurações">
-            <Settings size={18} strokeWidth={1.8} />
-            <span className="sidebar-label">Configurações</span>
-          </button>
-        </div>
       </aside>
     </>
   )

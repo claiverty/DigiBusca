@@ -180,10 +180,6 @@
   flex: 0 0 18px;
 }
 
-.sidebar-footer {
-  margin-top: auto;
-}
-
 .sidebar-backdrop {
   display: none;
 }
@@ -354,9 +350,5 @@
 
   .mobile-new-sale:hover {
     background: #f0f0f2;
-  }
-
-  .sidebar-footer {
-    display: none;
   }
 }
