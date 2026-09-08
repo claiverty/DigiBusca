@@ -7,11 +7,12 @@ import {
   Compass,
   LayoutDashboard,
   MapPin,
+  Plus,
   Search,
   UserRound,
   Users,
 } from 'lucide-react'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import './LandingPage.css'
 
 type LandingPageProps = {
@@ -97,6 +98,20 @@ function PreviewOverview() {
           <strong>R$ 77.550</strong>
         </article>
       </div>
+      <article className="hero-dashboard-card hero-google-card">
+        <span className="hero-dashboard-label">ACOMPANHAMENTO</span>
+        <strong>Uso geral do Google</strong>
+        <small>Solicitações de todas as contas neste mês.</small>
+        <div className="hero-usage-metrics">
+          <span><b>0%</b><small>1 / 1.000</small></span>
+          <span><b>0%</b><small>4 / 1.000</small></span>
+        </div>
+      </article>
+      <article className="hero-dashboard-card hero-recent-card">
+        <span className="hero-dashboard-label">ACOMPANHAMENTO</span>
+        <strong>Leads recentes</strong>
+        <small>Você ainda não salvou nenhum lead.</small>
+      </article>
     </>
   )
 }
@@ -155,16 +170,42 @@ function PreviewLeads() {
 function PreviewFinance() {
   return (
     <>
-      <h2>O que a prospecção virou.</h2>
-      <p>Registre cada venda e acompanhe seu histórico sem planilhas paralelas.</p>
-      <div className="hero-finance-total">
-        <span>VENDAS NO HISTÓRICO</span>
-        <strong>R$ 77.550,00</strong>
-        <small>Faixa de R$ 700 a R$ 2.000 por venda</small>
+      <h2>Acompanhe suas vendas.</h2>
+      <p>Registre o que você vendeu e acompanhe seu histórico.</p>
+      <div className="hero-finance-periods" aria-label="Períodos financeiros">
+        <span>Hoje</span>
+        <span className="active">Últimos 7 dias</span>
+        <span>Últimos 30 dias</span>
+        <span>Sempre</span>
       </div>
-      <div className="hero-finance-list">
-        <span>Site institucional <strong>R$ 1.500,00</strong></span>
-        <span>Landing page <strong>R$ 900,00</strong></span>
+      <div className="hero-finance-summary">
+        <article>
+          <span>Total no período</span>
+          <strong>R$ 77.550</strong>
+        </article>
+        <article>
+          <span>Vendas no período</span>
+          <strong>3</strong>
+        </article>
+      </div>
+      <div className="hero-finance-chart" aria-hidden="true">
+        <svg viewBox="0 0 100 34" preserveAspectRatio="none">
+          <path d="M0 29 L16 25 L32 27 L48 17 L64 20 L80 9 L100 13" />
+        </svg>
+        <div>
+          <span>01/09</span>
+          <span>03/09</span>
+          <span>05/09</span>
+          <span>07/09</span>
+        </div>
+      </div>
+      <div className="hero-finance-history">
+        <span className="hero-dashboard-label">HISTÓRICO</span>
+        <strong>Vendas registradas</strong>
+        <div className="hero-finance-list">
+          <span>Site institucional <strong>R$ 1.500</strong></span>
+          <span>Landing page <strong>R$ 900</strong></span>
+        </div>
       </div>
     </>
   )
@@ -213,22 +254,38 @@ export function LandingPage({ onCreateAccount, onSignIn, onShowLegalPage }: Land
             <aside className="hero-app-sidebar" aria-label="Navegação da demonstração">
               <span className="hero-app-logo" aria-hidden="true" />
               <div className="hero-app-navigation" role="tablist" aria-label="Telas da demonstração">
-                {previewNavigation.map(({ id, label, icon: Icon }) => (
-                  <button
-                    aria-label={label}
-                    aria-selected={previewView === id}
-                    className={previewView === id ? 'hero-app-nav active' : 'hero-app-nav'}
-                    key={id}
-                    role="tab"
-                    type="button"
-                    onClick={() => setPreviewView(id)}
-                  >
-                    <Icon size={15} aria-hidden="true" />
-                  </button>
+                {previewNavigation.map(({ id, label, icon: Icon }, index) => (
+                  <Fragment key={id}>
+                    <button
+                      aria-label={label}
+                      aria-selected={previewView === id}
+                      className={previewView === id ? 'hero-app-nav active' : 'hero-app-nav'}
+                      role="tab"
+                      type="button"
+                      onClick={() => setPreviewView(id)}
+                    >
+                      <Icon size={15} aria-hidden="true" />
+                    </button>
+                    {index === 1 && (
+                      <button
+                        aria-label="Ver exemplo de nova venda"
+                        className="hero-app-add"
+                        type="button"
+                        onClick={() => setPreviewView('finance')}
+                      >
+                        <Plus size={16} aria-hidden="true" />
+                      </button>
+                    )}
+                  </Fragment>
                 ))}
               </div>
             </aside>
             <div className="hero-app-content" role="tabpanel" aria-label={selectedPreview.label}>
+              <div className="hero-app-mobile-header">
+                <span className="hero-app-brand-mark" aria-hidden="true" />
+                <strong>DigiBusca</strong>
+                <i>C</i>
+              </div>
               <div className="hero-app-topline">
                 <span>{selectedPreview.label.toUpperCase()}</span>
                 <i>C</i>
@@ -238,6 +295,27 @@ export function LandingPage({ onCreateAccount, onSignIn, onShowLegalPage }: Land
               {previewView === 'leads' && <PreviewLeads />}
               {previewView === 'finance' && <PreviewFinance />}
             </div>
+          </div>
+          <div className="mobile-status-bar" aria-hidden="true">
+            <strong>9:41</strong>
+            <span className="mobile-status-island" />
+            <span className="mobile-status-icons">
+              <svg viewBox="0 0 18 12" fill="currentColor">
+                <rect x="0" y="8" width="3" height="4" rx="0.8" />
+                <rect x="5" y="5.5" width="3" height="6.5" rx="0.8" />
+                <rect x="10" y="3" width="3" height="9" rx="0.8" />
+                <rect x="15" width="3" height="12" rx="0.8" />
+              </svg>
+              <svg viewBox="0 0 16 12" fill="none" stroke="currentColor" strokeWidth="2.1">
+                <path d="M1 3.2a10.4 10.4 0 0 1 14 0M3.5 6a6.5 6.5 0 0 1 9 0M6 8.8a2.8 2.8 0 0 1 4 0" />
+                <circle cx="8" cy="10.7" r="0.7" fill="currentColor" stroke="none" />
+              </svg>
+              <svg viewBox="0 0 27 13" fill="currentColor">
+                <rect x="0.6" y="0.6" width="23" height="11.8" rx="3" fill="none" stroke="currentColor" strokeOpacity="0.4" strokeWidth="1.2" />
+                <rect x="2.5" y="2.5" width="19.2" height="8" rx="1.5" />
+                <path d="M25 4.2v4.6c2-0.4 2-4.2 0-4.6" opacity="0.5" />
+              </svg>
+            </span>
           </div>
         </div>
         <p className="landing-frame-hint">Use os ícones no frame para explorar cada tela.</p>

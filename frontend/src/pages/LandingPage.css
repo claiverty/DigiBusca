@@ -259,6 +259,10 @@
   background: #ececef;
 }
 
+.hero-app-add {
+  display: none;
+}
+
 .hero-app-content {
   min-width: 0;
   padding: clamp(25px, 4vw, 52px);
@@ -274,6 +278,12 @@
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
+}
+
+.hero-app-mobile-header,
+.mobile-status-bar,
+.mobile-browser-chrome {
+  display: none;
 }
 
 .hero-app-topline i {
@@ -365,6 +375,58 @@
   letter-spacing: -0.06em;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.hero-dashboard-card {
+  display: grid;
+  gap: 5px;
+  margin-top: clamp(14px, 2.2vw, 24px);
+  padding: clamp(10px, 1.8vw, 15px);
+  border: 1px solid #e5e5e9;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.hero-dashboard-label {
+  color: #91929a;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.hero-dashboard-card > strong {
+  font-size: clamp(13px, 1.8vw, 18px);
+  letter-spacing: -0.04em;
+}
+
+.hero-dashboard-card > small {
+  color: #85868d;
+  font-size: clamp(9px, 1.2vw, 11px);
+}
+
+.hero-usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.hero-usage-metrics span {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: #f7f7f8;
+}
+
+.hero-usage-metrics b {
+  font-size: clamp(13px, 2vw, 19px);
+  letter-spacing: -0.06em;
+}
+
+.hero-usage-metrics small {
+  color: #85868d;
+  font-size: clamp(8px, 1.1vw, 10px);
 }
 
 .hero-search-fields {
@@ -525,6 +587,124 @@
 
 .hero-finance-list strong {
   color: #17181c;
+}
+
+.hero-finance-periods {
+  display: flex;
+  gap: 5px;
+  margin-top: 20px;
+  overflow: hidden;
+}
+
+.hero-finance-periods span {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border-radius: 999px;
+  color: #77787f;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.hero-finance-periods span.active {
+  color: #17181c;
+  background: #f4f4f6;
+}
+
+.hero-finance-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.8fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.hero-finance-summary article {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #e5e5e9;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.hero-finance-summary span {
+  color: #888990;
+  font-size: 10px;
+}
+
+.hero-finance-summary strong {
+  overflow: hidden;
+  font-size: clamp(15px, 2.4vw, 24px);
+  letter-spacing: -0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-finance-chart {
+  position: relative;
+  height: 86px;
+  margin-top: 10px;
+  padding: 12px 12px 25px;
+  overflow: hidden;
+  border: 1px solid #e5e5e9;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.hero-finance-chart::before,
+.hero-finance-chart::after {
+  position: absolute;
+  right: 12px;
+  left: 12px;
+  height: 1px;
+  content: '';
+  background: #f0f0f2;
+}
+
+.hero-finance-chart::before {
+  top: 28px;
+}
+
+.hero-finance-chart::after {
+  top: 49px;
+}
+
+.hero-finance-chart svg {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 45px;
+}
+
+.hero-finance-chart path {
+  fill: none;
+  stroke: #77787f;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.hero-finance-chart div {
+  position: absolute;
+  right: 12px;
+  bottom: 7px;
+  left: 12px;
+  display: flex;
+  justify-content: space-between;
+  color: #999aa1;
+  font-size: 8px;
+}
+
+.hero-finance-history {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+}
+
+.hero-finance-history > strong {
+  font-size: 15px;
+  letter-spacing: -0.035em;
 }
 
 .landing-frame-hint {
@@ -1560,6 +1740,7 @@
 
   .hero-app-actions,
   .hero-app-cards,
+  .hero-dashboard-card,
   .hero-search-fields,
   .hero-agenda-list,
   .hero-finance-total {
@@ -1602,6 +1783,44 @@
 
   .hero-app-cards strong {
     font-size: clamp(10px, 2.5cqw, 19px);
+  }
+
+  .hero-dashboard-card {
+    gap: 3px;
+    margin-top: clamp(7px, 2.2cqw, 17px);
+    padding: clamp(6px, 1.8cqw, 12px);
+    border-radius: clamp(7px, 1.3cqw, 12px);
+  }
+
+  .hero-dashboard-label {
+    font-size: clamp(5px, 1.1cqw, 9px);
+  }
+
+  .hero-dashboard-card > strong {
+    font-size: clamp(9px, 2.1cqw, 18px);
+  }
+
+  .hero-dashboard-card > small {
+    font-size: clamp(6px, 1.3cqw, 11px);
+  }
+
+  .hero-usage-metrics {
+    gap: clamp(4px, 1cqw, 8px);
+    margin-top: 3px;
+  }
+
+  .hero-usage-metrics span {
+    gap: 1px;
+    padding: clamp(4px, 1.1cqw, 7px);
+    border-radius: clamp(5px, 0.9cqw, 8px);
+  }
+
+  .hero-usage-metrics b {
+    font-size: clamp(10px, 2.2cqw, 19px);
+  }
+
+  .hero-usage-metrics small {
+    font-size: clamp(5px, 1.1cqw, 10px);
   }
 
   .hero-preview-lead,
@@ -1711,5 +1930,341 @@
   .landing-frame-hint {
     margin-top: 11px;
     font-size: 10px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .landing-hero-frame {
+    width: min(100%, 258px);
+    /* Proporção externa do iPhone 17 Pro: 71,9 × 150 mm. */
+    aspect-ratio: 71.9 / 150;
+    margin: 28px auto 0;
+    position: relative;
+    display: grid;
+    /* A coluna não pode crescer com a largura mínima dos filtros financeiros. */
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 38px minmax(0, 1fr);
+    border: 6px solid #101114;
+    border-radius: 36px;
+    background: #17181c;
+    box-shadow: 0 0 0 1px #979a9e, 0 0 0 2px #d0d2d5, 0 24px 52px rgba(26, 27, 35, 0.2);
+  }
+
+  .landing-hero-frame::before {
+    display: none;
+  }
+
+  .product-chrome {
+    display: none;
+  }
+
+  .hero-app {
+    position: relative;
+    display: block;
+    min-width: 0;
+    width: 100%;
+    height: 100%;
+    grid-row: 2;
+  }
+
+  .hero-app-content {
+    order: 1;
+    height: 100%;
+    padding: 0 15px 14px;
+    padding-bottom: 88px;
+    overflow: auto;
+    scrollbar-width: none;
+  }
+
+  .hero-app-content::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hero-app-mobile-header {
+    display: flex;
+    min-height: 54px;
+    align-items: center;
+    gap: 7px;
+    border-bottom: 1px solid #ececf0;
+    color: #17181c;
+    font-size: clamp(12px, 3.4cqw, 16px);
+  }
+
+  .hero-app-brand-mark {
+    width: 12px;
+    height: 12px;
+    border-radius: 4px;
+    background: #17181c;
+    box-shadow: 4px 4px 0 #d8d8dd;
+  }
+
+  .hero-app-mobile-header i {
+    display: grid;
+    width: 25px;
+    height: 25px;
+    margin-left: auto;
+    place-items: center;
+    border-radius: 50%;
+    color: #fff;
+    background: #17181c;
+    font-size: 10px;
+    font-style: normal;
+  }
+
+  .hero-app-actions {
+    display: none;
+  }
+
+  .hero-app-topline i {
+    display: none;
+  }
+
+  .hero-app-topline {
+    padding-top: 18px;
+  }
+
+  .hero-app-content h2 {
+    max-width: none;
+    margin-top: 17px;
+    font-size: clamp(1.08rem, 6.5cqw, 1.55rem);
+    line-height: 0.94;
+  }
+
+  .hero-app-content > p {
+    max-width: none;
+    margin-top: 10px;
+    font-size: clamp(0.72rem, 3.3cqw, 0.88rem);
+    line-height: 1.38;
+  }
+
+  .hero-app-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .hero-app-cards article {
+    gap: 6px;
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .hero-app-cards span {
+    overflow: visible;
+    font-size: 10px;
+    line-height: 1.15;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .hero-app-cards strong {
+    font-size: 18px;
+  }
+
+  .hero-app-cards article:nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    color: #fff;
+    background: #17181c;
+    border-color: #17181c;
+  }
+
+  .hero-app-cards article:nth-child(3) svg,
+  .hero-app-cards article:nth-child(3) span {
+    color: rgba(255, 255, 255, 0.68);
+  }
+
+  .hero-app-sidebar {
+    display: flex;
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    z-index: 3;
+    align-items: center;
+    justify-content: center;
+    order: 2;
+    height: 56px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .mobile-status-bar {
+    display: grid;
+    position: relative;
+    min-width: 0;
+    grid-row: 1;
+    grid-template-columns: minmax(0, 1fr) 32% minmax(0, 1fr);
+    column-gap: 8px;
+    align-items: center;
+    padding: 0 15px;
+    color: #111216;
+    background: #fff;
+    font-size: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    line-height: 1;
+  }
+
+  .mobile-status-bar > strong {
+    justify-self: center;
+    font-weight: 650;
+  }
+
+  .mobile-status-island {
+    width: 100%;
+    height: 22px;
+    border-radius: 999px;
+    background: #000;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  }
+
+  .mobile-status-icons {
+    display: flex;
+    align-items: center;
+    justify-self: center;
+    gap: 3px;
+  }
+
+  .mobile-status-icons svg {
+    width: 11px;
+    height: 8px;
+    flex-shrink: 0;
+  }
+
+  .mobile-status-icons svg:last-child {
+    width: 17px;
+    height: 9px;
+  }
+
+  .hero-app-logo {
+    display: none;
+  }
+
+  .hero-app-navigation {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2px;
+    padding: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    background: rgba(23, 24, 28, 0.96);
+    box-shadow: 0 10px 24px rgba(18, 19, 24, 0.24);
+  }
+
+  .hero-app-nav,
+  .hero-app-add {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    padding: 0;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+  }
+
+  .hero-app-nav {
+    color: rgba(255, 255, 255, 0.72);
+    background: transparent;
+  }
+
+  .hero-app-nav:hover,
+  .hero-app-nav.active {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .hero-app-add {
+    color: #1b1c20;
+    background: #fff;
+  }
+}
+
+@media (max-width: 1100px) {
+  .hero-finance-periods {
+    gap: 3px;
+    margin-top: 11px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .hero-finance-periods::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hero-finance-periods span {
+    padding: 5px 7px;
+    font-size: 8px;
+  }
+
+  .hero-finance-summary {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .hero-finance-summary article {
+    gap: 4px;
+    padding: 9px;
+    border-radius: 10px;
+  }
+
+  .hero-finance-summary span {
+    font-size: 8px;
+  }
+
+  .hero-finance-summary strong {
+    font-size: 16px;
+  }
+
+  .hero-finance-chart {
+    height: 64px;
+    margin-top: 8px;
+    padding: 8px 9px 20px;
+    border-radius: 10px;
+  }
+
+  .hero-finance-chart::before,
+  .hero-finance-chart::after {
+    right: 9px;
+    left: 9px;
+  }
+
+  .hero-finance-chart::before {
+    top: 22px;
+  }
+
+  .hero-finance-chart::after {
+    top: 39px;
+  }
+
+  .hero-finance-chart svg {
+    height: 36px;
+  }
+
+  .hero-finance-chart div {
+    right: 9px;
+    bottom: 5px;
+    left: 9px;
+    font-size: 6px;
+  }
+
+  .hero-finance-history {
+    gap: 3px;
+    margin-top: 10px;
+  }
+
+  .hero-finance-history > strong {
+    font-size: 12px;
+  }
+
+  .hero-finance-history .hero-finance-list {
+    display: none;
   }
 }
