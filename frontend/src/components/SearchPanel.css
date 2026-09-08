@@ -1,7 +1,7 @@
 .search-panel {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
   margin-top: 43px;
   padding: 18px;
   border: 1px solid var(--color-border);
@@ -158,20 +158,27 @@
   grid-column: 1 / -1;
 }
 
-.search-panel > select[aria-label="Segmento"],
-.search-panel > select[aria-label="Prioridade da busca"] {
-  grid-column: 1 / -1;
-}
-
 .search-button {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: min(100%, 290px);
+  margin-top: 6px;
   white-space: normal;
 }
 
 @media (max-width: 590px) {
   .search-panel {
+    grid-template-columns: minmax(0, 1fr);
     padding: 12px;
   }
+
+  .location-country,
+  .search-panel > select,
   .search-button {
-    grid-column: 1 / -1;
+    grid-column: 1;
+  }
+
+  .search-button {
+    width: 100%;
   }
 }

@@ -1,4 +1,4 @@
-import { ArrowUpRight, CalendarDays, RefreshCw, Trash2 } from 'lucide-react'
+import { ArrowUpRight, CalendarClock, ListFilter, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { FilterCombobox } from '../components/FilterCombobox'
 import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
@@ -31,6 +31,10 @@ function formatFollowUpDate(value: string) {
   })
     .format(toLocalDate(value))
     .replace('.', '')
+}
+
+function isSameDay(first: Date, second: Date) {
+  return first.getTime() === second.getTime()
 }
 
 export function SavedLeadsPage({
@@ -136,6 +140,35 @@ export function SavedLeadsPage({
       .sort((first, second) => first.nextFollowUp!.localeCompare(second.nextFollowUp!))
   }, [leads])
 
+  const attentionLeads = useMemo(() => {
+    const today = getToday()
+    const overdueOrToday = agendaLeads.filter((lead) => {
+      const date = toLocalDate(lead.nextFollowUp!)
+      return date < today || isSameDay(date, today)
+    })
+    const upcoming = agendaLeads.filter((lead) => toLocalDate(lead.nextFollowUp!) > today)
+    return [...overdueOrToday, ...upcoming].slice(0, 4)
+  }, [agendaLeads])
+
+  const unscheduledCount = useMemo(
+    () => leads.filter((lead) => !lead.nextFollowUp && lead.status !== 'Ganhou' && lead.status !== 'Perdeu').length,
+    [leads],
+  )
+
+  const statusCounts = useMemo(
+    () => new Map(statuses.map((item) => [item, leads.filter((lead) => lead.status === item).length])),
+    [leads],
+  )
+
+  function getFollowUpLabel(lead: SavedLeadState) {
+    if (!lead.nextFollowUp) return 'Definir próximo contato'
+    const date = toLocalDate(lead.nextFollowUp)
+    const today = getToday()
+    if (date < today) return `Contato atrasado · ${formatFollowUpDate(lead.nextFollowUp)}`
+    if (isSameDay(date, today)) return 'Contato hoje'
+    return `Próximo contato · ${formatFollowUpDate(lead.nextFollowUp)}`
+  }
+
   return (
     <section className="saved-leads-page">
       <header className="page-header saved-leads-header">
@@ -146,17 +179,22 @@ export function SavedLeadsPage({
         </div>
       </header>
 
-      {status === 'ready' && agendaLeads.length > 0 && (
+      {status === 'ready' && leads.length > 0 && (
         <section className="follow-up-agenda panel" aria-labelledby="agenda-title">
           <div className="section-heading">
             <div>
-              <span className="eyebrow">PRÓXIMOS 7 DIAS</span>
-              <h2 id="agenda-title">Sua agenda de contatos</h2>
+              <span className="eyebrow">PRIORIDADE</span>
+              <h2 id="agenda-title">O que pede atenção agora</h2>
             </div>
-            <CalendarDays className="section-muted-icon" size={19} aria-hidden="true" />
+            <CalendarClock className="section-muted-icon" size={19} aria-hidden="true" />
           </div>
-          <div className="follow-up-agenda-list">
-            {agendaLeads.map((lead) => {
+          <div className="lead-priority-summary">
+            <span><strong>{attentionLeads.filter((lead) => toLocalDate(lead.nextFollowUp!) < getToday()).length}</strong> atrasado(s)</span>
+            <span><strong>{unscheduledCount}</strong> sem próximo contato</span>
+          </div>
+          {attentionLeads.length > 0 ? (
+            <div className="follow-up-agenda-list">
+              {attentionLeads.map((lead) => {
               const isOverdue = toLocalDate(lead.nextFollowUp!) < getToday()
               return (
                 <button
@@ -166,7 +204,7 @@ export function SavedLeadsPage({
                   onClick={() => void openLead(lead.leadId)}
                 >
                   <span className={isOverdue ? 'agenda-date overdue' : 'agenda-date'}>
-                    {isOverdue ? 'Atrasado' : formatFollowUpDate(lead.nextFollowUp!)}
+                    {getFollowUpLabel(lead)}
                   </span>
                   <span className="agenda-lead-name">
                     <strong>{getLeadName(lead)}</strong>
@@ -176,32 +214,70 @@ export function SavedLeadsPage({
                 </button>
               )
             })}
+            </div>
+          ) : (
+            <p className="agenda-empty">Nenhum contato agendado para os próximos dias.</p>
+          )}
+        </section>
+      )}
+
+      {status === 'ready' && leads.length > 0 && (
+        <section className="lead-pipeline" aria-labelledby="pipeline-title">
+          <div className="lead-pipeline-heading">
+            <div>
+              <span className="eyebrow">FUNIL</span>
+              <h2 id="pipeline-title">Onde seus leads estão</h2>
+            </div>
+            {statusFilter !== 'Todos' && (
+              <button className="text-button" type="button" onClick={() => setStatusFilter('Todos')}>
+                Ver todos
+              </button>
+            )}
+          </div>
+          <div className="lead-pipeline-list" role="list">
+            {statuses.map((item) => (
+              <button
+                className={statusFilter === item ? 'pipeline-stage active' : 'pipeline-stage'}
+                type="button"
+                key={item}
+                aria-pressed={statusFilter === item}
+                onClick={() => setStatusFilter((current) => (current === item ? 'Todos' : item))}
+              >
+                <span>{item}</span>
+                <strong>{statusCounts.get(item) ?? 0}</strong>
+              </button>
+            ))}
           </div>
         </section>
       )}
 
-      <div className="saved-leads-filters panel">
-        <label>
-          Status
-          <FilterCombobox
-            id="saved-leads-status"
-            label="Status"
-            value={statusFilter}
-            options={['Todos', ...statuses]}
-            onChange={setStatusFilter}
-          />
-        </label>
-        <label>
-          Próximo contato
-          <FilterCombobox
-            id="saved-leads-follow-up"
-            label="Próximo contato"
-            value={followUpFilter}
-            options={['Todos', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento']}
-            onChange={setFollowUpFilter}
-          />
-        </label>
-      </div>
+      {status === 'ready' && leads.length > 0 && (
+        <details className="saved-leads-filters panel">
+          <summary><ListFilter size={16} aria-hidden="true" /> Filtrar leads</summary>
+          <div className="saved-leads-filter-fields">
+            <label>
+              Status
+              <FilterCombobox
+                id="saved-leads-status"
+                label="Status"
+                value={statusFilter}
+                options={['Todos', ...statuses]}
+                onChange={setStatusFilter}
+              />
+            </label>
+            <label>
+              Próximo contato
+              <FilterCombobox
+                id="saved-leads-follow-up"
+                label="Próximo contato"
+                value={followUpFilter}
+                options={['Todos', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento']}
+                onChange={setFollowUpFilter}
+              />
+            </label>
+          </div>
+        </details>
+      )}
 
       {status === 'loading' && <p className="data-state">Carregando seus leads...</p>}
       {status === 'error' && (
@@ -231,13 +307,14 @@ export function SavedLeadsPage({
             <div className="saved-leads-list">
               {visibleLeads.map((lead) => (
                 <section className="saved-lead-summary panel" key={lead.leadId} aria-label="Lead salvo">
-                  <p className="saved-lead-status">
-                    {lead.status} · {lead.nextFollowUp
-                      ? `Próximo contato: ${toLocalDate(lead.nextFollowUp).toLocaleDateString('pt-BR')}`
-                      : 'Sem contato agendado'}
-                  </p>
+                  <div className="saved-lead-card-meta">
+                    <span className="saved-lead-status">{lead.status}</span>
+                    <span className={lead.nextFollowUp && toLocalDate(lead.nextFollowUp) < getToday() ? 'saved-lead-follow-up overdue' : 'saved-lead-follow-up'}>
+                      {getFollowUpLabel(lead)}
+                    </span>
+                  </div>
                   <h2>{getLeadName(lead)}</h2>
-                  <p>
+                  <p className="saved-lead-context">
                     {lead.notes?.trim()
                       || cachedLeadById.get(lead.leadId)?.category
                       || 'Abra a ficha para atualizar os dados da empresa e continuar a abordagem.'}
@@ -253,7 +330,7 @@ export function SavedLeadsPage({
                       disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
                     >
                       <RefreshCw size={16} aria-hidden="true" />
-                      {openingLeadId === lead.leadId ? 'Atualizando...' : 'Abrir e atualizar dados'}
+                      {openingLeadId === lead.leadId ? 'Abrindo...' : 'Abrir lead'}
                     </button>
                     {pendingRemovalLeadId === lead.leadId ? (
                       <div className="saved-lead-remove-confirm">

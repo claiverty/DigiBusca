@@ -1,5 +1,3 @@
-import { SlidersHorizontal } from 'lucide-react'
-
 type ResultsHeaderProps = { city: string; total: number }
 
 export function ResultsHeader({ city, total }: ResultsHeaderProps) {
@@ -14,10 +12,6 @@ export function ResultsHeader({ city, total }: ResultsHeaderProps) {
         </h2>
         <p className="results-note">Resultados disponíveis nesta busca</p>
       </div>
-      <button className="filter-button" type="button">
-        <SlidersHorizontal size={16} aria-hidden="true" />
-        Filtros
-      </button>
     </section>
   )
 }

@@ -3,6 +3,10 @@
   gap: 10px;
 }
 
+.results-header + .lead-list {
+  margin-top: 18px;
+}
+
 .lead-card {
   padding: 19px 20px;
   border: 1px solid var(--color-border);
@@ -16,8 +20,9 @@
 }
 
 .lead-card:hover {
-  border-color: #c9d0ff;
-  box-shadow: 0 12px 26px rgba(25, 26, 32, 0.07);
+  border-color: #d0d0d5;
+  background: var(--color-surface);
+  box-shadow: 0 12px 26px rgba(25, 26, 32, 0.08);
   transform: translateY(-1px);
 }
 
