@@ -1,6 +1,6 @@
 import { ArrowUpRight, CalendarDays, CircleDollarSign, Compass, Users } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getSales, getSavedLeads, type SavedLeadState } from '../services/leadsService'
+import { getGoogleApiUsage, getSales, getSavedLeads, type GoogleApiUsage, type SavedLeadState } from '../services/leadsService'
 import type { Sale } from '../types/sales'
 import type { AppView } from '../components/Sidebar'
 import './OverviewPage.css'
@@ -10,6 +10,9 @@ type OverviewPageProps = {
 }
 
 type OverviewStatus = 'loading' | 'ready' | 'error'
+
+const ringRadius = 62
+const ringCircumference = 2 * Math.PI * ringRadius
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('pt-BR', {
@@ -45,6 +48,7 @@ function isWithinNextWeek(value?: string) {
 export function OverviewPage({ onNavigate }: OverviewPageProps) {
   const [leads, setLeads] = useState<SavedLeadState[]>([])
   const [sales, setSales] = useState<Sale[]>([])
+  const [googleUsage, setGoogleUsage] = useState<GoogleApiUsage | null>(null)
   const [status, setStatus] = useState<OverviewStatus>('loading')
 
   const loadData = useCallback(async () => {
@@ -55,6 +59,7 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
       setLeads(savedLeads)
       setSales(savedSales)
       setStatus('ready')
+      void getGoogleApiUsage().then(setGoogleUsage).catch(() => setGoogleUsage(null))
     } catch {
       setStatus('error')
     }
@@ -69,6 +74,15 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
   const recentSales = sales.slice(0, 3)
   const totalSales = sales.reduce((total, sale) => total + sale.amount, 0)
   const recentLeads = useMemo(() => leads.slice(0, 3), [leads])
+  const googleRequests = googleUsage?.requestsThisMonth ?? 0
+  const googleMonthlyLimit = googleUsage?.monthlyLimit ?? 1000
+  const googleUsageRings = [
+    { label: 'Buscar empresas', requests: googleUsage?.textSearchRequests ?? 0 },
+    { label: 'Atualizar leads', requests: googleUsage?.placeDetailsRequests ?? 0 },
+  ].map((usage) => ({
+    ...usage,
+    percentage: Math.min(100, Math.round((usage.requests / googleMonthlyLimit) * 100)),
+  }))
 
   if (status === 'loading') {
     return <div className="overview-state">Carregando sua visão geral...</div>
@@ -126,6 +140,59 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
           <strong>{formatCurrency(totalSales)}</strong>
           <small>{sales.length} venda(s) no histórico</small>
         </article>
+      </section>
+
+      <section className="panel google-usage-panel" aria-labelledby="google-usage-title">
+        <div className="google-usage-copy">
+          <span className="eyebrow">ACOMPANHAMENTO</span>
+          <h2 id="google-usage-title">Uso geral do Google</h2>
+          <p>Solicitações de todas as contas do DigiBusca neste mês.</p>
+          <strong className="google-usage-total">
+            {new Intl.NumberFormat('pt-BR').format(googleRequests)} solicitações
+          </strong>
+          <small>
+            {googleUsage
+              ? `${googleUsage.requestsToday} solicitação(ões) hoje${
+                  googleUsage.historicalRequests > 0
+                    ? ` · ${new Intl.NumberFormat('pt-BR').format(googleUsage.historicalRequests)} chamadas anteriores importadas do Google Cloud`
+                    : ''
+                }`
+              : 'Contador indisponível no momento'}
+          </small>
+        </div>
+        <div className="google-usage-rings">
+          {googleUsageRings.map((usage) => (
+            <div className="google-usage-visual" key={usage.label}>
+              <div
+                className="google-usage-ring"
+                aria-label={googleUsage ? `${usage.label}: ${usage.percentage}% da franquia utilizada` : `${usage.label}: contador indisponível`}
+              >
+                <svg viewBox="0 0 150 150" aria-hidden="true">
+                  <circle className="google-usage-track" cx="75" cy="75" r={ringRadius} fill="none" strokeWidth="10" />
+                  <circle
+                    className="google-usage-value"
+                    cx="75"
+                    cy="75"
+                    r={ringRadius}
+                    fill="none"
+                    strokeWidth="10"
+                    style={{
+                      strokeDasharray: ringCircumference,
+                      strokeDashoffset: ringCircumference * (1 - usage.percentage / 100),
+                    }}
+                  />
+                </svg>
+                <strong>{googleUsage ? `${usage.percentage}%` : '—'}</strong>
+              </div>
+              <strong className="google-usage-limit">
+                {googleUsage
+                  ? `${new Intl.NumberFormat('pt-BR').format(usage.requests)} / ${new Intl.NumberFormat('pt-BR').format(googleMonthlyLimit)}`
+                  : 'Sem dados'}
+              </strong>
+              <small>{usage.label}</small>
+            </div>
+          ))}
+        </div>
       </section>
 
       <div className="overview-grid">

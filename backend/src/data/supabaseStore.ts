@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { LeadStatus } from '../contracts/lead.js'
 import type { CreateSaleInput, Sale } from '../contracts/sale.js'
 import { createUserSupabaseClient } from '../config/supabase.js'
+import type { GooglePlacesRequestType } from '../integrations/googlePlacesProvider.js'
 
 type SavedLeadRow = {
   lead_id: string
@@ -21,6 +22,15 @@ type SaleRow = {
   sold_at: string
 }
 
+type GoogleApiUsageRow = {
+  requests_today: number | string
+  requests_this_month: number | string
+  text_search_requests: number | string
+  place_details_requests: number | string
+  historical_requests: number | string
+  monthly_limit: number | string
+}
+
 export type SavedLeadState = {
   leadId: string
   status: LeadStatus
@@ -28,6 +38,15 @@ export type SavedLeadState = {
   nextFollowUp?: string
   draftMessage?: string
   updatedAt: string
+}
+
+export type GoogleApiUsage = {
+  requestsToday: number
+  requestsThisMonth: number
+  textSearchRequests: number
+  placeDetailsRequests: number
+  historicalRequests: number
+  monthlyLimit: number
 }
 
 function mapSavedLeadState(row: SavedLeadRow): SavedLeadState {
@@ -157,5 +176,27 @@ export class SupabaseStore {
 
     throwIfError(error)
     return mapSale(data as SaleRow)
+  }
+
+  async recordGoogleApiCall(accessToken: string, requestType: GooglePlacesRequestType): Promise<void> {
+    const { error } = await this.client(accessToken).rpc('increment_google_api_usage', {
+      google_request_type: requestType,
+    })
+    throwIfError(error)
+  }
+
+  async getGoogleApiUsage(accessToken: string): Promise<GoogleApiUsage> {
+    const { data, error } = await this.client(accessToken).rpc('get_google_api_usage')
+    throwIfError(error)
+
+    const usage = (data as GoogleApiUsageRow[] | null)?.[0]
+    return {
+      requestsToday: Number(usage?.requests_today ?? 0),
+      requestsThisMonth: Number(usage?.requests_this_month ?? 0),
+      textSearchRequests: Number(usage?.text_search_requests ?? 0),
+      placeDetailsRequests: Number(usage?.place_details_requests ?? 0),
+      historicalRequests: Number(usage?.historical_requests ?? 0),
+      monthlyLimit: Number(usage?.monthly_limit ?? 1000),
+    }
   }
 }

@@ -18,6 +18,15 @@ export type SavedLeadState = {
   updatedAt: string
 }
 
+export type GoogleApiUsage = {
+  requestsToday: number
+  requestsThisMonth: number
+  textSearchRequests: number
+  placeDetailsRequests: number
+  historicalRequests: number
+  monthlyLimit: number
+}
+
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '/api'
 
 export async function authenticatedFetch(input: string, init: RequestInit = {}): Promise<Response> {
@@ -158,6 +167,17 @@ export async function getSales(): Promise<Sale[]> {
   }
 
   const payload = (await response.json()) as { data: Sale[] }
+  return payload.data
+}
+
+export async function getGoogleApiUsage(): Promise<GoogleApiUsage> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/google-api-usage`)
+
+  if (!response.ok) {
+    throw new Error('Não foi possível carregar o contador de uso do Google.')
+  }
+
+  const payload = (await response.json()) as { data: GoogleApiUsage }
   return payload.data
 }
 

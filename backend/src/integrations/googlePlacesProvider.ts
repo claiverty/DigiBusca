@@ -39,6 +39,10 @@ type GooglePlacesResponse = {
   nextPageToken?: string
 }
 
+export type GooglePlacesRequestType = 'text_search' | 'place_details'
+
+type GoogleRequestTracker = (type: GooglePlacesRequestType) => Promise<void>
+
 function isAllSegments(segment: string | undefined): boolean {
   return !segment || segment.trim().toLocaleLowerCase('pt-BR') === 'todos os segmentos'
 }
@@ -112,9 +116,11 @@ function mapPlace(place: GooglePlace): Lead | undefined {
 
 export class GooglePlacesProvider implements LeadProvider {
   private readonly apiKey: string | undefined
+  private readonly onRequest?: GoogleRequestTracker
 
-  constructor(apiKey = getGoogleMapsApiKey()) {
+  constructor(apiKey = getGoogleMapsApiKey(), onRequest?: GoogleRequestTracker) {
     this.apiKey = apiKey?.trim() || undefined
+    this.onRequest = onRequest
   }
 
   get isConfigured(): boolean {
@@ -158,6 +164,7 @@ export class GooglePlacesProvider implements LeadProvider {
         body: JSON.stringify(body),
         signal: controller.signal,
       })
+      await this.trackRequest('text_search')
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error('Google Places demorou para responder. Tente novamente em instantes.')
@@ -207,6 +214,7 @@ export class GooglePlacesProvider implements LeadProvider {
           signal: controller.signal,
         },
       )
+      await this.trackRequest('place_details')
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error('Google Places demorou para responder. Tente novamente em instantes.')
@@ -241,5 +249,13 @@ export class GooglePlacesProvider implements LeadProvider {
     }
 
     return { ...lead, ...changes }
+  }
+
+  private async trackRequest(type: GooglePlacesRequestType) {
+    try {
+      await this.onRequest?.(type)
+    } catch {
+      // O acompanhamento não pode impedir a busca caso o banco esteja indisponível.
+    }
   }
 }

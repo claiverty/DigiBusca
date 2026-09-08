@@ -160,6 +160,10 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 
   const { accessToken, user } = authentication
+  const trackedLeadProvider = new GooglePlacesProvider(
+    undefined,
+    (requestType) => persistenceStore.recordGoogleApiCall(accessToken, requestType),
+  )
 
   if (request.method === 'GET' && requestUrl.pathname === '/api/locations/countries') {
     sendJson(response, 200, { data: await listCountries() })
@@ -281,26 +285,43 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 
   if (requestUrl.pathname === '/api/saved-leads') {
-    const savedStates = await persistenceStore.listSavedLeadStates(accessToken, user.id)
-    const savedLeads = (
-      await Promise.all(
-        savedStates.map(async (savedState) => {
-          try {
-            const lead = await leadProvider.findById(savedState.leadId)
-            return lead ? mergeSavedLeadState(lead, savedState) : undefined
-          } catch {
-            return undefined
-          }
-        }),
-      )
-    ).filter((lead): lead is NonNullable<typeof lead> => Boolean(lead))
+    sendJson(response, 200, {
+      data: await persistenceStore.listSavedLeadStates(accessToken, user.id),
+    })
+    return
+  }
 
-    sendJson(response, 200, { data: savedLeads })
+  const savedLeadDetailMatch = requestUrl.pathname.match(/^\/api\/saved-leads\/([^/]+)$/)
+  if (savedLeadDetailMatch) {
+    const savedState = await persistenceStore.getSavedLeadState(accessToken, user.id, savedLeadDetailMatch[1])
+    if (!savedState) {
+      sendJson(response, 404, { error: 'Este lead não está salvo na sua conta.' })
+      return
+    }
+
+    try {
+      const lead = await trackedLeadProvider.findById(savedState.leadId)
+      if (!lead) {
+        sendJson(response, 404, { error: 'Não foi possível encontrar este negócio no Google agora.' })
+        return
+      }
+
+      sendJson(response, 200, { data: mergeSavedLeadState(lead, savedState) })
+    } catch (error) {
+      sendJson(response, 503, {
+        error: error instanceof Error ? error.message : 'Não foi possível atualizar os dados deste negócio agora.',
+      })
+    }
     return
   }
 
   if (requestUrl.pathname === '/api/sales') {
     sendJson(response, 200, { data: await persistenceStore.listSales(accessToken, user.id) })
+    return
+  }
+
+  if (requestUrl.pathname === '/api/google-api-usage') {
+    sendJson(response, 200, { data: await persistenceStore.getGoogleApiUsage(accessToken) })
     return
   }
 
@@ -327,7 +348,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
 
     try {
-      const payload = await executeSearchLeads(leadProvider, {
+      const payload = await executeSearchLeads(trackedLeadProvider, {
         ...query,
         ...(opportunity ? { opportunity: opportunity as OpportunityType } : {}),
       })

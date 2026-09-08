@@ -109,6 +109,10 @@ async function handleApiRequest(request: Request) {
   }
 
   const { accessToken, user } = authentication
+  const trackedLeadProvider = new GooglePlacesProvider(
+    undefined,
+    (requestType) => persistenceStore.recordGoogleApiCall(accessToken, requestType),
+  )
 
   function limitGoogleRequest(scope: 'search' | 'saved-lead') {
     const limit = scope === 'search' ? 12 : 24
@@ -193,7 +197,7 @@ async function handleApiRequest(request: Request) {
     if (rateLimitResponse) return rateLimitResponse
 
     try {
-      const lead = await leadProvider.findById(savedState.leadId)
+      const lead = await trackedLeadProvider.findById(savedState.leadId)
       if (!lead) {
         return jsonResponse(request, 404, { error: 'Não foi possível encontrar este negócio no Google agora.' })
       }
@@ -216,6 +220,10 @@ async function handleApiRequest(request: Request) {
     return jsonResponse(request, 200, { data: await persistenceStore.listSales(accessToken, user.id) })
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/google-api-usage') {
+    return jsonResponse(request, 200, { data: await persistenceStore.getGoogleApiUsage(accessToken) })
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/leads') {
     const { opportunity, ...query } = getSearchParams(url)
     if (!query.city) return jsonResponse(request, 400, { error: 'O parâmetro city é obrigatório.' })
@@ -231,7 +239,7 @@ async function handleApiRequest(request: Request) {
 
     try {
       return jsonResponse(request, 200, {
-        ...(await executeSearchLeads(leadProvider, {
+        ...(await executeSearchLeads(trackedLeadProvider, {
           ...query,
           ...(opportunity ? { opportunity: opportunity as OpportunityType } : {}),
         })),

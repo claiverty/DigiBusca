@@ -1,4 +1,4 @@
-import { ArrowUpRight, CalendarDays, RefreshCw } from 'lucide-react'
+import { ArrowUpRight, CalendarDays, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { FilterCombobox } from '../components/FilterCombobox'
 import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
@@ -8,6 +8,7 @@ import './SavedLeadsPage.css'
 type SavedLeadsPageProps = {
   cachedLeads: Lead[]
   onOpenLead: (leadId: string) => Promise<void>
+  onRemoveLead: (leadId: string) => Promise<void>
   onSearch: () => void
 }
 
@@ -35,6 +36,7 @@ function formatFollowUpDate(value: string) {
 export function SavedLeadsPage({
   cachedLeads,
   onOpenLead,
+  onRemoveLead,
   onSearch,
 }: SavedLeadsPageProps) {
   const [leads, setLeads] = useState<SavedLeadState[]>([])
@@ -44,6 +46,10 @@ export function SavedLeadsPage({
   const [followUpFilter, setFollowUpFilter] = useState('Todos')
   const [openingLeadId, setOpeningLeadId] = useState<string | null>(null)
   const [openingError, setOpeningError] = useState('')
+  const [openingErrorLeadId, setOpeningErrorLeadId] = useState<string | null>(null)
+  const [pendingRemovalLeadId, setPendingRemovalLeadId] = useState<string | null>(null)
+  const [removingLeadId, setRemovingLeadId] = useState<string | null>(null)
+  const [removalError, setRemovalError] = useState('')
 
   const cachedLeadById = useMemo(
     () => new Map(cachedLeads.map((lead) => [lead.id, lead])),
@@ -71,12 +77,29 @@ export function SavedLeadsPage({
   async function openLead(leadId: string) {
     setOpeningLeadId(leadId)
     setOpeningError('')
+    setOpeningErrorLeadId(null)
 
     try {
       await onOpenLead(leadId)
     } catch (error) {
       setOpeningError(error instanceof Error ? error.message : 'Não foi possível atualizar este lead agora.')
+      setOpeningErrorLeadId(leadId)
       setOpeningLeadId(null)
+    }
+  }
+
+  async function removeLead(leadId: string) {
+    setRemovingLeadId(leadId)
+    setRemovalError('')
+
+    try {
+      await onRemoveLead(leadId)
+      setLeads((current) => current.filter((lead) => lead.leadId !== leadId))
+      setPendingRemovalLeadId(null)
+    } catch (error) {
+      setRemovalError(error instanceof Error ? error.message : 'Não foi possível excluir este lead agora.')
+    } finally {
+      setRemovingLeadId(null)
     }
   }
 
@@ -189,7 +212,7 @@ export function SavedLeadsPage({
           </button>
         </div>
       )}
-      {openingError && <p className="data-state" role="alert">{openingError}</p>}
+      {removalError && <p className="data-state" role="alert">{removalError}</p>}
       {status === 'ready' && (
         <>
           <p className="muted" role="status">
@@ -219,15 +242,51 @@ export function SavedLeadsPage({
                       || cachedLeadById.get(lead.leadId)?.category
                       || 'Abra a ficha para atualizar os dados da empresa e continuar a abordagem.'}
                   </p>
-                  <button
-                    className="secondary-button saved-lead-open"
-                    type="button"
-                    onClick={() => void openLead(lead.leadId)}
-                    disabled={openingLeadId === lead.leadId}
-                  >
-                    <RefreshCw size={16} aria-hidden="true" />
-                    {openingLeadId === lead.leadId ? 'Atualizando...' : 'Abrir e atualizar dados'}
-                  </button>
+                  {openingErrorLeadId === lead.leadId && (
+                    <p className="saved-lead-error" role="alert">{openingError}</p>
+                  )}
+                  <div className="saved-lead-actions">
+                    <button
+                      className="secondary-button saved-lead-open"
+                      type="button"
+                      onClick={() => void openLead(lead.leadId)}
+                      disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
+                    >
+                      <RefreshCw size={16} aria-hidden="true" />
+                      {openingLeadId === lead.leadId ? 'Atualizando...' : 'Abrir e atualizar dados'}
+                    </button>
+                    {pendingRemovalLeadId === lead.leadId ? (
+                      <div className="saved-lead-remove-confirm">
+                        <span>Excluir este lead salvo?</span>
+                        <button
+                          className="saved-lead-delete"
+                          type="button"
+                          onClick={() => void removeLead(lead.leadId)}
+                          disabled={removingLeadId === lead.leadId}
+                        >
+                          {removingLeadId === lead.leadId ? 'Excluindo...' : 'Excluir'}
+                        </button>
+                        <button
+                          className="text-button"
+                          type="button"
+                          onClick={() => setPendingRemovalLeadId(null)}
+                          disabled={removingLeadId === lead.leadId}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        className="saved-lead-delete"
+                        type="button"
+                        onClick={() => setPendingRemovalLeadId(lead.leadId)}
+                        disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
+                      >
+                        <Trash2 size={16} aria-hidden="true" />
+                        Excluir lead
+                      </button>
+                    )}
+                  </div>
                 </section>
               ))}
             </div>

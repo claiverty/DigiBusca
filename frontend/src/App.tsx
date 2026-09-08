@@ -41,19 +41,23 @@ function App() {
 
   async function toggleSavedLead(lead: Lead) {
     if (savedLeadIds.has(lead.id)) {
-      await removeSavedLead(lead.id)
-      savedLeads.current.delete(lead.id)
-      setSavedLeadIds((current) => {
-        const next = new Set(current)
-        next.delete(lead.id)
-        return next
-      })
+      await removeLead(lead.id)
       return
     }
 
     const saved = await saveLead(lead)
     savedLeads.current.set(lead.id, saved)
     setSavedLeadIds((current) => new Set(current).add(lead.id))
+  }
+
+  async function removeLead(leadId: string) {
+    await removeSavedLead(leadId)
+    savedLeads.current.delete(leadId)
+    setSavedLeadIds((current) => {
+      const next = new Set(current)
+      next.delete(leadId)
+      return next
+    })
   }
 
   async function updateSelectedLead(changes: LeadUpdate) {
@@ -133,6 +137,7 @@ function App() {
           <SavedLeadsPage
             cachedLeads={Array.from(savedLeads.current.values())}
             onOpenLead={openSavedLead}
+            onRemoveLead={removeLead}
             onSearch={() => handleNavigate('search')}
           />
         )}
