@@ -251,9 +251,6 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
             Pesquise uma região e encontre negócios com espaço para melhorar sua presença digital.
           </p>
         </div>
-        <div className="avatar" aria-label="Conta do usuário">
-          C
-        </div>
       </header>
 
       <SearchPanel

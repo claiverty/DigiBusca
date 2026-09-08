@@ -22,18 +22,6 @@ h1 {
   line-height: 1.55;
 }
 
-.avatar {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: #fff;
-  background: #1c1d21;
-  font-size: 13px;
-  font-weight: 600;
-}
-
 .results-header {
   display: flex;
   align-items: flex-end;

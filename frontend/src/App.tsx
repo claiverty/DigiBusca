@@ -22,6 +22,7 @@ function App() {
   const { user, signOut, showLanding } = useAuth()
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [activeView, setActiveView] = useState<AppView>('overview')
+  const [isNewSaleRequested, setIsNewSaleRequested] = useState(false)
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
   const savedLeads = useRef(new Map<string, Lead>())
 
@@ -96,6 +97,12 @@ function App() {
     setActiveView(view)
   }
 
+  function handleNewSale() {
+    setSelectedLead(null)
+    setActiveView('finance')
+    setIsNewSaleRequested(true)
+  }
+
   if (selectedLead) {
     return (
       <div className="app-shell">
@@ -105,6 +112,7 @@ function App() {
           userEmail={user.email ?? 'Conta conectada'}
           onSignOut={() => void signOut()}
           onShowLanding={showLanding}
+          onNewSale={handleNewSale}
         />
         <main className="content">
           <LeadDetail
@@ -128,6 +136,7 @@ function App() {
         userEmail={user.email ?? 'Conta conectada'}
         onSignOut={() => void signOut()}
         onShowLanding={showLanding}
+        onNewSale={handleNewSale}
       />
       <main className="content">
         {activeView === 'overview' && (
@@ -141,7 +150,12 @@ function App() {
             onSearch={() => handleNavigate('search')}
           />
         )}
-        {activeView === 'finance' && <FinancePage />}
+        {activeView === 'finance' && (
+          <FinancePage
+            openNewSale={isNewSaleRequested}
+            onNewSaleOpened={() => setIsNewSaleRequested(false)}
+          />
+        )}
         {activeView === 'search' && (
           <SearchPage onSelectLead={(lead) => setSelectedLead(savedLeads.current.get(lead.id) ?? lead)} />
         )}

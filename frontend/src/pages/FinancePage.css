@@ -44,7 +44,7 @@
 .period-tab:hover,
 .period-tab.active {
   color: var(--color-text);
-  background: #f8eeee;
+  background: #f4f4f6;
 }
 
 .finance-summary {
@@ -385,7 +385,7 @@
 .sale-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  z-index: 70;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -450,9 +450,8 @@
     left: 22px;
     font-size: 11px;
   }
-  .floating-sale-button {
-    right: 18px;
-    bottom: 18px;
+  .primary-button.floating-sale-button {
+    display: none;
   }
   .sale-toast {
     right: 18px;

@@ -73,7 +73,12 @@ function buildChartPath(dates: string[], sales: Sale[], max: number) {
     .join(' ')
 }
 
-export function FinancePage() {
+type FinancePageProps = {
+  openNewSale?: boolean
+  onNewSaleOpened?: () => void
+}
+
+export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePageProps) {
   const [sales, setSales] = useState<Sale[]>([])
   const [period, setPeriod] = useState<Period>('7d')
   const [businessName, setBusinessName] = useState('')
@@ -114,6 +119,13 @@ export function FinancePage() {
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
   }, [showSaleForm])
+
+  useEffect(() => {
+    if (!openNewSale) return
+    setFeedback('')
+    setShowSaleForm(true)
+    onNewSaleOpened?.()
+  }, [onNewSaleOpened, openNewSale])
 
   const periodSales = useMemo(
     () => sales.filter((sale) => isInPeriod(sale.soldAt, period)),

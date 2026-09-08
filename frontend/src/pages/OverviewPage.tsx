@@ -107,9 +107,6 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
           <h1>Seu próximo negócio começa aqui.</h1>
           <p>Veja o que merece atenção e continue sua prospecção.</p>
         </div>
-        <button className="avatar overview-avatar" type="button" aria-label="Conta do usuário">
-          C
-        </button>
       </header>
 
       <div className="overview-actions">
