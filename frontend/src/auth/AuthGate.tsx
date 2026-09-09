@@ -2,12 +2,13 @@ import {
   createContext,
   type FormEvent,
   type PropsWithChildren,
+  useCallback,
   useContext,
   useEffect,
   useState,
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
-import { ArrowLeft, Eye, EyeOff, Mail } from 'lucide-react'
+import { ArrowLeft, Building2, CalendarClock, Eye, EyeOff, LayoutDashboard, Mail, MessageSquareText, UsersRound, Wallet } from 'lucide-react'
 import { FaGoogle } from 'react-icons/fa'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 import { LandingPage } from '../pages/LandingPage'
@@ -19,8 +20,17 @@ const providers = [
 ] as const
 
 type AuthProvider = (typeof providers)[number]['id']
-type AuthScreen = 'providers' | 'email' | 'forgot' | 'reset'
+type AuthScreen = 'providers' | 'forgot'
 type LegalPageName = 'privacy' | 'terms'
+type AppRoute = '/' | '/login' | '/cadastro' | '/sistema'
+
+const appRoutes = new Set<AppRoute>(['/', '/login', '/cadastro', '/sistema'])
+
+function getCurrentRoute(): AppRoute {
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
+
+  return appRoutes.has(pathname as AppRoute) ? (pathname as AppRoute) : '/'
+}
 
 const providerIcons = {
   google: FaGoogle,
@@ -78,6 +88,58 @@ function PasswordField({
   )
 }
 
+function AuthShowcase() {
+  return (
+    <aside className="auth-showcase" aria-label="Uma visão do DigiBusca">
+      <div className="auth-dashboard-stage" aria-hidden="true">
+        <div className="auth-dashboard-frame">
+          <div className="auth-dashboard-topbar">
+            <span className="auth-dashboard-brand"><i /> DigiBusca</span>
+            <b>C</b>
+          </div>
+          <div className="auth-dashboard-body">
+            <nav>
+              <span className="active"><LayoutDashboard size={13} /></span>
+              <span><Building2 size={13} /></span>
+              <span><UsersRound size={13} /></span>
+              <span><Wallet size={13} /></span>
+            </nav>
+            <div className="auth-dashboard-content">
+              <small>VISÃO GERAL</small>
+              <h3>Seu próximo negócio começa aqui.</h3>
+              <div className="auth-dashboard-stats">
+                <article><UsersRound size={13} /><span>Leads salvos</span><strong>18</strong></article>
+                <article><CalendarClock size={13} /><span>Follow-ups</span><strong>6</strong></article>
+                <article><Wallet size={13} /><span>Vendas</span><strong>R$ 8,4k</strong></article>
+              </div>
+              <div className="auth-dashboard-activity">
+                <span>ATIVIDADE RECENTE</span>
+                <div><i /><i /><i /><i /><i /></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="auth-floating-lead">
+          <Building2 size={16} />
+          <span><small>OPORTUNIDADE</small><strong>Empresa sem site</strong></span>
+          <b>89%</b>
+        </div>
+        <div className="auth-floating-message">
+          <MessageSquareText size={16} />
+          <span><strong>Abordagem pronta</strong><small>Gerada com IA</small></span>
+        </div>
+      </div>
+
+      <div className="auth-showcase-copy">
+        <span className="auth-showcase-eyebrow">DIGIBUSCA</span>
+        <h2>Sua prospecção, organizada de verdade.</h2>
+        <p>Busque oportunidades, prepare abordagens e acompanhe cada conversa.</p>
+      </div>
+    </aside>
+  )
+}
+
 export function useAuth() {
   const auth = useContext(AuthContext)
 
@@ -93,16 +155,36 @@ export function AuthGate({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured)
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
   const [authScreen, setAuthScreen] = useState<AuthScreen>('providers')
-  const [isLanding, setIsLanding] = useState(true)
-  const [isPublicLanding, setIsPublicLanding] = useState(false)
+  const [route, setRoute] = useState<AppRoute>(getCurrentRoute)
   const [legalPage, setLegalPage] = useState<LegalPageName | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [isCreatingAccount, setIsCreatingAccount] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [feedback, setFeedback] = useState('')
+  const isCreatingAccount = route === '/cadastro'
+
+  const navigateTo = useCallback((nextRoute: AppRoute, replace = false) => {
+    if (window.location.pathname !== nextRoute || window.location.hash) {
+      window.history[replace ? 'replaceState' : 'pushState']({}, '', nextRoute)
+    }
+
+    setRoute(nextRoute)
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [])
+
+  useEffect(() => {
+    const syncRoute = () => setRoute(getCurrentRoute())
+    const currentRoute = getCurrentRoute()
+
+    if (window.location.pathname !== currentRoute) {
+      window.history.replaceState({}, '', currentRoute)
+    }
+
+    window.addEventListener('popstate', syncRoute)
+    return () => window.removeEventListener('popstate', syncRoute)
+  }, [])
 
   useEffect(() => {
     if (!supabase) {
@@ -139,6 +221,21 @@ export function AuthGate({ children }: PropsWithChildren) {
     }
   }, [])
 
+  useEffect(() => {
+    if (isLoading) {
+      return
+    }
+
+    if (!session && route === '/sistema') {
+      navigateTo('/login', true)
+      return
+    }
+
+    if (session && !isPasswordRecovery && (route === '/login' || route === '/cadastro')) {
+      navigateTo('/sistema', true)
+    }
+  }, [isLoading, isPasswordRecovery, navigateTo, route, session])
+
   async function handleProviderLogin(provider: AuthProvider) {
     if (!supabase) {
       return
@@ -147,7 +244,7 @@ export function AuthGate({ children }: PropsWithChildren) {
     setError('')
     const { error: loginError } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: `${window.location.origin}/sistema` },
     })
 
     if (loginError) {
@@ -184,7 +281,7 @@ export function AuthGate({ children }: PropsWithChildren) {
       ? await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { emailRedirectTo: window.location.origin },
+          options: { emailRedirectTo: `${window.location.origin}/sistema` },
         })
       : await supabase.auth.signInWithPassword({
           email: email.trim(),
@@ -225,7 +322,7 @@ export function AuthGate({ children }: PropsWithChildren) {
     setIsSubmitting(true)
     setError('')
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: window.location.origin,
+      redirectTo: `${window.location.origin}/login`,
     })
     setIsSubmitting(false)
 
@@ -276,30 +373,36 @@ export function AuthGate({ children }: PropsWithChildren) {
 
   function handleOpenSignIn() {
     if (session) {
-      setIsPublicLanding(false)
+      navigateTo('/sistema')
       return
     }
 
     setError('')
     setFeedback('')
-    setIsCreatingAccount(false)
     setLegalPage(null)
     setAuthScreen('providers')
-    setIsLanding(false)
+    navigateTo('/login')
   }
 
   function handleOpenCreateAccount() {
     if (session) {
-      setIsPublicLanding(false)
+      navigateTo('/sistema')
       return
     }
 
     setError('')
     setFeedback('')
-    setIsCreatingAccount(true)
     setLegalPage(null)
     setAuthScreen('providers')
-    setIsLanding(false)
+    navigateTo('/cadastro')
+  }
+
+  function handleSwitchAuthMode() {
+    setError('')
+    setFeedback('')
+    setPassword('')
+    setConfirmPassword('')
+    navigateTo(isCreatingAccount ? '/login' : '/cadastro')
   }
 
   async function handleSignOut() {
@@ -309,13 +412,13 @@ export function AuthGate({ children }: PropsWithChildren) {
 
     await supabase.auth.signOut()
     setSession(null)
-    setIsLanding(true)
     setAuthScreen('providers')
     setPassword('')
     setConfirmPassword('')
     setIsPasswordRecovery(false)
     setFeedback('')
     setError('')
+    navigateTo('/')
   }
 
   if (!isSupabaseConfigured) {
@@ -325,7 +428,7 @@ export function AuthGate({ children }: PropsWithChildren) {
           <button
             className="auth-brand"
             type="button"
-            onClick={() => setIsLanding(true)}
+            onClick={() => navigateTo('/')}
             aria-label="Voltar ao início"
           >
             <span className="auth-brand-mark" />
@@ -363,7 +466,7 @@ export function AuthGate({ children }: PropsWithChildren) {
       return <LegalPage page={legalPage} onBack={() => setLegalPage(null)} />
     }
 
-    if (isLanding) {
+    if (route === '/') {
       return (
         <LandingPage
           onCreateAccount={handleOpenCreateAccount}
@@ -374,100 +477,42 @@ export function AuthGate({ children }: PropsWithChildren) {
     }
 
     return (
-      <main className="auth-page">
-        <section className="auth-card panel" aria-labelledby="auth-title">
-          <button
-            className="auth-brand"
-            type="button"
-            onClick={() => setIsLanding(true)}
-            aria-label="Voltar ao início"
-          >
-            <span className="auth-brand-mark" />
-            <span>DigiBusca</span>
-          </button>
+      <main className="auth-page auth-access-page">
+        <div className="auth-shell">
+          <section className="auth-card auth-access-panel" aria-labelledby="auth-title">
+            <button
+              className="auth-brand"
+              type="button"
+              onClick={() => navigateTo('/')}
+              aria-label="Voltar ao início"
+            >
+              <span className="auth-brand-mark" />
+              <span>DigiBusca</span>
+            </button>
           {authScreen === 'providers' && (
-            <>
+            <form className="auth-form auth-primary-form" onSubmit={handleEmailSubmit}>
               <span className="eyebrow">PROSPECÇÃO DIGITAL</span>
               <h1 id="auth-title">
-                {isCreatingAccount ? 'Crie sua conta.' : 'Encontre sua próxima oportunidade.'}
+                {isCreatingAccount ? 'Crie sua conta.' : 'Bem-vindo de volta.'}
               </h1>
               <p>
                 {isCreatingAccount
                   ? 'Comece a organizar seus leads, abordagens e vendas em um só lugar.'
-                  : 'Entre para organizar seus leads, abordagens e vendas em um só lugar.'}
-              </p>
-              <div className="social-login-list">
-                {providers.map(({ id, label }) => {
-                  const Icon = providerIcons[id]
-
-                  return (
-                    <button
-                      className={`social-login-button provider-${id}`}
-                      key={id}
-                      type="button"
-                      onClick={() => void handleProviderLogin(id)}
-                    >
-                      <Icon className="social-icon" aria-hidden="true" />
-                      {isCreatingAccount ? `Criar com ${label}` : `Continuar com ${label}`}
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="auth-divider" aria-hidden="true">
-                <span />
-                <small>Ou</small>
-                <span />
-              </div>
-              <button
-                className="social-login-button email-login-button"
-                type="button"
-                onClick={() => {
-                  setError('')
-                  setFeedback('')
-                  setAuthScreen('email')
-                }}
-              >
-                <Mail className="social-icon" aria-hidden="true" />
-                {isCreatingAccount ? 'Criar conta com e-mail' : 'Login com e-mail'}
-              </button>
-              <button
-                className="auth-home-link"
-                type="button"
-                onClick={() => {
-                  setError('')
-                  setFeedback('')
-                  setIsCreatingAccount((current) => !current)
-                }}
-              >
-                {isCreatingAccount ? 'Já tenho uma conta? Entrar' : 'Não tenho uma conta? Criar conta'}
-              </button>
-            </>
-          )}
-
-          {authScreen === 'email' && (
-            <form className="auth-form" onSubmit={handleEmailSubmit}>
-              <button className="auth-back-button" type="button" onClick={handleBackToProviders}>
-                <ArrowLeft size={16} aria-hidden="true" /> Voltar
-              </button>
-              <span className="eyebrow">
-                {isCreatingAccount ? 'CADASTRO COM E-MAIL' : 'LOGIN COM E-MAIL'}
-              </span>
-              <h1 id="auth-title">{isCreatingAccount ? 'Crie sua conta.' : 'Entre na sua conta.'}</h1>
-              <p>
-                {isCreatingAccount
-                  ? 'Crie uma conta para organizar seus leads, abordagens e vendas.'
-                  : 'Use seu e-mail e senha para acessar seu espaço.'}
+                  : 'Acesse sua carteira de leads e continue de onde parou.'}
               </p>
               <label className="auth-field">
                 <span>Seu e-mail</span>
-                <input
-                  autoFocus
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="seu@email.com"
-                  autoComplete="email"
-                />
+                <span className="auth-input-wrap">
+                  <Mail className="auth-input-icon" size={17} aria-hidden="true" />
+                  <input
+                    autoFocus
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="seu@email.com"
+                    autoComplete="email"
+                  />
+                </span>
               </label>
               <PasswordField
                 label="Senha"
@@ -485,11 +530,9 @@ export function AuthGate({ children }: PropsWithChildren) {
                   autoComplete="new-password"
                 />
               )}
-              <button className="email-submit-button" type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Aguarde...' : isCreatingAccount ? 'Criar conta' : 'Entrar'}
-              </button>
-              <div className="auth-secondary-actions">
-                {!isCreatingAccount && (
+              {!isCreatingAccount && (
+                <div className="auth-login-options">
+                  <span>Acesso seguro</span>
                   <button
                     className="auth-link-button"
                     type="button"
@@ -501,21 +544,37 @@ export function AuthGate({ children }: PropsWithChildren) {
                   >
                     Esqueceu sua senha?
                   </button>
-                )}
-                <button
-                  className="auth-link-button"
-                  type="button"
-                  onClick={() => {
-                    setError('')
-                    setFeedback('')
-                    setIsCreatingAccount((current) => !current)
-                    setPassword('')
-                    setConfirmPassword('')
-                  }}
-                >
-                  {isCreatingAccount ? 'Já tenho uma conta' : 'Criar uma conta'}
-                </button>
+                </div>
+              )}
+              <button className="email-submit-button" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? 'Aguarde...' : isCreatingAccount ? 'Criar conta' : 'Entrar'}
+              </button>
+
+              <div className="auth-divider" aria-hidden="true">
+                <span />
+                <small>Ou</small>
+                <span />
               </div>
+              <div className="social-login-list auth-social-alternative">
+                {providers.map(({ id, label }) => {
+                  const Icon = providerIcons[id]
+
+                  return (
+                    <button
+                      className="auth-social-icon-button"
+                      key={id}
+                      type="button"
+                      aria-label={isCreatingAccount ? `Criar com ${label}` : `Continuar com ${label}`}
+                      onClick={() => void handleProviderLogin(id)}
+                    >
+                      <Icon aria-hidden="true" />
+                    </button>
+                  )
+                })}
+              </div>
+              <button className="auth-home-link" type="button" onClick={handleSwitchAuthMode}>
+                {isCreatingAccount ? 'Já tenho uma conta' : 'Criar uma conta'}
+              </button>
             </form>
           )}
 
@@ -550,13 +609,14 @@ export function AuthGate({ children }: PropsWithChildren) {
             </p>
           )}
           {feedback && <p className="auth-feedback">{feedback}</p>}
-          {authScreen === 'providers' && <small>Você será redirecionado para o provedor escolhido.</small>}
-        </section>
+          </section>
+          <AuthShowcase />
+        </div>
       </main>
     )
   }
 
-  if (isPublicLanding) {
+  if (route === '/') {
     if (legalPage) {
       return <LegalPage page={legalPage} onBack={() => setLegalPage(null)} />
     }
@@ -614,7 +674,7 @@ export function AuthGate({ children }: PropsWithChildren) {
 
   return (
     <AuthContext.Provider
-      value={{ user: session.user, signOut: handleSignOut, showLanding: () => setIsPublicLanding(true) }}
+      value={{ user: session.user, signOut: handleSignOut, showLanding: () => navigateTo('/') }}
     >
       {children}
     </AuthContext.Provider>
