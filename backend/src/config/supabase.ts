@@ -6,6 +6,7 @@ export type RuntimeEnvironment = {
   VITE_SUPABASE_URL?: string
   VITE_SUPABASE_ANON_KEY?: string
   GOOGLE_MAPS_API_KEY?: string
+  GEMINI_API_KEY?: string
 }
 
 let runtimeEnvironment: RuntimeEnvironment | undefined
@@ -28,6 +29,10 @@ export function configureRuntimeEnvironment(nextEnvironment: RuntimeEnvironment)
 
 export function getGoogleMapsApiKey() {
   return environment().GOOGLE_MAPS_API_KEY
+}
+
+export function getGeminiApiKey() {
+  return environment().GEMINI_API_KEY
 }
 
 function getSupabaseConfig() {

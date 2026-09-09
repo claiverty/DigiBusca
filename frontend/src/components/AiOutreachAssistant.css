@@ -1,0 +1,255 @@
+.ai-outreach-trigger {
+  color: var(--color-text);
+}
+
+.ai-outreach-trigger svg {
+  color: var(--color-accent);
+}
+
+.ai-outreach-backdrop {
+  position: fixed;
+  z-index: 110;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(18, 19, 24, 0.42);
+  backdrop-filter: blur(4px);
+}
+
+.ai-outreach-modal {
+  width: min(720px, 100%);
+  max-height: calc(100dvh - 48px);
+  padding: 26px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 28px 70px rgba(18, 19, 24, 0.24);
+}
+
+.ai-outreach-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ai-outreach-header h2 {
+  max-width: 560px;
+  margin-top: 8px;
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+
+.ai-outreach-close {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--color-text-subtle);
+  background: var(--color-background);
+}
+
+.ai-outreach-close:hover {
+  color: var(--color-text);
+}
+
+.ai-outreach-privacy {
+  margin: 16px 0 20px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: var(--color-text-subtle);
+  background: var(--color-background);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-outreach-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.ai-outreach-form label,
+.ai-outreach-form fieldset {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ai-outreach-form label > span,
+.ai-outreach-form legend {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.ai-outreach-form input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  outline: 0;
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 13px;
+}
+
+.ai-outreach-form input:focus {
+  border-color: #aeb0b8;
+}
+
+.ai-outreach-tones {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+}
+
+.ai-outreach-tones button {
+  min-height: 36px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--color-text-subtle);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ai-outreach-tones button.active {
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-control);
+}
+
+.ai-outreach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.ai-outreach-error {
+  margin-top: 14px;
+  padding: 11px 13px;
+  border-radius: 14px;
+  color: #8b3434;
+  background: #fff1f1;
+  font-size: 12px;
+}
+
+.ai-outreach-results {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.ai-outreach-result {
+  padding: 15px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+}
+
+.ai-outreach-result.featured {
+  background: var(--color-background);
+}
+
+.ai-outreach-result > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-outreach-result span {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ai-outreach-result button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--color-text-subtle);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ai-outreach-result button:hover {
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.ai-outreach-result p {
+  margin-top: 10px;
+  color: #55565e;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ai-use-message {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+.ai-outreach-note {
+  display: block;
+  margin-top: 18px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.ai-spinning {
+  animation: ai-spin 0.9s linear infinite;
+}
+
+@keyframes ai-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 590px) {
+  .ai-outreach-backdrop {
+    align-items: center;
+    padding: 12px;
+  }
+
+  .ai-outreach-modal {
+    max-height: calc(100dvh - 24px);
+    padding: 20px;
+  }
+
+  .ai-outreach-header h2 {
+    font-size: 20px;
+  }
+
+  .ai-outreach-form {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-outreach-actions .primary-button,
+  .ai-outreach-actions .secondary-button,
+  .ai-use-message {
+    width: 100%;
+    justify-content: center;
+  }
+}

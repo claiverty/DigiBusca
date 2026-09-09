@@ -7,6 +7,10 @@ import type { CreateSaleInput } from '../contracts/sale.js'
 import { authenticateRequest, configureRuntimeEnvironment } from '../config/supabase.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
+import { getGeminiApiKey } from '../config/supabase.js'
+import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
+import { generateOutreachWithGemini, GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
+import { checkRateLimit } from './rateLimit.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -197,6 +201,45 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     const saveMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/save$/)
     const updateMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)$/)
     const salesMatch = requestUrl.pathname === '/api/sales'
+
+    if (requestUrl.pathname === '/api/ai/outreach' && request.method === 'POST') {
+      let body: unknown
+      try {
+        body = await readJsonBody(request)
+      } catch {
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+
+      const input = parseGenerateOutreachInput(body)
+      if (!input) {
+        sendJson(response, 400, { error: 'Revise os dados da abordagem e tente novamente.' })
+        return
+      }
+
+      const apiKey = getGeminiApiKey()
+      if (!apiKey) {
+        sendJson(response, 503, { error: 'A IA ainda não está configurada.' })
+        return
+      }
+
+      const rateLimit = checkRateLimit({ key: `ai-outreach:${user.id}`, limit: 10, windowMs: 86_400_000 })
+      if (!rateLimit.allowed) {
+        sendJson(response, 429, { error: 'Você atingiu o limite diário gratuito de 10 abordagens.' })
+        return
+      }
+
+      try {
+        sendJson(response, 200, { data: await generateOutreachWithGemini(apiKey, input) })
+      } catch (error) {
+        if (error instanceof GeminiOutreachError) {
+          sendJson(response, error.status, { error: error.message })
+          return
+        }
+        throw error
+      }
+      return
+    }
 
     if (saveMatch && (request.method === 'POST' || request.method === 'DELETE')) {
       if (request.method === 'POST') {

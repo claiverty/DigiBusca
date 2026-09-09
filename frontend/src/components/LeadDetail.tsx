@@ -5,6 +5,7 @@ import { hasContactPhone } from '../lib/phone'
 import { CurrencyInput, currencyCentsToNumber } from './CurrencyInput'
 import { DatePicker } from './DatePicker'
 import { SaleServiceField } from './SaleServiceField'
+import { AiOutreachAssistant } from './AiOutreachAssistant'
 import type { Lead, LeadStatus, LeadUpdate } from '../types'
 import type { CreateSaleInput } from '../types/sales'
 import './LeadDetail.css'
@@ -149,7 +150,10 @@ export function LeadDetail({
             <p>{lead.diagnosis}</p>
           </div>
           <div className="panel">
-            <span className="eyebrow">Abordagem sugerida</span>
+            <div className="approach-heading">
+              <span className="eyebrow">Abordagem sugerida</span>
+              <AiOutreachAssistant lead={lead} onUseMessage={setMessage} />
+            </div>
             <textarea
               value={message}
               onChange={(event) => setMessage(event.target.value)}

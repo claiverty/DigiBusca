@@ -27,6 +27,23 @@ export type GoogleApiUsage = {
   monthlyLimit: number
 }
 
+export type OutreachTone = 'Profissional' | 'Direto' | 'Informal'
+
+export type GenerateOutreachInput = {
+  businessName: string
+  category: string
+  opportunity: Lead['opportunity']
+  diagnosis: string
+  service: string
+  tone: OutreachTone
+}
+
+export type GeneratedOutreach = {
+  salesArgument: string
+  whatsappMessage: string
+  followUpMessage: string
+}
+
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '/api'
 
 export async function authenticatedFetch(input: string, init: RequestInit = {}): Promise<Response> {
@@ -194,6 +211,22 @@ export async function createSale(input: CreateSaleInput): Promise<Sale> {
   }
 
   const payload = (await response.json()) as { data: Sale }
+  return payload.data
+}
+
+export async function generateAiOutreach(input: GenerateOutreachInput): Promise<GeneratedOutreach> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/ai/outreach`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível gerar a abordagem agora.')
+  }
+
+  const payload = (await response.json()) as { data: GeneratedOutreach }
   return payload.data
 }
 

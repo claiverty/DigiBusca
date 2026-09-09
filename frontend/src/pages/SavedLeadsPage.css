@@ -194,6 +194,10 @@
   margin-top: 24px;
 }
 
+.saved-leads-page > .muted + .data-state {
+  margin-top: 16px;
+}
+
 .saved-lead-summary {
   display: grid;
   gap: 10px;

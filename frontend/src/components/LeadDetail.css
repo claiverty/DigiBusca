@@ -27,6 +27,13 @@
   gap: 16px;
 }
 
+.approach-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
 .sale-from-lead {
   display: grid;
   gap: 16px;
@@ -224,5 +231,9 @@ textarea:focus {
   }
   .detail-form-grid {
     grid-template-columns: 1fr;
+  }
+  .approach-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

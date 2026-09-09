@@ -1,7 +1,7 @@
 import { ArrowUpRight, CalendarClock, ListFilter, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { FilterCombobox } from '../components/FilterCombobox'
-import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
+import { getSavedLead, getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import type { Lead } from '../types'
 import './SavedLeadsPage.css'
 
@@ -9,6 +9,7 @@ type SavedLeadsPageProps = {
   cachedLeads: Lead[]
   onOpenLead: (leadId: string) => Promise<void>
   onRemoveLead: (leadId: string) => Promise<void>
+  onHydrateLead: (lead: Lead) => void
   onSearch: () => void
 }
 
@@ -41,9 +42,12 @@ export function SavedLeadsPage({
   cachedLeads,
   onOpenLead,
   onRemoveLead,
+  onHydrateLead,
   onSearch,
 }: SavedLeadsPageProps) {
   const [leads, setLeads] = useState<SavedLeadState[]>([])
+  const [hydratedLeads, setHydratedLeads] = useState<Map<string, Lead>>(new Map())
+  const [leadHydrationStatus, setLeadHydrationStatus] = useState<Map<string, 'loading' | 'error'>>(new Map())
   const [status, setStatus] = useState('loading')
   const [attempt, setAttempt] = useState(0)
   const [statusFilter, setStatusFilter] = useState('Todos')
@@ -56,8 +60,11 @@ export function SavedLeadsPage({
   const [removalError, setRemovalError] = useState('')
 
   const cachedLeadById = useMemo(
-    () => new Map(cachedLeads.map((lead) => [lead.id, lead])),
-    [cachedLeads],
+    () => new Map([
+      ...cachedLeads.map((lead) => [lead.id, lead] as const),
+      ...hydratedLeads.entries(),
+    ]),
+    [cachedLeads, hydratedLeads],
   )
 
   useEffect(() => {
@@ -69,6 +76,28 @@ export function SavedLeadsPage({
         if (!active) return
         setLeads(data)
         setStatus('ready')
+
+        const cachedIds = new Set(cachedLeads.map((lead) => lead.id))
+        const leadsToHydrate = data.filter((lead) => !cachedIds.has(lead.leadId))
+        setLeadHydrationStatus(new Map(leadsToHydrate.map((lead) => [lead.leadId, 'loading'])))
+
+        for (const savedLead of leadsToHydrate) {
+          void getSavedLead(savedLead.leadId)
+            .then((lead) => {
+              if (!active) return
+              setHydratedLeads((current) => new Map(current).set(lead.id, lead))
+              setLeadHydrationStatus((current) => {
+                const next = new Map(current)
+                next.delete(savedLead.leadId)
+                return next
+              })
+              onHydrateLead(lead)
+            })
+            .catch(() => {
+              if (!active) return
+              setLeadHydrationStatus((current) => new Map(current).set(savedLead.leadId, 'error'))
+            })
+        }
       })
       .catch(() => {
         if (active) setStatus('error')
@@ -108,7 +137,11 @@ export function SavedLeadsPage({
   }
 
   function getLeadName(lead: SavedLeadState) {
-    return cachedLeadById.get(lead.leadId)?.name ?? 'Lead salvo'
+    const cachedName = cachedLeadById.get(lead.leadId)?.name
+    if (cachedName) return cachedName
+    return leadHydrationStatus.get(lead.leadId) === 'error'
+      ? 'Empresa indisponível'
+      : 'Carregando empresa...'
   }
 
   const visibleLeads = useMemo(() => {
