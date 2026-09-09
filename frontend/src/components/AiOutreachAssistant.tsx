@@ -2,7 +2,10 @@ import { Check, Copy, RefreshCw, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import {
   generateAiOutreach,
+  getCachedAiOutreach,
+  type GenerateOutreachInput,
   type GeneratedOutreach,
+  type LeadAnalysis,
   type OutreachTone,
 } from '../services/leadsService'
 import type { Lead } from '../types'
@@ -14,18 +17,98 @@ type AiOutreachAssistantProps = {
 }
 
 const tones: OutreachTone[] = ['Profissional', 'Direto', 'Informal']
+type CopyField = 'salesArgument' | 'whatsappMessage' | 'followUpMessage'
+
+const analysisLabels: Record<LeadAnalysis['leadType'], string> = {
+  NO_WEBSITE: 'Site não informado',
+  INCOMPLETE_GOOGLE_PROFILE: 'Perfil incompleto',
+  NO_CLEAR_OPPORTUNITY: 'Abordagem exploratória',
+}
+
+const confidenceLabels: Record<LeadAnalysis['confidence'], string> = {
+  high: 'Confiança alta',
+  medium: 'Confiança média',
+  low: 'Confiança baixa',
+}
+
+function createLocalAnalysis(lead: Lead): LeadAnalysis {
+  if (!lead.website) {
+    return {
+      leadType: 'NO_WEBSITE',
+      primaryOpportunity: 'website',
+      secondaryOpportunities: [],
+      confidence: 'high',
+      evidence: ['Nenhum site foi informado nos dados públicos do perfil do Google.'],
+    }
+  }
+
+  if (lead.opportunity === 'Perfil incompleto') {
+    return {
+      leadType: 'INCOMPLETE_GOOGLE_PROFILE',
+      primaryOpportunity: 'google_profile',
+      secondaryOpportunities: [],
+      confidence: 'medium',
+      evidence: ['O perfil do Google não apresenta todos os dados públicos esperados.'],
+    }
+  }
+
+  return {
+    leadType: 'NO_CLEAR_OPPORTUNITY',
+    primaryOpportunity: 'general_outreach',
+    secondaryOpportunities: [],
+    confidence: 'low',
+    evidence: ['Há um site informado e não existem dados suficientes para avaliar sua qualidade.'],
+  }
+}
+
+function createGenerationInput(
+  lead: Lead,
+  service: string,
+  tone: OutreachTone,
+): GenerateOutreachInput {
+  return {
+    businessName: lead.name,
+    category: lead.category,
+    websiteStatus: lead.website ? 'listed' : 'not_listed',
+    googleProfileStatus: lead.opportunity === 'Perfil incompleto' ? 'incomplete' : 'complete',
+    service: service.trim(),
+    tone,
+  }
+}
 
 function createReadyTemplate(lead: Lead, service: string, tone: OutreachTone): GeneratedOutreach {
-  const greeting = tone === 'Informal' ? 'Oi' : 'Olá'
-  const intro = tone === 'Direto' ? 'Vi uma oportunidade' : 'Encontrei vocês pelo Google e notei uma oportunidade'
+  const greeting = tone === 'Profissional' ? 'Olá' : 'Oi'
+  const analysis = createLocalAnalysis(lead)
   const ending = tone === 'Informal'
     ? 'Posso te mandar uma ideia rápida por aqui?'
     : 'Posso compartilhar uma sugestão rápida, sem compromisso?'
 
+  if (analysis.leadType === 'NO_WEBSITE') {
+    return {
+      salesArgument: 'Um site pode funcionar como um canal próprio para apresentar a empresa, explicar seus serviços e facilitar o contato de quem já encontrou o negócio pelo Google.',
+      whatsappMessage: `${greeting}, tudo bem? Encontrei a empresa de vocês pelo Google e resolvi entrar em contato. Trabalho com ${service} e não encontrei um site informado no perfil. Vocês já pensaram em ter um espaço próprio para apresentar melhor a empresa e os serviços?`,
+      followUpMessage: `${greeting}, tudo bem? Passando só para saber se faz sentido eu enviar uma sugestão de ${service}. Posso resumir a ideia em poucos pontos por aqui?`,
+      analysis,
+      generationSource: 'safe_template',
+    }
+  }
+
+  if (analysis.leadType === 'INCOMPLETE_GOOGLE_PROFILE') {
+    return {
+      salesArgument: 'Informações organizadas ajudam quem já encontrou a empresa no Google a entender os serviços e escolher o canal de contato.',
+      whatsappMessage: `${greeting}, tudo bem? Encontrei a empresa de vocês pelo Google e notei que algumas informações públicas não aparecem no perfil. Trabalho com ${service}. ${ending}`,
+      followUpMessage: `${greeting}, tudo bem? Posso enviar uma sugestão simples de ${service} para organizar melhor a apresentação da empresa no Google?`,
+      analysis,
+      generationSource: 'safe_template',
+    }
+  }
+
   return {
-    salesArgument: `${lead.diagnosis} Uma solução de ${service} pode tornar a presença digital mais clara e facilitar novos contatos.`,
-    whatsappMessage: `${greeting}, pessoal da ${lead.name}! ${intro} na presença digital de vocês. Trabalho com ${service} para ajudar negócios a apresentar melhor seus serviços e gerar mais contatos. ${ending}`,
-    followUpMessage: `${greeting}! Passando só para saber se faz sentido eu enviar aquela sugestão de ${service} para a ${lead.name}. Posso resumir a ideia em poucos pontos por aqui.`,
+    salesArgument: `Os dados disponíveis não comprovam uma falha específica. A abordagem inicia uma conversa respeitosa sobre ${service}.`,
+    whatsappMessage: `${greeting}, tudo bem? Encontrei a empresa de vocês pelo Google e resolvi entrar em contato. Trabalho com ${service} para negócios desse segmento. ${ending}`,
+    followUpMessage: `${greeting}, tudo bem? Passando só para saber se faz sentido eu enviar aquela sugestão de ${service}. Posso resumir a ideia em poucos pontos por aqui.`,
+    analysis,
+    generationSource: 'safe_template',
   }
 }
 
@@ -36,7 +119,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
   const [result, setResult] = useState<GeneratedOutreach>()
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
-  const [copiedField, setCopiedField] = useState<keyof GeneratedOutreach>()
+  const [copiedField, setCopiedField] = useState<CopyField>()
 
   useEffect(() => {
     if (!isOpen) return
@@ -55,6 +138,22 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
     setError('')
   }, [lead.id])
 
+  useEffect(() => {
+    if (!isOpen || !service.trim()) return
+    let isCurrent = true
+
+    void getCachedAiOutreach(createGenerationInput(lead, service, tone)).then((cached) => {
+      if (isCurrent && cached) {
+        setResult(cached)
+        setError('')
+      }
+    })
+
+    return () => {
+      isCurrent = false
+    }
+  }, [isOpen, lead, service, tone])
+
   async function handleGenerate() {
     if (!service.trim()) {
       setError('Informe qual serviço você quer oferecer.')
@@ -65,14 +164,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
     setError('')
     setResult(undefined)
     try {
-      setResult(await generateAiOutreach({
-        businessName: lead.name,
-        category: lead.category,
-        opportunity: lead.opportunity,
-        diagnosis: lead.diagnosis,
-        service: service.trim(),
-        tone,
-      }))
+      setResult(await generateAiOutreach(createGenerationInput(lead, service, tone)))
     } catch (generationError) {
       setError(
         generationError instanceof Error
@@ -93,7 +185,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
     setResult(createReadyTemplate(lead, service.trim(), tone))
   }
 
-  async function handleCopy(field: keyof GeneratedOutreach) {
+  async function handleCopy(field: CopyField) {
     if (!result) return
     try {
       await navigator.clipboard.writeText(result[field])
@@ -130,7 +222,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
             </header>
 
             <p className="ai-outreach-privacy">
-              Enviamos somente nome, categoria e diagnóstico comercial. Telefone, endereço e anotações ficam de fora.
+              Enviamos somente nome comercial, categoria e disponibilidade de dados públicos. Telefone, endereço e anotações ficam de fora.
             </p>
 
             <div className="ai-outreach-form">
@@ -180,6 +272,20 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
 
             {result && (
               <div className="ai-outreach-results" aria-live="polite">
+                <div className="ai-outreach-analysis">
+                  <div>
+                    <span>{analysisLabels[result.analysis.leadType]}</span>
+                    <span>{confidenceLabels[result.analysis.confidence]}</span>
+                    <span>
+                      {result.cacheHit
+                        ? 'Resultado em cache'
+                        : result.generationSource === 'ai'
+                          ? 'Gerada com IA'
+                          : 'Modelo seguro'}
+                    </span>
+                  </div>
+                  <p>{result.analysis.evidence[0]}</p>
+                </div>
                 <article className="ai-outreach-result featured">
                   <div>
                     <span>Mensagem inicial</span>

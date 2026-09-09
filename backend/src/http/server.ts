@@ -9,7 +9,8 @@ import { SupabaseStore } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { getGeminiApiKey } from '../config/supabase.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
-import { generateOutreachWithGemini, GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
+import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
+import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 import { checkRateLimit } from './rateLimit.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
@@ -230,7 +231,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       }
 
       try {
-        sendJson(response, 200, { data: await generateOutreachWithGemini(apiKey, input) })
+        sendJson(response, 200, { data: await generateLeadOutreach(apiKey, input) })
       } catch (error) {
         if (error instanceof GeminiOutreachError) {
           sendJson(response, error.status, { error: error.message })

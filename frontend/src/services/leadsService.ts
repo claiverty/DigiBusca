@@ -32,19 +32,127 @@ export type OutreachTone = 'Profissional' | 'Direto' | 'Informal'
 export type GenerateOutreachInput = {
   businessName: string
   category: string
-  opportunity: Lead['opportunity']
-  diagnosis: string
+  websiteStatus: 'listed' | 'not_listed'
+  googleProfileStatus: 'complete' | 'incomplete'
   service: string
   tone: OutreachTone
+}
+
+export type LeadAnalysis = {
+  leadType: 'NO_WEBSITE' | 'INCOMPLETE_GOOGLE_PROFILE' | 'NO_CLEAR_OPPORTUNITY'
+  primaryOpportunity: 'website' | 'google_profile' | 'general_outreach'
+  secondaryOpportunities: Array<'website' | 'google_profile' | 'general_outreach'>
+  confidence: 'high' | 'medium' | 'low'
+  evidence: string[]
 }
 
 export type GeneratedOutreach = {
   salesArgument: string
   whatsappMessage: string
   followUpMessage: string
+  analysis: LeadAnalysis
+  generationSource: 'ai' | 'safe_template'
+  cacheHit?: boolean
 }
 
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '/api'
+const outreachCacheVersion = 'v1'
+const outreachCacheTtlMs = 60 * 60 * 1_000
+const maxCachedOutreaches = 50
+
+type OutreachCacheEntry = {
+  key: string
+  cachedAt: number
+  data: GeneratedOutreach
+}
+
+function buildOutreachCacheKey(input: GenerateOutreachInput) {
+  return JSON.stringify({
+    version: outreachCacheVersion,
+    businessName: input.businessName.trim().toLocaleLowerCase('pt-BR'),
+    category: input.category.trim().toLocaleLowerCase('pt-BR'),
+    websiteStatus: input.websiteStatus,
+    googleProfileStatus: input.googleProfileStatus,
+    service: input.service.trim().toLocaleLowerCase('pt-BR'),
+    tone: input.tone,
+  })
+}
+
+function isGeneratedOutreach(value: unknown): value is GeneratedOutreach {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as Partial<GeneratedOutreach>
+  return (
+    typeof candidate.whatsappMessage === 'string' &&
+    typeof candidate.followUpMessage === 'string' &&
+    typeof candidate.salesArgument === 'string' &&
+    typeof candidate.analysis === 'object' &&
+    candidate.analysis !== null &&
+    (candidate.generationSource === 'ai' || candidate.generationSource === 'safe_template')
+  )
+}
+
+async function getOutreachCacheStorageKey() {
+  if (!supabase || typeof localStorage === 'undefined') return undefined
+  const { data } = await supabase.auth.getSession()
+  return data.session?.user.id
+    ? `digibusca:ai-outreach:${outreachCacheVersion}:${data.session.user.id}`
+    : undefined
+}
+
+async function readOutreachCache(): Promise<{ storageKey?: string; entries: OutreachCacheEntry[] }> {
+  const storageKey = await getOutreachCacheStorageKey()
+  if (!storageKey) return { entries: [] }
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) ?? '[]') as unknown
+    if (!Array.isArray(parsed)) return { storageKey, entries: [] }
+    const oldestAllowed = Date.now() - outreachCacheTtlMs
+    const entries = parsed.filter((entry): entry is OutreachCacheEntry => {
+      if (typeof entry !== 'object' || entry === null) return false
+      const candidate = entry as Partial<OutreachCacheEntry>
+      return (
+        typeof candidate.key === 'string' &&
+        typeof candidate.cachedAt === 'number' &&
+        candidate.cachedAt > oldestAllowed &&
+        isGeneratedOutreach(candidate.data)
+      )
+    })
+    return { storageKey, entries }
+  } catch {
+    return { storageKey, entries: [] }
+  }
+}
+
+export async function getCachedAiOutreach(
+  input: GenerateOutreachInput,
+): Promise<GeneratedOutreach | undefined> {
+  const { storageKey, entries } = await readOutreachCache()
+  if (storageKey) {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(entries))
+    } catch {
+      // The cache is optional; generation continues if browser storage is unavailable.
+    }
+  }
+  const cached = entries.find((entry) => entry.key === buildOutreachCacheKey(input))
+  return cached ? { ...cached.data, cacheHit: true } : undefined
+}
+
+async function cacheAiOutreach(input: GenerateOutreachInput, data: GeneratedOutreach) {
+  const { storageKey, entries } = await readOutreachCache()
+  if (!storageKey) return
+
+  const key = buildOutreachCacheKey(input)
+  const nextEntries = [
+    { key, cachedAt: Date.now(), data: { ...data, cacheHit: undefined } },
+    ...entries.filter((entry) => entry.key !== key),
+  ].slice(0, maxCachedOutreaches)
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(nextEntries))
+  } catch {
+    // The cache is optional; never fail a successful generation because of browser storage.
+  }
+}
 
 export async function authenticatedFetch(input: string, init: RequestInit = {}): Promise<Response> {
   if (!supabase) {
@@ -215,6 +323,9 @@ export async function createSale(input: CreateSaleInput): Promise<Sale> {
 }
 
 export async function generateAiOutreach(input: GenerateOutreachInput): Promise<GeneratedOutreach> {
+  const cached = await getCachedAiOutreach(input)
+  if (cached) return cached
+
   const response = await authenticatedFetch(`${apiBaseUrl}/ai/outreach`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -227,7 +338,8 @@ export async function generateAiOutreach(input: GenerateOutreachInput): Promise<
   }
 
   const payload = (await response.json()) as { data: GeneratedOutreach }
-  return payload.data
+  await cacheAiOutreach(input, payload.data)
+  return { ...payload.data, cacheHit: false }
 }
 
 export type { Lead }

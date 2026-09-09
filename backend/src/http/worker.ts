@@ -6,7 +6,8 @@ import type { CreateSaleInput } from '../contracts/sale.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import { checkRateLimit } from './rateLimit.js'
-import { generateOutreachWithGemini, GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
+import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
+import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 
 type WorkerEnvironment = RuntimeEnvironment & {
   ASSETS?: { fetch(request: Request): Promise<Response> }
@@ -153,7 +154,7 @@ async function handleApiRequest(request: Request) {
       }
 
       try {
-        return jsonResponse(request, 200, { data: await generateOutreachWithGemini(apiKey, input) })
+        return jsonResponse(request, 200, { data: await generateLeadOutreach(apiKey, input) })
       } catch (error) {
         if (error instanceof GeminiOutreachError) {
           return jsonResponse(request, error.status, { error: error.message })

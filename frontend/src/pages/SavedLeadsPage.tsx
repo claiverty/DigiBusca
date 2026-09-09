@@ -1,6 +1,5 @@
-import { ArrowUpRight, CalendarClock, ListFilter, RefreshCw, Trash2 } from 'lucide-react'
+import { ArrowUpRight, CalendarClock, Check, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { FilterCombobox } from '../components/FilterCombobox'
 import { getSavedLead, getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import type { Lead } from '../types'
 import './SavedLeadsPage.css'
@@ -254,64 +253,6 @@ export function SavedLeadsPage({
         </section>
       )}
 
-      {status === 'ready' && leads.length > 0 && (
-        <section className="lead-pipeline" aria-labelledby="pipeline-title">
-          <div className="lead-pipeline-heading">
-            <div>
-              <span className="eyebrow">FUNIL</span>
-              <h2 id="pipeline-title">Onde seus leads estão</h2>
-            </div>
-            {statusFilter !== 'Todos' && (
-              <button className="text-button" type="button" onClick={() => setStatusFilter('Todos')}>
-                Ver todos
-              </button>
-            )}
-          </div>
-          <div className="lead-pipeline-list" role="list">
-            {statuses.map((item) => (
-              <button
-                className={statusFilter === item ? 'pipeline-stage active' : 'pipeline-stage'}
-                type="button"
-                key={item}
-                aria-pressed={statusFilter === item}
-                onClick={() => setStatusFilter((current) => (current === item ? 'Todos' : item))}
-              >
-                <span>{item}</span>
-                <strong>{statusCounts.get(item) ?? 0}</strong>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {status === 'ready' && leads.length > 0 && (
-        <details className="saved-leads-filters panel">
-          <summary><ListFilter size={16} aria-hidden="true" /> Filtrar leads</summary>
-          <div className="saved-leads-filter-fields">
-            <label>
-              Status
-              <FilterCombobox
-                id="saved-leads-status"
-                label="Status"
-                value={statusFilter}
-                options={['Todos', ...statuses]}
-                onChange={setStatusFilter}
-              />
-            </label>
-            <label>
-              Próximo contato
-              <FilterCombobox
-                id="saved-leads-follow-up"
-                label="Próximo contato"
-                value={followUpFilter}
-                options={['Todos', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento']}
-                onChange={setFollowUpFilter}
-              />
-            </label>
-          </div>
-        </details>
-      )}
-
       {status === 'loading' && <p className="data-state">Carregando seus leads...</p>}
       {status === 'error' && (
         <div className="data-state" role="alert">
@@ -322,86 +263,141 @@ export function SavedLeadsPage({
         </div>
       )}
       {removalError && <p className="data-state" role="alert">{removalError}</p>}
-      {status === 'ready' && (
-        <>
-          <p className="muted" role="status">
-            {visibleLeads.length} lead(s) encontrado(s)
-          </p>
-          {leads.length === 0 ? (
-            <div className="data-state">
-              <p>Salve uma empresa pela ficha para começar seu acompanhamento.</p>
-              <button className="primary-button" type="button" onClick={onSearch}>
-                Buscar oportunidades
-              </button>
+      {status === 'ready' && leads.length === 0 && (
+        <div className="data-state">
+          <p>Salve uma empresa pela ficha para começar seu acompanhamento.</p>
+          <button className="primary-button" type="button" onClick={onSearch}>
+            Buscar oportunidades
+          </button>
+        </div>
+      )}
+      {status === 'ready' && leads.length > 0 && (
+        <section className="saved-leads-directory panel" aria-labelledby="lead-directory-title">
+          <header className="saved-leads-directory-heading">
+            <div>
+              <span className="eyebrow">CARTEIRA</span>
+              <h2 id="lead-directory-title">Todos os leads</h2>
+              <p role="status">{visibleLeads.length} de {leads.length} lead(s)</p>
             </div>
-          ) : visibleLeads.length === 0 ? (
-            <p className="data-state">Nenhum lead corresponde aos filtros selecionados.</p>
+            <details className="saved-leads-filters">
+              <summary>
+                <CalendarClock size={16} aria-hidden="true" />
+                {followUpFilter === 'Todos' ? 'Agendamento' : followUpFilter}
+              </summary>
+              <div className="saved-leads-filter-options" role="group" aria-label="Filtrar por próximo contato">
+                {['Todos', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento'].map((option) => (
+                  <button
+                    className={followUpFilter === option ? 'active' : ''}
+                    type="button"
+                    key={option}
+                    onClick={(event) => {
+                      setFollowUpFilter(option)
+                      event.currentTarget.closest('details')?.removeAttribute('open')
+                    }}
+                  >
+                    <span>{option === 'Todos' ? 'Todos os agendamentos' : option}</span>
+                    {followUpFilter === option && <Check size={15} aria-hidden="true" />}
+                  </button>
+                ))}
+              </div>
+            </details>
+          </header>
+
+          <div className="lead-status-tabs" role="group" aria-label="Filtrar por status">
+            {['Todos', ...statuses].map((item) => (
+              <button
+                className={statusFilter === item ? 'active' : ''}
+                type="button"
+                key={item}
+                aria-pressed={statusFilter === item}
+                onClick={() => setStatusFilter(item)}
+              >
+                {item}
+                <span>{item === 'Todos' ? leads.length : (statusCounts.get(item) ?? 0)}</span>
+              </button>
+            ))}
+          </div>
+
+          {visibleLeads.length === 0 ? (
+            <p className="saved-leads-table-empty">Nenhum lead corresponde aos filtros selecionados.</p>
           ) : (
-            <div className="saved-leads-list">
-              {visibleLeads.map((lead) => (
-                <section className="saved-lead-summary panel" key={lead.leadId} aria-label="Lead salvo">
-                  <div className="saved-lead-card-meta">
-                    <span className="saved-lead-status">{lead.status}</span>
-                    <span className={lead.nextFollowUp && toLocalDate(lead.nextFollowUp) < getToday() ? 'saved-lead-follow-up overdue' : 'saved-lead-follow-up'}>
-                      {getFollowUpLabel(lead)}
-                    </span>
-                  </div>
-                  <h2>{getLeadName(lead)}</h2>
-                  <p className="saved-lead-context">
-                    {lead.notes?.trim()
-                      || cachedLeadById.get(lead.leadId)?.category
-                      || 'Abra a ficha para atualizar os dados da empresa e continuar a abordagem.'}
-                  </p>
-                  {openingErrorLeadId === lead.leadId && (
-                    <p className="saved-lead-error" role="alert">{openingError}</p>
-                  )}
-                  <div className="saved-lead-actions">
-                    <button
-                      className="secondary-button saved-lead-open"
-                      type="button"
-                      onClick={() => void openLead(lead.leadId)}
-                      disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
-                    >
-                      <RefreshCw size={16} aria-hidden="true" />
-                      {openingLeadId === lead.leadId ? 'Abrindo...' : 'Abrir lead'}
-                    </button>
-                    {pendingRemovalLeadId === lead.leadId ? (
-                      <div className="saved-lead-remove-confirm">
-                        <span>Excluir este lead salvo?</span>
+            <div className="saved-leads-table">
+              <div className="saved-leads-table-header" aria-hidden="true">
+                <span>Empresa</span>
+                <span>Status</span>
+                <span>Próximo contato</span>
+                <span>Ações</span>
+              </div>
+              <div className="saved-leads-list">
+                {visibleLeads.map((lead) => {
+                  const cachedLead = cachedLeadById.get(lead.leadId)
+                  return (
+                    <section className="saved-lead-row" key={lead.leadId} aria-label={`Lead ${getLeadName(lead)}`}>
+                      <button
+                        className="saved-lead-company"
+                        type="button"
+                        onClick={() => void openLead(lead.leadId)}
+                        disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
+                      >
+                        <strong>{getLeadName(lead)}</strong>
+                        <small>{cachedLead?.category || lead.notes?.trim() || 'Segmento não informado'}</small>
+                      </button>
+                      <span className="saved-lead-status">{lead.status}</span>
+                      <span className={lead.nextFollowUp && toLocalDate(lead.nextFollowUp) < getToday() ? 'saved-lead-follow-up overdue' : 'saved-lead-follow-up'}>
+                        {getFollowUpLabel(lead)}
+                      </span>
+                      <div className="saved-lead-actions">
+                        <button
+                          className="saved-lead-open"
+                          type="button"
+                          onClick={() => void openLead(lead.leadId)}
+                          disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
+                        >
+                          {openingLeadId === lead.leadId ? 'Abrindo...' : 'Abrir'}
+                          <ArrowUpRight size={15} aria-hidden="true" />
+                        </button>
                         <button
                           className="saved-lead-delete"
                           type="button"
-                          onClick={() => void removeLead(lead.leadId)}
-                          disabled={removingLeadId === lead.leadId}
+                          aria-label={`Excluir ${getLeadName(lead)}`}
+                          title="Excluir lead"
+                          onClick={() => setPendingRemovalLeadId(lead.leadId)}
+                          disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
                         >
-                          {removingLeadId === lead.leadId ? 'Excluindo...' : 'Excluir'}
-                        </button>
-                        <button
-                          className="text-button"
-                          type="button"
-                          onClick={() => setPendingRemovalLeadId(null)}
-                          disabled={removingLeadId === lead.leadId}
-                        >
-                          Cancelar
+                          <Trash2 size={15} aria-hidden="true" />
                         </button>
                       </div>
-                    ) : (
-                      <button
-                        className="saved-lead-delete"
-                        type="button"
-                        onClick={() => setPendingRemovalLeadId(lead.leadId)}
-                        disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
-                      >
-                        <Trash2 size={16} aria-hidden="true" />
-                        Excluir lead
-                      </button>
-                    )}
-                  </div>
-                </section>
-              ))}
+                      {openingErrorLeadId === lead.leadId && (
+                        <p className="saved-lead-error" role="alert">{openingError}</p>
+                      )}
+                      {pendingRemovalLeadId === lead.leadId && (
+                        <div className="saved-lead-remove-confirm">
+                          <span>Excluir este lead salvo?</span>
+                          <button
+                            className="saved-lead-delete-confirm"
+                            type="button"
+                            onClick={() => void removeLead(lead.leadId)}
+                            disabled={removingLeadId === lead.leadId}
+                          >
+                            {removingLeadId === lead.leadId ? 'Excluindo...' : 'Excluir'}
+                          </button>
+                          <button
+                            className="text-button"
+                            type="button"
+                            onClick={() => setPendingRemovalLeadId(null)}
+                            disabled={removingLeadId === lead.leadId}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      )}
+                    </section>
+                  )
+                })}
+              </div>
             </div>
           )}
-        </>
+        </section>
       )}
     </section>
   )

@@ -44,6 +44,7 @@ export function Sidebar({ activeView, onNavigate, userEmail, onSignOut, onShowLa
 
   function navigate(view: AppView) {
     onNavigate(view)
+    setIsPinnedOpen(false)
     setIsMobileOpen(false)
   }
 
@@ -86,19 +87,20 @@ export function Sidebar({ activeView, onNavigate, userEmail, onSignOut, onShowLa
         </div>
       </header>
 
-      {isMobileOpen && (
-        <button
-          className="sidebar-backdrop"
-          type="button"
-          aria-label="Fechar navegação"
-          onClick={() => setIsMobileOpen(false)}
-        />
-      )}
+      <button
+        className={`sidebar-backdrop${isMobileOpen ? ' is-visible' : ''}`}
+        type="button"
+        aria-label="Fechar navegação"
+        aria-hidden={!isMobileOpen}
+        tabIndex={isMobileOpen ? 0 : -1}
+        onClick={() => setIsMobileOpen(false)}
+      />
 
       <aside
         className={`sidebar${isCollapsed ? ' is-collapsed' : ''}${isPinnedOpen ? ' is-pinned-open' : ''}${isMobileOpen ? ' is-mobile-open' : ''}`}
       >
         <nav className="main-nav" aria-label="Navegação principal">
+          <span className="sidebar-section-label">NAVEGAÇÃO</span>
           {links.map(({ label, icon: Icon, view }, index) => (
             <Fragment key={label}>
               {index === 2 && (

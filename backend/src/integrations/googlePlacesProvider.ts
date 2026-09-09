@@ -85,7 +85,7 @@ function getDiagnosis(place: GooglePlace, opportunity: Lead['opportunity']): str
     return 'O negócio tem presença no Google, mas faltam dados públicos importantes para apresentar melhor a empresa online.'
   }
 
-  return 'O negócio já possui um site informado. Vale avaliar se a experiência atual comunica bem a oferta e facilita novos contatos.'
+  return 'O negócio possui um site informado. Os dados públicos consultados não permitem avaliar sua qualidade ou identificar uma falha específica.'
 }
 
 function mapPlace(place: GooglePlace): Lead | undefined {
