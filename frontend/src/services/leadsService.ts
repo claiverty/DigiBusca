@@ -56,7 +56,7 @@ export type GeneratedOutreach = {
   cacheHit?: boolean
 }
 
-const apiBaseUrl = import.meta.env.VITE_API_URL ?? '/api'
+const apiBaseUrl = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_URL ?? '/api')
 const outreachCacheVersion = 'v1'
 const outreachCacheTtlMs = 60 * 60 * 1_000
 const maxCachedOutreaches = 50
