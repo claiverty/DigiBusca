@@ -1,12 +1,14 @@
-import { ArrowLeft, Bookmark, ExternalLink, MessageCircle, Phone } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, Bookmark, ExternalLink, History, MessageCircle, Phone } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { createApproachMessage } from '../lib/approachMessage'
 import { hasContactPhone } from '../lib/phone'
+import { createLeadInteraction, getLeadInteractions } from '../services/leadsService'
 import { CurrencyInput, currencyCentsToNumber } from './CurrencyInput'
 import { DatePicker } from './DatePicker'
 import { SaleServiceField } from './SaleServiceField'
 import { AiOutreachAssistant } from './AiOutreachAssistant'
 import type { Lead, LeadStatus, LeadUpdate } from '../types'
+import { interactionChannels, type InteractionChannel, type LeadInteraction } from '../types/interactions'
 import type { CreateSaleInput } from '../types/sales'
 import './LeadDetail.css'
 
@@ -35,6 +37,16 @@ function formatRetrievedAt(value: string) {
   }).format(new Date(value))
 }
 
+function getToday() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function formatInteractionDate(value: string) {
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(
+    new Date(`${value}T12:00:00`),
+  )
+}
+
 export function LeadDetail({
   lead,
   isSaved,
@@ -54,10 +66,43 @@ export function LeadDetail({
   const [saleDate, setSaleDate] = useState(new Date().toISOString().slice(0, 10))
   const [saleFeedback, setSaleFeedback] = useState('')
   const [isRegisteringSale, setIsRegisteringSale] = useState(false)
+  const [interactions, setInteractions] = useState<LeadInteraction[]>([])
+  const [interactionStatus, setInteractionStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [interactionAttempt, setInteractionAttempt] = useState(0)
+  const [interactionChannel, setInteractionChannel] = useState<InteractionChannel>('WhatsApp')
+  const [interactionDate, setInteractionDate] = useState(getToday())
+  const [interactionNotes, setInteractionNotes] = useState('')
+  const [interactionOutcome, setInteractionOutcome] = useState('')
+  const [interactionFeedback, setInteractionFeedback] = useState('')
+  const [isRegisteringInteraction, setIsRegisteringInteraction] = useState(false)
   const hasPhone = hasContactPhone(lead.phone)
   const whatsappLink = hasPhone
     ? `https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
     : undefined
+
+  useEffect(() => {
+    if (!isSaved) {
+      setInteractions([])
+      setInteractionStatus('idle')
+      return
+    }
+
+    let active = true
+    setInteractionStatus('loading')
+    void getLeadInteractions(lead.id)
+      .then((items) => {
+        if (!active) return
+        setInteractions(items)
+        setInteractionStatus('ready')
+      })
+      .catch(() => {
+        if (active) setInteractionStatus('error')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [interactionAttempt, isSaved, lead.id])
 
   async function handleToggleSave() {
     setIsSaving(true)
@@ -110,6 +155,36 @@ export function LeadDetail({
       )
     } finally {
       setIsRegisteringSale(false)
+    }
+  }
+
+  async function handleRegisterInteraction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setInteractionFeedback('')
+
+    if (!interactionNotes.trim() || !interactionDate) {
+      setInteractionFeedback('Informe a data e o resumo da interação.')
+      return
+    }
+
+    setIsRegisteringInteraction(true)
+    try {
+      const interaction = await createLeadInteraction(lead.id, {
+        channel: interactionChannel,
+        occurredAt: interactionDate,
+        notes: interactionNotes,
+        outcome: interactionOutcome,
+      })
+      setInteractions((current) => [interaction, ...current])
+      setInteractionNotes('')
+      setInteractionOutcome('')
+      setInteractionFeedback('Interação registrada.')
+    } catch (error) {
+      setInteractionFeedback(
+        error instanceof Error ? error.message : 'Não foi possível registrar a interação.',
+      )
+    } finally {
+      setIsRegisteringInteraction(false)
     }
   }
 
@@ -229,6 +304,108 @@ export function LeadDetail({
                 </span>
               )}
             </div>
+          </div>
+          <div className="panel lead-interactions">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">HISTÓRICO</span>
+                <h2>Interações do lead</h2>
+              </div>
+              <History size={19} className="section-muted-icon" aria-hidden="true" />
+            </div>
+            {!isSaved ? (
+              <div className="interaction-save-prompt">
+                <p>Salve o lead para registrar os contatos e acompanhar a evolução da conversa.</p>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => void handleToggleSave()}
+                  disabled={isSaving}
+                >
+                  {isSaving ? 'Salvando...' : 'Salvar lead'}
+                </button>
+              </div>
+            ) : (
+              <>
+                <form className="interaction-form" onSubmit={handleRegisterInteraction}>
+                  <div className="detail-form-grid">
+                    <label className="detail-field">
+                      <span>Canal</span>
+                      <select
+                        value={interactionChannel}
+                        onChange={(event) => setInteractionChannel(event.target.value as InteractionChannel)}
+                      >
+                        {interactionChannels.map((channel) => (
+                          <option key={channel} value={channel}>{channel}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="detail-field">
+                      <span>Data do contato</span>
+                      <DatePicker value={interactionDate} onChange={setInteractionDate} />
+                    </label>
+                  </div>
+                  <label className="detail-field">
+                    <span>O que aconteceu?</span>
+                    <textarea
+                      value={interactionNotes}
+                      onChange={(event) => setInteractionNotes(event.target.value)}
+                      placeholder="Ex.: Apresentei a ideia e combinei de enviar uma proposta."
+                      aria-label="Resumo da interação"
+                      maxLength={5_000}
+                    />
+                  </label>
+                  <label className="detail-field">
+                    <span>Resultado (opcional)</span>
+                    <input
+                      value={interactionOutcome}
+                      onChange={(event) => setInteractionOutcome(event.target.value)}
+                      placeholder="Ex.: Pediu retorno na próxima semana"
+                      aria-label="Resultado da interação"
+                      maxLength={500}
+                    />
+                  </label>
+                  <div className="panel-actions interaction-actions">
+                    <button className="primary-button" type="submit" disabled={isRegisteringInteraction}>
+                      {isRegisteringInteraction ? 'Registrando...' : 'Registrar interação'}
+                    </button>
+                    {interactionFeedback && (
+                      <span className="save-feedback" role="status">{interactionFeedback}</span>
+                    )}
+                  </div>
+                </form>
+                {interactionStatus === 'loading' && <div className="data-state">Carregando histórico...</div>}
+                {interactionStatus === 'error' && (
+                  <div className="data-state" role="alert">
+                    <p>Não foi possível carregar o histórico.</p>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => setInteractionAttempt((value) => value + 1)}
+                    >
+                      Tentar novamente
+                    </button>
+                  </div>
+                )}
+                {interactionStatus === 'ready' && interactions.length === 0 && (
+                  <p className="interaction-empty">Nenhuma interação registrada ainda.</p>
+                )}
+                {interactions.length > 0 && (
+                  <div className="interaction-list" aria-label="Interações registradas">
+                    {interactions.map((interaction) => (
+                      <article className="interaction-row" key={interaction.id}>
+                        <div className="interaction-row-heading">
+                          <strong>{interaction.channel}</strong>
+                          <time dateTime={interaction.occurredAt}>{formatInteractionDate(interaction.occurredAt)}</time>
+                        </div>
+                        <p>{interaction.notes}</p>
+                        {interaction.outcome && <small>Resultado: {interaction.outcome}</small>}
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
           <div className="panel sale-from-lead">
             <div className="section-heading">

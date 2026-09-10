@@ -1,6 +1,7 @@
-import { ArrowUpRight, CalendarClock, Check, Trash2 } from 'lucide-react'
+import { ArrowUpRight, CalendarClock, Check, Download, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { getSavedLead, getSavedLeads, type SavedLeadState } from '../services/leadsService'
+import { exportLeadsCsv } from '../services/exportLeadsCsv'
 import type { Lead } from '../types'
 import './SavedLeadsPage.css'
 
@@ -57,6 +58,7 @@ export function SavedLeadsPage({
   const [pendingRemovalLeadId, setPendingRemovalLeadId] = useState<string | null>(null)
   const [removingLeadId, setRemovingLeadId] = useState<string | null>(null)
   const [removalError, setRemovalError] = useState('')
+  const [exportFeedback, setExportFeedback] = useState('')
 
   const cachedLeadById = useMemo(
     () => new Map([
@@ -64,6 +66,18 @@ export function SavedLeadsPage({
       ...hydratedLeads.entries(),
     ]),
     [cachedLeads, hydratedLeads],
+  )
+
+  const isHydratingLeads = useMemo(
+    () => Array.from(leadHydrationStatus.values()).some((value) => value === 'loading'),
+    [leadHydrationStatus],
+  )
+
+  const exportableLeads = useMemo(
+    () => leads
+      .map((savedLead) => cachedLeadById.get(savedLead.leadId))
+      .filter((lead): lead is Lead => Boolean(lead)),
+    [cachedLeadById, leads],
   )
 
   useEffect(() => {
@@ -201,6 +215,19 @@ export function SavedLeadsPage({
     return `Próximo contato · ${formatFollowUpDate(lead.nextFollowUp)}`
   }
 
+  function handleExport() {
+    if (isHydratingLeads || exportableLeads.length === 0) return
+
+    exportLeadsCsv(exportableLeads)
+    const unavailableCount = leads.length - exportableLeads.length
+    setExportFeedback(
+      unavailableCount > 0
+        ? `${exportableLeads.length} lead(s) exportado(s); ${unavailableCount} indisponível(is).`
+        : `${exportableLeads.length} lead(s) exportado(s).`,
+    )
+    window.setTimeout(() => setExportFeedback(''), 3_000)
+  }
+
   return (
     <section className="saved-leads-page">
       <header className="page-header saved-leads-header">
@@ -279,29 +306,43 @@ export function SavedLeadsPage({
               <h2 id="lead-directory-title">Todos os leads</h2>
               <p role="status">{visibleLeads.length} de {leads.length} lead(s)</p>
             </div>
-            <details className="saved-leads-filters">
-              <summary>
-                <CalendarClock size={16} aria-hidden="true" />
-                {followUpFilter === 'Todos' ? 'Agendamento' : followUpFilter}
-              </summary>
-              <div className="saved-leads-filter-options" role="group" aria-label="Filtrar por próximo contato">
-                {['Todos', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento'].map((option) => (
-                  <button
-                    className={followUpFilter === option ? 'active' : ''}
-                    type="button"
-                    key={option}
-                    onClick={(event) => {
-                      setFollowUpFilter(option)
-                      event.currentTarget.closest('details')?.removeAttribute('open')
-                    }}
-                  >
-                    <span>{option === 'Todos' ? 'Todos os agendamentos' : option}</span>
-                    {followUpFilter === option && <Check size={15} aria-hidden="true" />}
-                  </button>
-                ))}
-              </div>
-            </details>
+            <div className="saved-leads-directory-actions">
+              <details className="saved-leads-filters">
+                <summary>
+                  <CalendarClock size={16} aria-hidden="true" />
+                  {followUpFilter === 'Todos' ? 'Agendamento' : followUpFilter}
+                </summary>
+                <div className="saved-leads-filter-options" role="group" aria-label="Filtrar por próximo contato">
+                  {['Todos', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento'].map((option) => (
+                    <button
+                      className={followUpFilter === option ? 'active' : ''}
+                      type="button"
+                      key={option}
+                      onClick={(event) => {
+                        setFollowUpFilter(option)
+                        event.currentTarget.closest('details')?.removeAttribute('open')
+                      }}
+                    >
+                      <span>{option === 'Todos' ? 'Todos os agendamentos' : option}</span>
+                      {followUpFilter === option && <Check size={15} aria-hidden="true" />}
+                    </button>
+                  ))}
+                </div>
+              </details>
+              <button
+                className="saved-leads-export"
+                type="button"
+                onClick={handleExport}
+                disabled={isHydratingLeads || exportableLeads.length === 0}
+                title={isHydratingLeads ? 'Preparando os dados dos leads' : 'Baixar leads em CSV'}
+              >
+                <Download size={16} aria-hidden="true" />
+                {isHydratingLeads ? 'Preparando...' : 'Exportar CSV'}
+              </button>
+            </div>
           </header>
+
+          {exportFeedback && <p className="saved-leads-export-feedback" role="status">{exportFeedback}</p>}
 
           <div className="lead-status-tabs" role="group" aria-label="Filtrar por status">
             {['Todos', ...statuses].map((item) => (

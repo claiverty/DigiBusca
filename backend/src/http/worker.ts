@@ -3,6 +3,7 @@ import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, type
 import { type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
+import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import { checkRateLimit } from './rateLimit.js'
@@ -64,6 +65,32 @@ function parseSaleInput(value: unknown): CreateSaleInput | undefined {
     amount,
     soldAt,
     ...(typeof leadId === 'string' && leadId ? { leadId } : {}),
+  }
+}
+
+function parseLeadInteractionInput(value: unknown): CreateLeadInteractionInput | undefined {
+  if (!isRecord(value)) return undefined
+
+  const { channel, occurredAt, notes, outcome } = value
+  if (
+    typeof channel !== 'string' ||
+    !interactionChannels.includes(channel as (typeof interactionChannels)[number]) ||
+    typeof occurredAt !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(occurredAt) ||
+    Number.isNaN(Date.parse(`${occurredAt}T12:00:00Z`)) ||
+    typeof notes !== 'string' ||
+    !notes.trim() ||
+    notes.trim().length > 5_000 ||
+    (outcome !== undefined && (typeof outcome !== 'string' || outcome.trim().length > 500))
+  ) {
+    return undefined
+  }
+
+  return {
+    channel: channel as (typeof interactionChannels)[number],
+    occurredAt,
+    notes: notes.trim(),
+    ...(typeof outcome === 'string' && outcome.trim() ? { outcome: outcome.trim() } : {}),
   }
 }
 
@@ -140,6 +167,7 @@ async function handleApiRequest(request: Request) {
   if (request.method === 'POST' || request.method === 'PATCH' || request.method === 'DELETE') {
     const saveMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/save$/)
     const updateMatch = url.pathname.match(/^\/api\/leads\/([^/]+)$/)
+    const interactionMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/interactions$/)
 
     if (url.pathname === '/api/ai/outreach' && request.method === 'POST') {
       const input = parseGenerateOutreachInput(await parseBody(request))
@@ -171,6 +199,20 @@ async function handleApiRequest(request: Request) {
 
       return jsonResponse(request, 200, {
         data: await persistenceStore.saveLeadState(accessToken, user.id, saveMatch[1]),
+      })
+    }
+
+    if (interactionMatch && request.method === 'POST') {
+      const input = parseLeadInteractionInput(await parseBody(request))
+      if (!input) return jsonResponse(request, 400, { error: 'Informe canal, data e observação da interação.' })
+
+      return jsonResponse(request, 201, {
+        data: await persistenceStore.createLeadInteraction(
+          accessToken,
+          user.id,
+          interactionMatch[1],
+          input,
+        ),
       })
     }
 
@@ -208,6 +250,13 @@ async function handleApiRequest(request: Request) {
   if (request.method === 'GET' && url.pathname === '/api/saved-leads') {
     return jsonResponse(request, 200, {
       data: await persistenceStore.listSavedLeadStates(accessToken, user.id),
+    })
+  }
+
+  const interactionMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/interactions$/)
+  if (request.method === 'GET' && interactionMatch) {
+    return jsonResponse(request, 200, {
+      data: await persistenceStore.listLeadInteractions(accessToken, user.id, interactionMatch[1]),
     })
   }
 

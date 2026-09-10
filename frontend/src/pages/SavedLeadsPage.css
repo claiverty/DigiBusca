@@ -102,6 +102,14 @@
   padding: 22px 24px 18px;
 }
 
+.saved-leads-directory-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .saved-leads-directory-heading h2 {
   margin-top: 6px;
   font-size: 22px;
@@ -189,6 +197,38 @@
 .saved-leads-filter-options button.active {
   color: var(--color-text);
   background: #f4f4f6;
+}
+
+.saved-leads-export {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  color: var(--color-text-subtle);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.saved-leads-export:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: #cfcfd4;
+  background: #fafafa;
+}
+
+.saved-leads-export:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.saved-leads-export-feedback {
+  margin: -4px 24px 14px;
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 .lead-status-tabs {
@@ -477,12 +517,21 @@
     padding: 20px 18px 16px;
   }
 
+  .saved-leads-directory-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
   .saved-leads-filters {
     margin-left: 0;
   }
 
   .saved-leads-filters summary {
     margin-left: 0;
+  }
+
+  .saved-leads-export-feedback {
+    margin: -2px 18px 12px;
   }
 
   .saved-leads-filter-options {

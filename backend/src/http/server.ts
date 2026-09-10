@@ -4,6 +4,7 @@ import { executeSearchLeads } from '../application/searchLeads.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import { opportunityTypes, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
+import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
 import { authenticateRequest, configureRuntimeEnvironment } from '../config/supabase.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
@@ -127,6 +128,34 @@ function parseSaleInput(value: unknown): CreateSaleInput | undefined {
   }
 }
 
+function parseLeadInteractionInput(value: unknown): CreateLeadInteractionInput | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const { channel, occurredAt, notes, outcome } = value
+  if (
+    typeof channel !== 'string' ||
+    !interactionChannels.includes(channel as (typeof interactionChannels)[number]) ||
+    typeof occurredAt !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(occurredAt) ||
+    Number.isNaN(Date.parse(`${occurredAt}T12:00:00Z`)) ||
+    typeof notes !== 'string' ||
+    !notes.trim() ||
+    notes.trim().length > 5_000 ||
+    (outcome !== undefined && (typeof outcome !== 'string' || outcome.trim().length > 500))
+  ) {
+    return undefined
+  }
+
+  return {
+    channel: channel as (typeof interactionChannels)[number],
+    occurredAt,
+    notes: notes.trim(),
+    ...(typeof outcome === 'string' && outcome.trim() ? { outcome: outcome.trim() } : {}),
+  }
+}
+
 function getSearchParams(request: IncomingMessage) {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
   const opportunity = requestUrl.searchParams.get('opportunity')?.trim()
@@ -169,6 +198,14 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     undefined,
     (requestType) => persistenceStore.recordGoogleApiCall(accessToken, requestType),
   )
+  const interactionMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/interactions$/)
+
+  if (request.method === 'GET' && interactionMatch) {
+    sendJson(response, 200, {
+      data: await persistenceStore.listLeadInteractions(accessToken, user.id, interactionMatch[1]),
+    })
+    return
+  }
 
   if (request.method === 'GET' && requestUrl.pathname === '/api/locations/countries') {
     sendJson(response, 200, { data: await listCountries() })
@@ -251,6 +288,33 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
 
       await persistenceStore.removeSavedLead(accessToken, user.id, saveMatch[1])
       sendJson(response, 204, null)
+      return
+    }
+
+    if (interactionMatch && request.method === 'POST') {
+      let body: unknown
+
+      try {
+        body = await readJsonBody(request)
+      } catch {
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+
+      const input = parseLeadInteractionInput(body)
+      if (!input) {
+        sendJson(response, 400, { error: 'Informe canal, data e observação da interação.' })
+        return
+      }
+
+      sendJson(response, 201, {
+        data: await persistenceStore.createLeadInteraction(
+          accessToken,
+          user.id,
+          interactionMatch[1],
+          input,
+        ),
+      })
       return
     }
 

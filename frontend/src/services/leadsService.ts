@@ -1,4 +1,5 @@
 import type { Lead, LeadUpdate, OpportunityType, SearchLeadsResponse } from '../types'
+import type { CreateLeadInteractionInput, LeadInteraction } from '../types/interactions'
 import type { CreateSaleInput, Sale } from '../types/sales'
 import { supabase } from '../lib/supabase'
 
@@ -282,6 +283,36 @@ export async function updateLead(lead: Lead, changes: LeadUpdate): Promise<Lead>
 
   const payload = (await response.json()) as { data: SavedLeadState }
   return mergeSavedLeadState(lead, payload.data)
+}
+
+export async function getLeadInteractions(leadId: string): Promise<LeadInteraction[]> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/interactions`)
+
+  if (!response.ok) {
+    throw new Error('Não foi possível carregar o histórico de interações.')
+  }
+
+  const payload = (await response.json()) as { data: LeadInteraction[] }
+  return payload.data
+}
+
+export async function createLeadInteraction(
+  leadId: string,
+  input: CreateLeadInteractionInput,
+): Promise<LeadInteraction> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/leads/${encodeURIComponent(leadId)}/interactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível registrar a interação.')
+  }
+
+  const payload = (await response.json()) as { data: LeadInteraction }
+  return payload.data
 }
 
 export async function getSales(): Promise<Sale[]> {

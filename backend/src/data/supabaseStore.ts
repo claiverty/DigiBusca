@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { LeadStatus } from '../contracts/lead.js'
 import type { CreateSaleInput, Sale } from '../contracts/sale.js'
+import type {
+  CreateLeadInteractionInput,
+  InteractionChannel,
+  LeadInteraction,
+} from '../contracts/interaction.js'
 import { createUserSupabaseClient } from '../config/supabase.js'
 import type { GooglePlacesRequestType } from '../integrations/googlePlacesProvider.js'
 
@@ -29,6 +34,16 @@ type GoogleApiUsageRow = {
   place_details_requests: number | string
   historical_requests: number | string
   monthly_limit: number | string
+}
+
+type LeadInteractionRow = {
+  id: string
+  lead_id: string
+  channel: InteractionChannel
+  occurred_at: string
+  notes: string
+  outcome: string | null
+  created_at: string
 }
 
 export type SavedLeadState = {
@@ -68,6 +83,18 @@ function mapSale(row: SaleRow): Sale {
     service: row.service,
     amount: Number(row.amount),
     soldAt: row.sold_at,
+  }
+}
+
+function mapLeadInteraction(row: LeadInteractionRow): LeadInteraction {
+  return {
+    id: row.id,
+    leadId: row.lead_id,
+    channel: row.channel,
+    occurredAt: row.occurred_at,
+    notes: row.notes,
+    outcome: row.outcome ?? undefined,
+    createdAt: row.created_at,
   }
 }
 
@@ -147,6 +174,46 @@ export class SupabaseStore {
       .eq('lead_id', leadId)
 
     throwIfError(error)
+  }
+
+  async listLeadInteractions(
+    accessToken: string,
+    userId: string,
+    leadId: string,
+  ): Promise<LeadInteraction[]> {
+    const { data, error } = await this.client(accessToken)
+      .from('lead_interactions')
+      .select('id, lead_id, channel, occurred_at, notes, outcome, created_at')
+      .eq('user_id', userId)
+      .eq('lead_id', leadId)
+      .order('occurred_at', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    throwIfError(error)
+    return (data as LeadInteractionRow[]).map(mapLeadInteraction)
+  }
+
+  async createLeadInteraction(
+    accessToken: string,
+    userId: string,
+    leadId: string,
+    input: CreateLeadInteractionInput,
+  ): Promise<LeadInteraction> {
+    const { data, error } = await this.client(accessToken)
+      .from('lead_interactions')
+      .insert({
+        user_id: userId,
+        lead_id: leadId,
+        channel: input.channel,
+        occurred_at: input.occurredAt,
+        notes: input.notes,
+        outcome: input.outcome || null,
+      })
+      .select('id, lead_id, channel, occurred_at, notes, outcome, created_at')
+      .single()
+
+    throwIfError(error)
+    return mapLeadInteraction(data as LeadInteractionRow)
   }
 
   async listSales(accessToken: string, userId: string): Promise<Sale[]> {

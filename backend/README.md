@@ -31,6 +31,8 @@ As regras de qualificação, acesso a dados e integração com Google Places dev
 - `POST /api/leads/:id/save`: salva um lead encontrado.
 - `DELETE /api/leads/:id/save`: remove um lead salvo.
 - `PATCH /api/leads/:id`: atualiza status, observações, follow-up e rascunho da abordagem.
+- `GET /api/leads/:id/interactions`: lista o histórico de interações de um lead.
+- `POST /api/leads/:id/interactions`: registra canal, data, observação e resultado de um contato.
 
 As consultas ao Google Places têm um limite leve por conta (12 buscas por minuto e 24 aberturas
 de lead por minuto) para evitar consumo acidental da API. É uma proteção de experiência; a
@@ -38,6 +40,6 @@ configuração de cotas do Google continua sendo a fonte de limite global.
 - `GET /api/sales`: lista o histórico de vendas.
 - `POST /api/sales`: registra uma venda manual ou vinculada a um lead.
 
-Todas as rotas de negócio exigem um token Bearer do Supabase Auth. O backend valida o token e executa as consultas com o JWT do usuário, enquanto o PostgreSQL aplica RLS para impedir acesso cruzado entre contas. A migration está em `supabase/migrations/001_initial_persistence.sql`.
+Todas as rotas de negócio exigem um token Bearer do Supabase Auth. O backend valida o token e executa as consultas com o JWT do usuário, enquanto o PostgreSQL aplica RLS para impedir acesso cruzado entre contas. As migrations estão em `supabase/migrations/`; a tabela de interações é criada por `004_lead_interactions.sql`.
 
 A busca usa o `GooglePlacesProvider`. A chave fica somente no ambiente do backend e os campos retornados são limitados por field mask. O backend consulta novamente o Google Places quando precisa recuperar um lead pelo seu `place_id`, sem manter um cache próprio dos dados do Google. Leads salvos mantêm o `place_id` e apenas os campos de acompanhamento editados pelo usuário; a limpeza de snapshots antigos está em `002_saved_leads_place_id_only.sql`.
