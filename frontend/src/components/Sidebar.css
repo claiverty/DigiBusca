@@ -108,24 +108,6 @@
   font-weight: 600;
 }
 
-.account-signout {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  color: var(--color-text-subtle);
-  background: transparent;
-}
-
-.account-signout:hover {
-  color: var(--color-text);
-  background: #f1f1f3;
-}
-
 .sidebar {
   grid-column: 1;
   grid-row: 2;
@@ -208,6 +190,37 @@
   transition: max-width 160ms ease, opacity 100ms ease;
 }
 
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.sidebar-signout {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 11px;
+  color: #6f7077;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.sidebar-signout:hover {
+  color: var(--color-text);
+  background: #f4f4f6;
+}
+
+.sidebar-signout svg {
+  flex: 0 0 18px;
+}
+
 .sidebar-backdrop {
   display: none;
 }
@@ -217,21 +230,87 @@
 }
 
 @media (min-width: 1281px) {
-  .app-shell:has(.sidebar.is-collapsed) {
-    grid-template-columns: 0 minmax(0, 1fr);
+  .app-shell {
+    grid-template-columns: 72px minmax(0, 1fr);
   }
 
-  .app-shell:has(.sidebar.is-collapsed) .content {
-    grid-column: 2;
+  .app-shell:has(.sidebar.is-collapsed:hover) {
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
 
+  .sidebar,
   .sidebar.is-collapsed {
-    width: 0;
-    min-width: 0;
-    margin: 0;
-    padding: 0;
+    width: 72px;
     overflow: hidden;
-    border-right-color: transparent;
+    margin: 0;
+    padding-right: 11px;
+    padding-left: 11px;
+  }
+
+  .sidebar:not(.is-collapsed) {
+    width: var(--sidebar-width);
+    box-shadow: 14px 0 28px rgba(19, 20, 26, 0.1);
+  }
+
+  .sidebar.is-collapsed:hover {
+    width: var(--sidebar-width);
+    box-shadow: 14px 0 28px rgba(19, 20, 26, 0.1);
+  }
+
+  .sidebar.is-collapsed .sidebar-section-label {
+    opacity: 0;
+  }
+
+  .sidebar.is-collapsed:hover .sidebar-section-label {
+    opacity: 1;
+  }
+
+  .sidebar.is-collapsed .sidebar-label {
+    max-width: 0;
+    opacity: 0;
+  }
+
+  .sidebar.is-collapsed:hover .sidebar-label {
+    max-width: 160px;
+    opacity: 1;
+  }
+
+  .sidebar.is-collapsed .nav-item {
+    justify-content: center;
+    gap: 0;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .sidebar.is-collapsed:hover .nav-item {
+    justify-content: flex-start;
+    gap: 11px;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .sidebar.is-collapsed .sidebar-footer {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .sidebar.is-collapsed .sidebar-signout {
+    justify-content: center;
+    gap: 0;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .sidebar.is-collapsed:hover .sidebar-footer {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .sidebar.is-collapsed:hover .sidebar-signout {
+    justify-content: flex-start;
+    gap: 11px;
+    padding-right: 12px;
+    padding-left: 12px;
   }
 }
 
@@ -262,6 +341,18 @@
   }
 
   .sidebar:not(:hover):not(:has(.nav-item:focus-visible)):not(.is-pinned-open) .nav-item {
+    justify-content: center;
+    gap: 0;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .sidebar:not(:hover):not(:has(.nav-item:focus-visible)):not(.is-pinned-open) .sidebar-footer {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .sidebar:not(:hover):not(:has(.nav-item:focus-visible)):not(.is-pinned-open) .sidebar-signout {
     justify-content: center;
     gap: 0;
     padding-right: 8px;
@@ -319,8 +410,7 @@
 
   .app-header-view,
   .app-header-separator,
-  .app-header-email,
-  .account-signout {
+  .app-header-email {
     display: none;
   }
 
@@ -348,7 +438,8 @@
   }
 
   .main-nav {
-    width: 100%;
+    width: auto;
+    flex: 1 1 auto;
     height: 100%;
     display: flex;
     align-items: center;
@@ -402,5 +493,34 @@
 
   .mobile-new-sale:hover {
     background: #f0f0f2;
+  }
+
+  .sidebar-footer {
+    display: flex;
+    width: 52px;
+    height: 52px;
+    flex: 0 0 52px;
+    align-items: center;
+    margin: 0 0 0 6px;
+    padding: 0;
+    border: 0;
+  }
+
+  .sidebar-signout,
+  .sidebar.is-mobile-open .sidebar-signout {
+    display: grid;
+    width: 52px;
+    height: 52px;
+    min-height: 52px;
+    place-items: center;
+    gap: 0;
+    padding: 0;
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .sidebar-signout:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
   }
 }

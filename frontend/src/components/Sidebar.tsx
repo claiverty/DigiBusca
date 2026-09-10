@@ -81,9 +81,6 @@ export function Sidebar({ activeView, onNavigate, userEmail, onSignOut, onShowLa
         <div className="app-header-account">
           <span className="app-header-email" title={userEmail}>{userEmail}</span>
           <span className="account-avatar" aria-hidden="true">{userEmail.charAt(0).toUpperCase()}</span>
-          <button className="account-signout" type="button" onClick={onSignOut} aria-label="Sair" title="Sair">
-            <LogOut size={16} strokeWidth={1.8} />
-          </button>
         </div>
       </header>
 
@@ -127,6 +124,12 @@ export function Sidebar({ activeView, onNavigate, userEmail, onSignOut, onShowLa
             </Fragment>
           ))}
         </nav>
+        <div className="sidebar-footer">
+          <button className="sidebar-signout" type="button" onClick={onSignOut} title="Sair">
+            <LogOut size={18} strokeWidth={1.8} />
+            <span className="sidebar-label">Sair</span>
+          </button>
+        </div>
       </aside>
     </>
   )
