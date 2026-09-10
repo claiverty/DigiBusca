@@ -277,28 +277,29 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         }
         onSearch={(location) => void loadLeads(location)}
       />
-      {status !== 'idle' && <ResultsHeader city={searchedLocation} total={currentLeads.length} />}
-      <section ref={leadListRef} className="lead-list" aria-label="Lista de leads">
-        {status === 'idle' && (
-          <div className="data-state">Informe uma cidade e escolha um segmento para começar.</div>
-        )}
-        {status === 'loading' && <div className="data-state">Buscando oportunidades...</div>}
-        {status === 'error' && (
-          <div className="data-state" role="alert">
-            <p>{errorMessage}</p>
-            <button className="secondary-button" type="button" onClick={() => void loadLeads()}>
-              Tentar novamente
-            </button>
-          </div>
-        )}
-        {status === 'success' && currentLeads.length === 0 && (
-          <div className="data-state">Nenhuma oportunidade encontrada para esses filtros.</div>
-        )}
-      {status === 'success' &&
-          currentLeads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} onSelect={onSelectLead} />
-          ))}
-      </section>
+      {status !== 'idle' && (
+        <>
+          <ResultsHeader city={searchedLocation} total={currentLeads.length} />
+          <section ref={leadListRef} className="lead-list" aria-label="Lista de leads">
+            {status === 'loading' && <div className="data-state">Buscando oportunidades...</div>}
+            {status === 'error' && (
+              <div className="data-state" role="alert">
+                <p>{errorMessage}</p>
+                <button className="secondary-button" type="button" onClick={() => void loadLeads()}>
+                  Tentar novamente
+                </button>
+              </div>
+            )}
+            {status === 'success' && currentLeads.length === 0 && (
+              <div className="data-state">Nenhuma oportunidade encontrada para esses filtros.</div>
+            )}
+            {status === 'success' &&
+              currentLeads.map((lead) => (
+                <LeadCard key={lead.id} lead={lead} onSelect={onSelectLead} />
+              ))}
+          </section>
+        </>
+      )}
       {status === 'success' && currentLeads.length > 0 && (
         <nav className="search-pagination" aria-label="Páginas de resultados">
           <button

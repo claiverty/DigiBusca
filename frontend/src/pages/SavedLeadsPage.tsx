@@ -373,7 +373,26 @@ export function SavedLeadsPage({
                 {visibleLeads.map((lead) => {
                   const cachedLead = cachedLeadById.get(lead.leadId)
                   return (
-                    <section className="saved-lead-row" key={lead.leadId} aria-label={`Lead ${getLeadName(lead)}`}>
+                    <section
+                      className="saved-lead-row"
+                      key={lead.leadId}
+                      aria-label={`Lead ${getLeadName(lead)}`}
+                      onClick={(event) => {
+                        const interactiveTarget = (event.target as HTMLElement).closest(
+                          'button, .saved-lead-remove-confirm, .saved-lead-error',
+                        )
+
+                        if (
+                          interactiveTarget
+                          || openingLeadId === lead.leadId
+                          || removingLeadId === lead.leadId
+                        ) {
+                          return
+                        }
+
+                        void openLead(lead.leadId)
+                      }}
+                    >
                       <button
                         className="saved-lead-company"
                         type="button"
@@ -388,15 +407,6 @@ export function SavedLeadsPage({
                         {getFollowUpLabel(lead)}
                       </span>
                       <div className="saved-lead-actions">
-                        <button
-                          className="saved-lead-open"
-                          type="button"
-                          onClick={() => void openLead(lead.leadId)}
-                          disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
-                        >
-                          {openingLeadId === lead.leadId ? 'Abrindo...' : 'Abrir'}
-                          <ArrowUpRight size={15} aria-hidden="true" />
-                        </button>
                         <button
                           className="saved-lead-delete"
                           type="button"

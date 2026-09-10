@@ -142,6 +142,6 @@ p {
 
 @media (max-width: 590px) {
   .content {
-    padding: 44px 16px 42px;
+    padding: 44px 16px calc(112px + env(safe-area-inset-bottom));
   }
 }
