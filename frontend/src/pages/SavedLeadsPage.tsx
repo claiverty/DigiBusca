@@ -1,5 +1,5 @@
-import { ArrowUpRight, CalendarClock, Check, Download, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { ArrowUpRight, CalendarClock, Check, ChevronLeft, ChevronRight, Download, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { getSavedLead, getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import { exportLeadsCsv } from '../services/exportLeadsCsv'
 import type { Lead } from '../types'
@@ -48,6 +48,8 @@ export function SavedLeadsPage({
   const [leads, setLeads] = useState<SavedLeadState[]>([])
   const [hydratedLeads, setHydratedLeads] = useState<Map<string, Lead>>(new Map())
   const [leadHydrationStatus, setLeadHydrationStatus] = useState<Map<string, 'loading' | 'error'>>(new Map())
+  const statusTabsRef = useRef<HTMLDivElement>(null)
+  const [statusTabsOverflow, setStatusTabsOverflow] = useState({ left: false, right: false })
   const [status, setStatus] = useState('loading')
   const [attempt, setAttempt] = useState(0)
   const [statusFilter, setStatusFilter] = useState('Todos')
@@ -206,6 +208,45 @@ export function SavedLeadsPage({
     [leads],
   )
 
+  useEffect(() => {
+    const tabs = statusTabsRef.current
+    if (!tabs) return
+
+    function updateOverflow() {
+      if (!tabs) return
+      const firstTab = tabs.querySelector('button:first-child')
+      const lastTab = tabs.querySelector('button:last-child')
+      const tabsBounds = tabs.getBoundingClientRect()
+      const firstTabBounds = firstTab?.getBoundingClientRect()
+      const lastTabBounds = lastTab?.getBoundingClientRect()
+
+      setStatusTabsOverflow({
+        left: Boolean(firstTabBounds && firstTabBounds.left < tabsBounds.left - 4),
+        right: Boolean(lastTabBounds && lastTabBounds.right > tabsBounds.right + 4),
+      })
+    }
+
+    updateOverflow()
+    tabs.addEventListener('scroll', updateOverflow, { passive: true })
+    const resizeObserver = new ResizeObserver(updateOverflow)
+    resizeObserver.observe(tabs)
+
+    return () => {
+      tabs.removeEventListener('scroll', updateOverflow)
+      resizeObserver.disconnect()
+    }
+  }, [leads.length])
+
+  function scrollStatusTabs(direction: 'left' | 'right') {
+    const tabs = statusTabsRef.current
+    if (!tabs) return
+
+    tabs.scrollBy({
+      left: (direction === 'right' ? 1 : -1) * tabs.clientWidth * 0.7,
+      behavior: 'smooth',
+    })
+  }
+
   function getFollowUpLabel(lead: SavedLeadState) {
     if (!lead.nextFollowUp) return 'Definir próximo contato'
     const date = toLocalDate(lead.nextFollowUp)
@@ -303,8 +344,10 @@ export function SavedLeadsPage({
           <header className="saved-leads-directory-heading">
             <div>
               <span className="eyebrow">CARTEIRA</span>
-              <h2 id="lead-directory-title">Todos os leads</h2>
-              <p role="status">{visibleLeads.length} de {leads.length} lead(s)</p>
+              <div className="saved-leads-title-row">
+                <h2 id="lead-directory-title">Todos os leads</h2>
+                <p role="status">{visibleLeads.length} de {leads.length} lead(s)</p>
+              </div>
             </div>
             <div className="saved-leads-directory-actions">
               <details className="saved-leads-filters">
@@ -344,19 +387,44 @@ export function SavedLeadsPage({
 
           {exportFeedback && <p className="saved-leads-export-feedback" role="status">{exportFeedback}</p>}
 
-          <div className="lead-status-tabs" role="group" aria-label="Filtrar por status">
-            {['Todos', ...statuses].map((item) => (
+          <div className="lead-status-tabs-shell">
+            <div className="lead-status-tabs" role="group" aria-label="Filtrar por status" ref={statusTabsRef}>
+              {['Todos', ...statuses].map((item) => (
+                <button
+                  className={statusFilter === item ? 'active' : ''}
+                  type="button"
+                  key={item}
+                  aria-pressed={statusFilter === item}
+                  onClick={(event) => {
+                    setStatusFilter(item)
+                    event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+                  }}
+                >
+                  {item}
+                  <span>{item === 'Todos' ? leads.length : (statusCounts.get(item) ?? 0)}</span>
+                </button>
+              ))}
+            </div>
+            {statusTabsOverflow.right && (
               <button
-                className={statusFilter === item ? 'active' : ''}
+                className="status-scroll-cue next"
                 type="button"
-                key={item}
-                aria-pressed={statusFilter === item}
-                onClick={() => setStatusFilter(item)}
+                aria-label="Ver próximos status"
+                onClick={() => scrollStatusTabs('right')}
               >
-                {item}
-                <span>{item === 'Todos' ? leads.length : (statusCounts.get(item) ?? 0)}</span>
+                <ChevronRight size={20} aria-hidden="true" />
               </button>
-            ))}
+            )}
+            {statusTabsOverflow.left && (
+              <button
+                className="status-scroll-cue previous"
+                type="button"
+                aria-label="Ver status anteriores"
+                onClick={() => scrollStatusTabs('left')}
+              >
+                <ChevronLeft size={20} aria-hidden="true" />
+              </button>
+            )}
           </div>
 
           {visibleLeads.length === 0 ? (

@@ -4,10 +4,6 @@
 
 Uma ferramenta premium e simples para transformar pesquisa local em oportunidade comercial. A interface deve esconder a complexidade e destacar sempre o próximo passo.
 
-## Referências
-
-BrandMyMac e BrandMyLaptop são referências de clareza, espaço, personalidade e interação. O DigiBusca deve ter identidade própria e não reutilizar marca, textos ou elementos proprietários dessas referências.
-
 ## Interface
 
 - Fundo claro e superfícies brancas.

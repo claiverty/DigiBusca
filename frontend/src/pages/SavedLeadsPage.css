@@ -122,6 +122,10 @@
   font-size: 12px;
 }
 
+.saved-leads-title-row {
+  min-width: 0;
+}
+
 .saved-leads-filters {
   position: relative;
   display: block;
@@ -231,6 +235,10 @@
   font-size: 12px;
 }
 
+.lead-status-tabs-shell {
+  position: relative;
+}
+
 .lead-status-tabs {
   display: flex;
   gap: 24px;
@@ -239,6 +247,10 @@
   border-top: 1px solid var(--color-border-soft);
   border-bottom: 1px solid var(--color-border-soft);
   scrollbar-width: none;
+}
+
+.status-scroll-cue {
+  display: none;
 }
 
 .lead-status-tabs::-webkit-scrollbar {
@@ -498,7 +510,18 @@
   .saved-leads-directory-heading {
     flex-direction: column;
     gap: 14px;
-    padding: 20px 18px 16px;
+    padding: 20px 0 16px;
+  }
+
+  .saved-leads-title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+  }
+
+  .saved-leads-title-row p {
+    margin-top: 0;
+    white-space: nowrap;
   }
 
   .saved-leads-directory-actions {
@@ -512,6 +535,12 @@
 
   .saved-leads-filters summary {
     margin-left: 0;
+    min-height: 44px;
+  }
+
+  .saved-leads-export,
+  .saved-leads-filter-options button {
+    min-height: 44px;
   }
 
   .saved-leads-export-feedback {
@@ -525,7 +554,31 @@
 
   .lead-status-tabs {
     gap: 20px;
-    padding: 0 18px;
+    padding: 0 62px 0 18px;
+    scroll-behavior: smooth;
+  }
+
+  .status-scroll-cue {
+    position: absolute;
+    z-index: 2;
+    top: 1px;
+    right: 0;
+    display: grid;
+    width: 52px;
+    height: 48px;
+    place-items: center;
+    padding: 0 5px 0 17px;
+    border: 0;
+    color: var(--color-text);
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0), #fff 48%);
+  }
+
+  .status-scroll-cue.previous {
+    right: auto;
+    left: 0;
+    width: 104px;
+    padding: 0 69px 0 5px;
+    background: linear-gradient(90deg, #fff 70%, rgba(255, 255, 255, 0));
   }
 
   .saved-leads-table {
@@ -534,5 +587,18 @@
 
   .saved-lead-row {
     padding: 14px;
+  }
+
+  .saved-lead-company strong,
+  .saved-lead-company small {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .saved-lead-delete {
+    width: 44px;
+    height: 44px;
   }
 }

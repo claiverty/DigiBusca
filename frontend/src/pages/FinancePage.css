@@ -414,6 +414,11 @@
   }
 }
 @media (max-width: 590px) {
+  .finance-field input {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
   .period-tabs {
     gap: 2px;
     overflow-x: auto;
@@ -421,6 +426,7 @@
     padding-right: 16px;
   }
   .period-tab {
+    min-height: 44px;
     padding: 11px 13px;
     white-space: nowrap;
     font-size: 13px;
@@ -455,13 +461,16 @@
   }
   .sale-toast {
     right: 18px;
-    bottom: 72px;
+    bottom: calc(96px + env(safe-area-inset-bottom));
   }
   .sale-modal-backdrop {
     padding: 14px;
   }
   .sale-modal {
+    max-height: calc(100dvh - 28px - env(safe-area-inset-bottom));
     padding: 20px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .sale-calendar {
     right: auto;

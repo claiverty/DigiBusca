@@ -303,6 +303,21 @@ textarea:focus {
 }
 
 @media (max-width: 590px) {
+  .detail-field select,
+  .detail-field input,
+  .detail-field textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .detail-side dd,
+  .detail-side a,
+  .interaction-row p,
+  .interaction-row small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .detail-grid {
     grid-template-columns: 1fr;
   }

@@ -262,8 +262,19 @@
   }
 
   .ai-outreach-modal {
-    max-height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px - env(safe-area-inset-bottom));
     padding: 20px;
+  }
+
+  .ai-outreach-close,
+  .ai-outreach-tones button,
+  .ai-outreach-result button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .ai-outreach-form input {
+    font-size: 16px;
   }
 
   .ai-outreach-header h2 {

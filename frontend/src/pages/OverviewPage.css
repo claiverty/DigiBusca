@@ -244,6 +244,19 @@
 }
 
 @media (max-width: 590px) {
+  .overview-page {
+    gap: 10px;
+  }
+
+  .overview-page .overview-header {
+    margin-bottom: 0;
+  }
+
+  .overview-header h1,
+  .overview-header p {
+    display: none;
+  }
+
   .overview-actions {
     display: none;
   }
@@ -289,5 +302,60 @@
 
   .overview-metric:nth-child(3) strong {
     color: #fff;
+  }
+
+  .google-usage-panel {
+    gap: 18px;
+    min-height: 0;
+    padding: 18px;
+  }
+
+  .google-usage-copy {
+    gap: 6px;
+  }
+
+  .google-usage-copy h2 {
+    margin-top: 8px;
+    font-size: 19px;
+    letter-spacing: -0.035em;
+  }
+
+  .google-usage-copy p {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .google-usage-total {
+    margin-top: 4px;
+    font-size: 19px;
+    letter-spacing: -0.035em;
+  }
+
+  .google-usage-copy small,
+  .google-usage-visual small {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .google-usage-rings {
+    gap: 12px;
+  }
+
+  .google-usage-visual,
+  .google-usage-ring {
+    min-width: 98px;
+  }
+
+  .google-usage-ring {
+    width: 98px;
+    height: 98px;
+  }
+
+  .google-usage-ring > strong {
+    font-size: 2rem;
+  }
+
+  .google-usage-limit {
+    font-size: 13px;
   }
 }

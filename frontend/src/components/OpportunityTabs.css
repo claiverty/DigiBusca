@@ -6,6 +6,7 @@
 }
 
 .filter-tabs button {
+  min-height: 44px;
   white-space: nowrap;
   padding: 8px 14px;
   border: 0;

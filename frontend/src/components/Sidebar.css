@@ -24,6 +24,10 @@
   align-items: center;
 }
 
+.app-header-account-wrap {
+  position: relative;
+}
+
 .app-header-start {
   gap: 12px;
 }
@@ -84,6 +88,53 @@
 
 .app-header-account {
   gap: 9px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.account-menu-popover {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 10px);
+  right: 0;
+  display: grid;
+  gap: 8px;
+  width: min(240px, calc(100vw - 28px));
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  box-shadow: 0 18px 42px rgba(18, 19, 24, 0.16);
+}
+
+.account-menu-email {
+  overflow: hidden;
+  padding: 8px 10px 4px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu-signout {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 11px;
+  color: var(--color-text);
+  background: #f4f4f6;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.account-menu-signout:hover {
+  background: #ececef;
 }
 
 .app-header-email {
@@ -414,6 +465,16 @@
     display: none;
   }
 
+  .app-header-brand,
+  .app-header-account {
+    min-height: 44px;
+  }
+
+  .app-header-account {
+    width: 44px;
+    justify-content: center;
+  }
+
   .sidebar,
   .sidebar.is-mobile-open {
     width: calc(100vw - 32px);
@@ -425,7 +486,9 @@
     right: auto;
     bottom: max(14px, env(safe-area-inset-bottom));
     left: 50%;
-    display: block;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
     overflow: visible;
     margin: 0;
     padding: 6px;
@@ -440,15 +503,17 @@
   .main-nav {
     width: auto;
     flex: 1 1 auto;
+    min-width: 0;
     height: 100%;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
 
   .nav-item,
   .sidebar.is-mobile-open .nav-item {
     height: 52px;
+    min-width: 44px;
     flex: 1 1 0;
     justify-content: center;
     gap: 0;
@@ -496,20 +561,13 @@
   }
 
   .sidebar-footer {
-    display: flex;
-    width: 52px;
-    height: 52px;
-    flex: 0 0 52px;
-    align-items: center;
-    margin: 0 0 0 6px;
-    padding: 0;
-    border: 0;
+    display: none;
   }
 
   .sidebar-signout,
   .sidebar.is-mobile-open .sidebar-signout {
     display: grid;
-    width: 52px;
+    width: 44px;
     height: 52px;
     min-height: 52px;
     place-items: center;

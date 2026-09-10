@@ -100,6 +100,14 @@
 }
 
 @media (max-width: 590px) {
+  .lead-heading,
+  .lead-meta,
+  .lead-meta span,
+  .diagnosis-preview {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .lead-card-footer {
     align-items: flex-start;
     flex-direction: column;

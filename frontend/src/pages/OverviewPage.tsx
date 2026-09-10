@@ -141,7 +141,7 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
 
       <section className="panel google-usage-panel" aria-labelledby="google-usage-title">
         <div className="google-usage-copy">
-          <span className="eyebrow">ACOMPANHAMENTO</span>
+          <span className="eyebrow">CONSUMO DA API</span>
           <h2 id="google-usage-title">Uso geral do Google</h2>
           <p>Solicitações de todas as contas do DigiBusca neste mês.</p>
           <strong className="google-usage-total">

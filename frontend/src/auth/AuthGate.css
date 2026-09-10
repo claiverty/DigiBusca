@@ -779,6 +779,20 @@
     right: 22px;
   }
 
+  .password-visibility-button {
+    right: 6px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .auth-brand,
+  .auth-back-button,
+  .auth-link-button,
+  .auth-home-link,
+  .auth-resend-button {
+    min-height: 44px;
+  }
+
   .auth-secondary-actions {
     align-items: flex-start;
     flex-direction: column;
@@ -828,6 +842,6 @@
   }
 
   .auth-shell .auth-access-panel {
-    padding: 28px 22px 40px;
+    padding: calc(28px + env(safe-area-inset-top)) 22px calc(40px + env(safe-area-inset-bottom));
   }
 }

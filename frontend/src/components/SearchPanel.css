@@ -129,6 +129,10 @@
   white-space: nowrap;
 }
 
+.location-suggestions button {
+  min-height: 44px;
+}
+
 .location-suggestions button:hover,
 .location-suggestions button[aria-selected="true"] {
   color: #1c1d24;
@@ -197,5 +201,25 @@
 
   .search-button {
     width: 100%;
+  }
+
+  .location-combobox,
+  .choice-dropdown-trigger {
+    min-height: 48px;
+  }
+
+  .location-combobox:not(.choice-dropdown) {
+    padding-right: 0;
+  }
+
+  .location-combobox input,
+  .choice-dropdown-trigger {
+    font-size: 16px;
+  }
+
+  .location-clear-button,
+  .location-toggle-button {
+    width: 44px;
+    height: 44px;
   }
 }
