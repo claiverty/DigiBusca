@@ -18,10 +18,27 @@ import type { Lead, LeadUpdate } from './types'
 import type { CreateSaleInput } from './types/sales'
 import './App.css'
 
+const viewPaths: Record<AppView, string> = {
+  overview: '/sistema',
+  search: '/sistema/buscar',
+  saved: '/sistema/leads',
+  finance: '/sistema/financeiro',
+}
+
+const pathViews = Object.fromEntries(
+  Object.entries(viewPaths).map(([view, path]) => [path, view]),
+) as Record<string, AppView>
+
+function getViewFromPathname(pathname = window.location.pathname): AppView {
+  const normalizedPath = pathname.replace(/\/+$/, '') || '/'
+
+  return pathViews[normalizedPath] ?? 'overview'
+}
+
 function App() {
   const { user, signOut, showLanding } = useAuth()
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
-  const [activeView, setActiveView] = useState<AppView>('overview')
+  const [activeView, setActiveView] = useState<AppView>(getViewFromPathname)
   const [isNewSaleRequested, setIsNewSaleRequested] = useState(false)
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
   const savedLeads = useRef(new Map<string, Lead>())
@@ -38,6 +55,16 @@ function App() {
         setSavedLeadIds(new Set(leadIds))
       })
       .catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    const syncViewWithUrl = () => {
+      setSelectedLead(null)
+      setActiveView(getViewFromPathname())
+    }
+
+    window.addEventListener('popstate', syncViewWithUrl)
+    return () => window.removeEventListener('popstate', syncViewWithUrl)
   }, [])
 
   async function toggleSavedLead(lead: Lead) {
@@ -97,11 +124,23 @@ function App() {
   }
 
   function handleNavigate(view: AppView) {
+    const nextPath = viewPaths[view]
+
+    if (window.location.pathname !== nextPath || window.location.search || window.location.hash) {
+      window.history.pushState({}, '', nextPath)
+    }
+
     setSelectedLead(null)
     setActiveView(view)
   }
 
   function handleNewSale() {
+    const nextPath = viewPaths.finance
+
+    if (window.location.pathname !== nextPath || window.location.search || window.location.hash) {
+      window.history.pushState({}, '', nextPath)
+    }
+
     setSelectedLead(null)
     setActiveView('finance')
     setIsNewSaleRequested(true)

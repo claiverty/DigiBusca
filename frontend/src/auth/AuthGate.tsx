@@ -26,10 +26,26 @@ type AppRoute = '/' | '/login' | '/cadastro' | '/sistema'
 
 const appRoutes = new Set<AppRoute>(['/', '/login', '/cadastro', '/sistema'])
 
+function normalizePathname(pathname = window.location.pathname) {
+  return pathname.replace(/\/+$/, '') || '/'
+}
+
+function isSystemPath(pathname: string) {
+  return pathname === '/sistema' || pathname.startsWith('/sistema/')
+}
+
 function getCurrentRoute(): AppRoute {
-  const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
+  const pathname = normalizePathname()
+
+  if (isSystemPath(pathname)) {
+    return '/sistema'
+  }
 
   return appRoutes.has(pathname as AppRoute) ? (pathname as AppRoute) : '/'
+}
+
+function isKnownPath(pathname: string) {
+  return isSystemPath(pathname) || appRoutes.has(pathname as AppRoute)
 }
 
 const providerIcons = {
@@ -177,8 +193,9 @@ export function AuthGate({ children }: PropsWithChildren) {
   useEffect(() => {
     const syncRoute = () => setRoute(getCurrentRoute())
     const currentRoute = getCurrentRoute()
+    const currentPath = normalizePathname()
 
-    if (window.location.pathname !== currentRoute) {
+    if (!isKnownPath(currentPath)) {
       window.history.replaceState({}, '', currentRoute)
     }
 
