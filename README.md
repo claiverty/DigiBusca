@@ -43,4 +43,12 @@ Frontend e API local de busca com Google Places API (New). As fases de prospecç
 
 Os testes E2E usam o Google Chrome instalado na máquina e não criam contas nem alteram leads reais.
 
+Para incluir a área autenticada, use uma conta exclusiva de teste:
+
+```bash
+E2E_USER_EMAIL=teste@exemplo.com E2E_USER_PASSWORD='senha-da-conta' npm run test:e2e
+```
+
+A suíte autenticada é somente de leitura: valida login, navegação, recarga direta das quatro áreas e ausência de rolagem horizontal. Sem essas variáveis, ela é ignorada e apenas os testes públicos são executados. Não salve as credenciais no repositório.
+
 # DigiBusca
