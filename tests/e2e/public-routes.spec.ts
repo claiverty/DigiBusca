@@ -4,6 +4,7 @@ test('API responde ao health check', async ({ request }) => {
   const response = await request.get('/api/health')
 
   expect(response.ok()).toBeTruthy()
+  expect(response.headers()['x-request-id']).toBeTruthy()
   await expect(response.json()).resolves.toMatchObject({
     status: 'ok',
     service: 'digibusca-backend',

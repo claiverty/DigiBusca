@@ -7,7 +7,7 @@ import { interactionChannels, type CreateLeadInteractionInput } from '../contrac
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import { checkRateLimit } from './rateLimit.js'
-import { logError } from '../observability/logger.js'
+import { getRequestId, logError, logInfo } from '../observability/logger.js'
 import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 
@@ -29,10 +29,12 @@ function mergeSavedLeadState(lead: Lead, state: Awaited<ReturnType<SupabaseStore
 }
 
 function jsonResponse(request: Request, status: number, payload: unknown, extraHeaders?: HeadersInit) {
+  const requestId = getRequestId(request)
   const headers = new Headers({
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'X-Request-Id': requestId,
     Vary: 'Origin',
   })
   const origin = request.headers.get('Origin')
@@ -313,13 +315,19 @@ async function handleApiRequest(request: Request) {
     if (rateLimitResponse) return rateLimitResponse
 
     try {
-      return jsonResponse(request, 200, {
-        ...(await executeSearchLeads(trackedLeadProvider, {
+      const result = await executeSearchLeads(trackedLeadProvider, {
           ...query,
           ...(opportunity ? { opportunity: opportunity as OpportunityType } : {}),
-        })),
+        })
+      logInfo('lead_search_completed', {
+        requestId: getRequestId(request),
+        resultCount: result.data.length,
       })
+      return jsonResponse(request, 200, result)
     } catch (error) {
+      logError('lead_search_failed', error, {
+        requestId: getRequestId(request),
+      })
       return jsonResponse(request, 503, {
         error: error instanceof Error ? error.message : 'Não foi possível consultar os negócios agora.',
       })
@@ -346,7 +354,7 @@ export default {
       logError('api_request_failed', error, {
         method: request.method,
         path: url.pathname,
-        rayId: request.headers.get('cf-ray'),
+        requestId: getRequestId(request),
       })
       return jsonResponse(request, 500, { error: 'Não foi possível concluir a operação agora.' })
     }

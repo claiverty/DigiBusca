@@ -13,7 +13,7 @@ import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 import { checkRateLimit } from './rateLimit.js'
-import { logError, logInfo } from '../observability/logger.js'
+import { createRequestId, logError, logInfo } from '../observability/logger.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -43,12 +43,23 @@ function mergeSavedLeadState(lead: Lead, state: Awaited<ReturnType<SupabaseStore
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown) {
   const origin = response.req.headers.origin
+  const currentRequestId = response.getHeader('X-Request-Id')
+  const requestId = typeof currentRequestId === 'string'
+    ? currentRequestId
+    : createRequestId(
+        typeof response.req.headers['cf-ray'] === 'string'
+          ? response.req.headers['cf-ray']
+          : typeof response.req.headers['x-request-id'] === 'string'
+            ? response.req.headers['x-request-id']
+            : undefined,
+      )
   response.writeHead(statusCode, {
     'Access-Control-Allow-Origin':
       origin && allowedOrigins.has(origin) ? origin : 'http://127.0.0.1:5173',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Content-Type': 'application/json; charset=utf-8',
+    'X-Request-Id': requestId,
   })
   response.end(JSON.stringify(payload))
 }
@@ -71,6 +82,13 @@ function sendRequestError(response: ServerResponse, error: unknown) {
   logError('api_request_failed', error, {
     method: response.req.method ?? 'UNKNOWN',
     path: response.req.url?.split('?')[0] ?? '/',
+    requestId: createRequestId(
+      typeof response.req.headers['cf-ray'] === 'string'
+        ? response.req.headers['cf-ray']
+        : typeof response.req.headers['x-request-id'] === 'string'
+          ? response.req.headers['x-request-id']
+          : undefined,
+    ),
   })
   sendJson(response, 500, { error: 'Não foi possível concluir a operação agora.' })
 }
@@ -464,8 +482,27 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         ...query,
         ...(opportunity ? { opportunity: opportunity as OpportunityType } : {}),
       })
+      logInfo('lead_search_completed', {
+        requestId: createRequestId(
+          typeof request.headers['cf-ray'] === 'string'
+            ? request.headers['cf-ray']
+            : typeof request.headers['x-request-id'] === 'string'
+              ? request.headers['x-request-id']
+              : undefined,
+        ),
+        resultCount: payload.data.length,
+      })
       sendJson(response, 200, payload)
     } catch (error) {
+      logError('lead_search_failed', error, {
+        requestId: createRequestId(
+          typeof request.headers['cf-ray'] === 'string'
+            ? request.headers['cf-ray']
+            : typeof request.headers['x-request-id'] === 'string'
+              ? request.headers['x-request-id']
+              : undefined,
+        ),
+      })
       sendJson(response, 503, {
         error: error instanceof Error ? error.message : 'Não foi possível consultar os negócios agora.',
       })

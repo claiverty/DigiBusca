@@ -1,5 +1,13 @@
 type LogContext = Record<string, boolean | number | string | null | undefined>
 
+export function createRequestId(value?: string | null) {
+  return value?.trim() || crypto.randomUUID()
+}
+
+export function getRequestId(request: Request) {
+  return createRequestId(request.headers.get('cf-ray') ?? request.headers.get('x-request-id'))
+}
+
 function serializeError(error: unknown) {
   if (error instanceof Error) {
     return { name: error.name, message: error.message }
