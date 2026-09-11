@@ -1,8 +1,8 @@
-import { ArrowLeft, Bookmark, ExternalLink, History, MessageCircle, Phone } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Bookmark, CheckCircle2, ExternalLink, History, LoaderCircle, MessageCircle, Phone } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { createApproachMessage } from '../lib/approachMessage'
 import { hasContactPhone, toWhatsappPhone } from '../lib/phone'
-import { createLeadInteraction, getLeadInteractions } from '../services/leadsService'
+import { createLeadInteraction, getLeadInteractions, getSiteHealth, type SiteHealthResult } from '../services/leadsService'
 import { CurrencyInput, currencyCentsToNumber } from './CurrencyInput'
 import { DatePicker } from './DatePicker'
 import { SaleServiceField } from './SaleServiceField'
@@ -75,6 +75,8 @@ export function LeadDetail({
   const [interactionOutcome, setInteractionOutcome] = useState('')
   const [interactionFeedback, setInteractionFeedback] = useState('')
   const [isRegisteringInteraction, setIsRegisteringInteraction] = useState(false)
+  const [siteHealth, setSiteHealth] = useState<SiteHealthResult | undefined>()
+  const [siteHealthStatus, setSiteHealthStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const hasPhone = hasContactPhone(lead.phone)
   const whatsappPhone = toWhatsappPhone(lead.phone)
   const whatsappLink = hasPhone
@@ -104,6 +106,31 @@ export function LeadDetail({
       active = false
     }
   }, [interactionAttempt, isSaved, lead.id])
+
+  useEffect(() => {
+    if (!lead.website) {
+      setSiteHealth(undefined)
+      setSiteHealthStatus('idle')
+      return
+    }
+
+    let active = true
+    setSiteHealth(undefined)
+    setSiteHealthStatus('loading')
+    void getSiteHealth(lead.website)
+      .then((result) => {
+        if (!active) return
+        setSiteHealth(result)
+        setSiteHealthStatus('ready')
+      })
+      .catch(() => {
+        if (active) setSiteHealthStatus('error')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [lead.website])
 
   async function handleToggleSave() {
     setIsSaving(true)
@@ -463,9 +490,32 @@ export function LeadDetail({
               <dt>Site</dt>
               <dd>
                 {lead.website ? (
-                  <a href={lead.website} target="_blank" rel="noreferrer">
-                    Abrir site <ExternalLink size={13} />
-                  </a>
+                  <div className="site-info">
+                    <a href={lead.website} target="_blank" rel="noreferrer">
+                      Abrir site <ExternalLink size={13} />
+                    </a>
+                    {siteHealthStatus === 'loading' && (
+                      <span className="site-health site-health-loading" role="status">
+                        <LoaderCircle size={13} /> Verificando site...
+                      </span>
+                    )}
+                    {siteHealthStatus === 'error' && (
+                      <span className="site-health site-health-error" role="status">
+                        <AlertTriangle size={13} /> Verificação indisponível
+                      </span>
+                    )}
+                    {siteHealthStatus === 'ready' && siteHealth && (
+                      <span className={`site-health site-health-${siteHealth.status}`} role="status">
+                        {siteHealth.status === 'healthy' && <CheckCircle2 size={13} />}
+                        {siteHealth.status !== 'healthy' && <AlertTriangle size={13} />}
+                        {siteHealth.status === 'healthy' && 'Site respondendo'}
+                        {siteHealth.status === 'insecure' && 'Site sem HTTPS'}
+                        {siteHealth.status === 'not_found' && 'Site não encontrado'}
+                        {siteHealth.status === 'http_error' && `Site com erro ${siteHealth.statusCode ?? ''}`.trim()}
+                        {siteHealth.status === 'unreachable' && 'Site fora do ar'}
+                      </span>
+                    )}
+                  </div>
                 ) : (
                   'Não encontrado'
                 )}

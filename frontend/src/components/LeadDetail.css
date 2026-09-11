@@ -285,6 +285,51 @@ textarea:focus {
   text-decoration: none;
 }
 
+.site-info {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.site-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.site-health-healthy {
+  color: #47745a;
+}
+
+.site-health-insecure,
+.site-health-not_found,
+.site-health-http_error,
+.site-health-unreachable,
+.site-health-error {
+  color: #9b5a42;
+}
+
+.site-health-loading {
+  color: var(--color-text-muted);
+}
+
+.site-health-loading svg {
+  animation: site-health-spin 900ms linear infinite;
+}
+
+@keyframes site-health-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-health-loading svg {
+    animation: none;
+  }
+}
+
 .contact-link {
   display: flex !important;
   justify-content: center;
@@ -316,6 +361,10 @@ textarea:focus {
   .interaction-row small {
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+
+  .site-info {
+    justify-items: start;
   }
 
   .detail-grid {

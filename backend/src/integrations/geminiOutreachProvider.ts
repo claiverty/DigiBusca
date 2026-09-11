@@ -109,7 +109,7 @@ export async function generateOutreachWithGemini(
       )
       if (response.status === 429) {
         throw new GeminiOutreachError(
-          'O limite gratuito da IA foi atingido. Tente novamente mais tarde.',
+          'A IA está temporariamente indisponível por limite do provedor. Tente novamente mais tarde.',
           429,
         )
       }

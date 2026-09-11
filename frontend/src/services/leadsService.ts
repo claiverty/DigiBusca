@@ -29,6 +29,12 @@ export type GoogleApiUsage = {
   monthlyLimit: number
 }
 
+export type SiteHealthResult = {
+  status: 'healthy' | 'insecure' | 'not_found' | 'http_error' | 'unreachable'
+  statusCode?: number
+  checkedAt: string
+}
+
 export type OutreachTone = 'Profissional' | 'Direto' | 'Informal'
 
 export type GenerateOutreachInput = {
@@ -240,6 +246,22 @@ export async function getSavedLeadIds(): Promise<string[]> {
 
   const payload = (await response.json()) as { data: SavedLeadState[] }
   return payload.data.map((lead) => lead.leadId)
+}
+
+export async function getSiteHealth(url: string): Promise<SiteHealthResult> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/site-health`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível verificar o site.')
+  }
+
+  const payload = (await response.json()) as { data: SiteHealthResult }
+  return payload.data
 }
 
 function mergeSavedLeadState(lead: Lead, state: SavedLeadState): Lead {

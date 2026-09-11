@@ -34,6 +34,8 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 
 Frontend e API estão publicados juntos em `https://digibusca.claiverty.workers.dev`. As fases de prospecção, acompanhamento comercial e controle financeiro simples estão disponíveis em produção. O Supabase Auth e a persistência por usuário estão ativos; os e-mails ainda usam o serviço padrão do Supabase durante a validação do MVP. A busca aceita qualquer cidade, região ou país informado pelo usuário. A chave do Google fica somente no ambiente do backend.
 
+Durante o beta, o acesso é completo e não há quotas comerciais para os usuários. Google, Gemini e Cloudflare continuam sujeitos aos limites técnicos dos próprios serviços. A ficha de um lead com site faz uma verificação sob demanda para identificar disponibilidade, erros HTTP e ausência de HTTPS, sem criar novas chamadas ao Google Places.
+
 ## Testes
 
 - `npm test`: executa os testes das regras de abordagem.

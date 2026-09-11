@@ -14,6 +14,7 @@ import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 import { checkRateLimit } from './rateLimit.js'
 import { createRequestId, logError, logInfo } from '../observability/logger.js'
+import { checkSiteHealth } from '../integrations/siteHealth.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -283,12 +284,6 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         return
       }
 
-      const rateLimit = checkRateLimit({ key: `ai-outreach:${user.id}`, limit: 10, windowMs: 86_400_000 })
-      if (!rateLimit.allowed) {
-        sendJson(response, 429, { error: 'Você atingiu o limite diário gratuito de 10 abordagens.' })
-        return
-      }
-
       try {
         sendJson(response, 200, { data: await generateLeadOutreach(apiKey, input) })
       } catch (error) {
@@ -298,6 +293,32 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         }
         throw error
       }
+      return
+    }
+
+    if (requestUrl.pathname === '/api/site-health' && request.method === 'POST') {
+      let body: unknown
+      try {
+        body = await readJsonBody(request)
+      } catch {
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+
+      const siteUrl = isRecord(body) && typeof body.url === 'string' ? body.url.trim() : ''
+      if (!siteUrl || siteUrl.length > 2_000) {
+        sendJson(response, 400, { error: 'Informe um endereço de site válido.' })
+        return
+      }
+
+      const rateLimit = checkRateLimit({ key: `site-health:${user.id}`, limit: 30, windowMs: 60_000 })
+      if (!rateLimit.allowed) {
+        response.setHeader('Retry-After', String(rateLimit.retryAfterSeconds))
+        sendJson(response, 429, { error: 'Aguarde um instante antes de verificar mais sites.' })
+        return
+      }
+
+      sendJson(response, 200, { data: await checkSiteHealth(siteUrl) })
       return
     }
 

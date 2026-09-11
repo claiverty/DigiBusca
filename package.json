@@ -10,7 +10,7 @@
     "backend:start": "node backend/dist/http/server.js",
     "build": "npm run locations:prepare && npm run backend:build && tsc -p frontend/tsconfig.app.json && vite build --config frontend/vite.config.ts",
     "deploy:build": "npm run build && vite build --config backend/vite.worker.config.ts",
-    "test": "npm run backend:build && node --test backend/dist/domain/outreachPipeline.test.js",
+    "test": "npm run backend:build && node --test backend/dist/domain/outreachPipeline.test.js backend/dist/integrations/siteHealth.test.js",
     "test:e2e": "playwright test",
     "test:all": "npm test && npm run test:e2e",
     "preview": "vite preview --config frontend/vite.config.ts"

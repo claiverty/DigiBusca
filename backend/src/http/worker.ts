@@ -10,6 +10,7 @@ import { checkRateLimit } from './rateLimit.js'
 import { getRequestId, logError, logInfo } from '../observability/logger.js'
 import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
+import { checkSiteHealth } from '../integrations/siteHealth.js'
 
 type WorkerEnvironment = RuntimeEnvironment & {
   ASSETS?: { fetch(request: Request): Promise<Response> }
@@ -179,11 +180,6 @@ async function handleApiRequest(request: Request) {
       const apiKey = getGeminiApiKey()
       if (!apiKey) return jsonResponse(request, 503, { error: 'A IA ainda não está configurada.' })
 
-      const rateLimit = checkRateLimit({ key: `ai-outreach:${user.id}`, limit: 10, windowMs: 86_400_000 })
-      if (!rateLimit.allowed) {
-        return jsonResponse(request, 429, { error: 'Você atingiu o limite diário gratuito de 10 abordagens.' })
-      }
-
       try {
         return jsonResponse(request, 200, { data: await generateLeadOutreach(apiKey, input) })
       } catch (error) {
@@ -192,6 +188,26 @@ async function handleApiRequest(request: Request) {
         }
         throw error
       }
+    }
+
+    if (url.pathname === '/api/site-health' && request.method === 'POST') {
+      const body = await parseBody(request)
+      const siteUrl = isRecord(body) && typeof body.url === 'string' ? body.url.trim() : ''
+      if (!siteUrl || siteUrl.length > 2_000) {
+        return jsonResponse(request, 400, { error: 'Informe um endereço de site válido.' })
+      }
+
+      const rateLimit = checkRateLimit({ key: `site-health:${user.id}`, limit: 30, windowMs: 60_000 })
+      if (!rateLimit.allowed) {
+        return jsonResponse(
+          request,
+          429,
+          { error: 'Aguarde um instante antes de verificar mais sites.' },
+          { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+        )
+      }
+
+      return jsonResponse(request, 200, { data: await checkSiteHealth(siteUrl) })
     }
 
     if (saveMatch && (request.method === 'POST' || request.method === 'DELETE')) {
