@@ -32,12 +32,12 @@ O DigiBusca não é um construtor de sites, uma plataforma de anúncios ou uma f
 
 ## Estado atual
 
-Frontend e API local de busca com Google Places API (New). As fases de prospecção, acompanhamento comercial e controle financeiro simples já estão disponíveis no preview local. O Supabase Auth e a persistência por usuário já estão preparados; os e-mails usam o serviço padrão do Supabase durante a validação local. A busca aceita qualquer cidade, região ou país informado pelo usuário. A chave do Google fica somente no ambiente do backend.
+Frontend e API estão publicados juntos em `https://digibusca.claiverty.workers.dev`. As fases de prospecção, acompanhamento comercial e controle financeiro simples estão disponíveis em produção. O Supabase Auth e a persistência por usuário estão ativos; os e-mails ainda usam o serviço padrão do Supabase durante a validação do MVP. A busca aceita qualquer cidade, região ou país informado pelo usuário. A chave do Google fica somente no ambiente do backend.
 
 ## Testes
 
 - `npm test`: executa os testes das regras de abordagem.
-- `npm run test:e2e`: inicia frontend e backend e valida as rotas públicas em desktop e mobile.
+- `npm run test:e2e`: inicia frontend e backend e valida as rotas públicas e, quando configurada, a área autenticada em desktop e mobile.
 - `npm run test:all`: executa as duas suítes locais.
 - `PLAYWRIGHT_BASE_URL=https://seu-dominio npm run test:e2e`: executa o smoke test contra um ambiente publicado.
 
@@ -49,7 +49,7 @@ Para incluir a área autenticada, use uma conta exclusiva de teste:
 E2E_USER_EMAIL=teste@exemplo.com E2E_USER_PASSWORD='senha-da-conta' npm run test:e2e
 ```
 
-A suíte autenticada é somente de leitura: valida login, navegação, recarga direta das quatro áreas e ausência de rolagem horizontal. Sem essas variáveis, ela é ignorada e apenas os testes públicos são executados. Não salve as credenciais no repositório.
+A suíte autenticada valida login, navegação, recarga direta das quatro áreas, ausência de rolagem horizontal e os fluxos de acompanhamento, interação, abordagem com IA, conversão, venda manual e exportação CSV. As mutações são interceptadas pelo navegador e usam dados isolados, portanto não alteram leads nem vendas reais. Sem essas variáveis, a suíte autenticada é ignorada e apenas os testes públicos são executados. Não salve as credenciais no repositório.
 
 ## Integração contínua
 
@@ -74,5 +74,3 @@ Depois que o CI for aprovado, o workflow pode publicar a `main` automaticamente 
 - Variable opcional `PRODUCTION_URL` caso o endereço publicado deixe de ser `https://digibusca.claiverty.workers.dev`.
 
 O job de produção só roda em pushes na branch `main`, depois de todos os testes, e encerra validando o health check da API. Os segredos de runtime do Worker continuam configurados diretamente na Cloudflare e não devem ser colocados no repositório.
-
-# DigiBusca
