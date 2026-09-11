@@ -119,10 +119,6 @@ function App() {
     setSelectedLead(lead)
   }
 
-  function cacheSavedLead(lead: Lead) {
-    savedLeads.current.set(lead.id, lead)
-  }
-
   function handleNavigate(view: AppView) {
     const nextPath = viewPaths[view]
 
@@ -190,7 +186,6 @@ function App() {
             cachedLeads={Array.from(savedLeads.current.values())}
             onOpenLead={openSavedLead}
             onRemoveLead={removeLead}
-            onHydrateLead={cacheSavedLead}
             onSearch={() => handleNavigate('search')}
           />
         )}

@@ -215,7 +215,7 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
               {recentLeads.map((lead) => (
                 <article className="overview-record" key={lead.leadId}>
                   <div>
-                    <strong>Lead salvo</strong>
+                    <strong>{lead.lead?.name ?? 'Lead salvo'}</strong>
                     <span>{lead.nextFollowUp ? `Próximo contato: ${formatDate(lead.nextFollowUp)}` : 'Sem contato agendado'}</span>
                     <button className="text-button" type="button" onClick={() => onNavigate('saved')}>
                       Abrir acompanhamento

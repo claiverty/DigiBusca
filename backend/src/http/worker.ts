@@ -1,6 +1,6 @@
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, type RuntimeEnvironment } from '../config/supabase.js'
-import { type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
+import { parseLeadSnapshot, type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
@@ -24,7 +24,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function mergeSavedLeadState(lead: Lead, state: Awaited<ReturnType<SupabaseStore['getSavedLeadState']>>) {
   if (!state) return lead
 
-  const { leadId: _leadId, ...userState } = state
+  const { leadId: _leadId, lead: _lead, leadDataExpiresAt: _leadDataExpiresAt, ...userState } = state
   return { ...lead, ...userState }
 }
 
@@ -200,8 +200,14 @@ async function handleApiRequest(request: Request) {
         return jsonResponse(request, 204, null)
       }
 
+      const body = await parseBody(request)
+      const snapshot = isRecord(body) ? parseLeadSnapshot(body.lead, saveMatch[1]) : undefined
+      if (isRecord(body) && body.lead !== undefined && !snapshot) {
+        return jsonResponse(request, 400, { error: 'Os dados do lead salvos são inválidos.' })
+      }
+
       return jsonResponse(request, 200, {
-        data: await persistenceStore.saveLeadState(accessToken, user.id, saveMatch[1]),
+        data: await persistenceStore.saveLeadState(accessToken, user.id, saveMatch[1], snapshot),
       })
     }
 
@@ -237,7 +243,7 @@ async function handleApiRequest(request: Request) {
       if (body.draftMessage !== undefined) changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
 
       return jsonResponse(request, 200, {
-        data: await persistenceStore.saveLeadState(accessToken, user.id, updateMatch[1], changes),
+        data: await persistenceStore.saveLeadState(accessToken, user.id, updateMatch[1], undefined, changes),
       })
     }
 
@@ -270,6 +276,12 @@ async function handleApiRequest(request: Request) {
       return jsonResponse(request, 404, { error: 'Este lead não está salvo na sua conta.' })
     }
 
+    if (savedState.lead) {
+      return jsonResponse(request, 200, {
+        data: mergeSavedLeadState({ ...savedState.lead, status: savedState.status }, savedState),
+      })
+    }
+
     const rateLimitResponse = limitGoogleRequest('saved-lead')
     if (rateLimitResponse) return rateLimitResponse
 
@@ -278,6 +290,8 @@ async function handleApiRequest(request: Request) {
       if (!lead) {
         return jsonResponse(request, 404, { error: 'Não foi possível encontrar este negócio no Google agora.' })
       }
+
+      await persistenceStore.refreshSavedLeadSnapshot(accessToken, user.id, lead)
 
       return jsonResponse(request, 200, { data: mergeSavedLeadState(lead, savedState) })
     } catch (error) {

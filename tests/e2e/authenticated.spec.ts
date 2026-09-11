@@ -261,6 +261,7 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
         json: {
           data: [{
             leadId: testLead.id,
+            lead: { ...testLead, status: undefined },
             status: 'Contatado',
             notes: 'Lead usado somente na exportação isolada.',
             updatedAt: '2026-09-11T12:05:00.000Z',

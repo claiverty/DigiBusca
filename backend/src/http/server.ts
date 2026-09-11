@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import dotenv from 'dotenv'
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
-import { opportunityTypes, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
+import { opportunityTypes, parseLeadSnapshot, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
 import { authenticateRequest, configureRuntimeEnvironment } from '../config/supabase.js'
@@ -37,7 +37,7 @@ function mergeSavedLeadState(lead: Lead, state: Awaited<ReturnType<SupabaseStore
     return lead
   }
 
-  const { leadId: _leadId, ...userState } = state
+  const { leadId: _leadId, lead: _lead, leadDataExpiresAt: _leadDataExpiresAt, ...userState } = state
   return { ...lead, ...userState }
 }
 
@@ -303,7 +303,21 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
 
     if (saveMatch && (request.method === 'POST' || request.method === 'DELETE')) {
       if (request.method === 'POST') {
-        const savedLead = await persistenceStore.saveLeadState(accessToken, user.id, saveMatch[1])
+        let body: unknown
+        try {
+          body = await readJsonBody(request)
+        } catch {
+          sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+          return
+        }
+
+        const snapshot = isRecord(body) ? parseLeadSnapshot(body.lead, saveMatch[1]) : undefined
+        if (isRecord(body) && body.lead !== undefined && !snapshot) {
+          sendJson(response, 400, { error: 'Os dados do lead salvos são inválidos.' })
+          return
+        }
+
+        const savedLead = await persistenceStore.saveLeadState(accessToken, user.id, saveMatch[1], snapshot)
         sendJson(response, 200, { data: savedLead })
         return
       }
@@ -374,6 +388,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         accessToken,
         user.id,
         updateMatch[1],
+        undefined,
         changes,
       )
 
@@ -429,12 +444,21 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
 
+    if (savedState.lead) {
+      sendJson(response, 200, {
+        data: mergeSavedLeadState({ ...savedState.lead, status: savedState.status }, savedState),
+      })
+      return
+    }
+
     try {
       const lead = await trackedLeadProvider.findById(savedState.leadId)
       if (!lead) {
         sendJson(response, 404, { error: 'Não foi possível encontrar este negócio no Google agora.' })
         return
       }
+
+      await persistenceStore.refreshSavedLeadSnapshot(accessToken, user.id, lead)
 
       sendJson(response, 200, { data: mergeSavedLeadState(lead, savedState) })
     } catch (error) {

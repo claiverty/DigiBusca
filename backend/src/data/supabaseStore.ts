@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { LeadStatus } from '../contracts/lead.js'
+import type { Lead, LeadSnapshot, LeadStatus } from '../contracts/lead.js'
 import type { CreateSaleInput, Sale } from '../contracts/sale.js'
 import type {
   CreateLeadInteractionInput,
@@ -11,6 +11,8 @@ import type { GooglePlacesRequestType } from '../integrations/googlePlacesProvid
 
 type SavedLeadRow = {
   lead_id: string
+  lead_data: LeadSnapshot | { id: string } | null
+  lead_data_expires_at: string | null
   status: LeadStatus
   notes: string | null
   next_follow_up: string | null
@@ -48,6 +50,8 @@ type LeadInteractionRow = {
 
 export type SavedLeadState = {
   leadId: string
+  lead?: LeadSnapshot
+  leadDataExpiresAt?: string
   status: LeadStatus
   notes?: string
   nextFollowUp?: string
@@ -65,14 +69,25 @@ export type GoogleApiUsage = {
 }
 
 function mapSavedLeadState(row: SavedLeadRow): SavedLeadState {
+  const hasValidSnapshot = row.lead_data && row.lead_data_expires_at
+    && new Date(row.lead_data_expires_at).getTime() > Date.now()
+    && 'name' in row.lead_data
+
   return {
     leadId: row.lead_id,
+    ...(hasValidSnapshot ? { lead: row.lead_data as LeadSnapshot, leadDataExpiresAt: row.lead_data_expires_at! } : {}),
     status: row.status,
     notes: row.notes ?? undefined,
     nextFollowUp: row.next_follow_up ?? undefined,
     draftMessage: row.draft_message ?? undefined,
     updatedAt: row.updated_at,
   }
+}
+
+const leadSnapshotTtlMs = 30 * 24 * 60 * 60 * 1_000
+
+function getSnapshotExpiry() {
+  return new Date(Date.now() + leadSnapshotTtlMs).toISOString()
 }
 
 function mapSale(row: SaleRow): Sale {
@@ -112,7 +127,7 @@ export class SupabaseStore {
   async listSavedLeadStates(accessToken: string, userId: string): Promise<SavedLeadState[]> {
     const { data, error } = await this.client(accessToken)
       .from('saved_leads')
-      .select('lead_id, status, notes, next_follow_up, draft_message, updated_at')
+      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, updated_at')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
 
@@ -124,26 +139,45 @@ export class SupabaseStore {
     accessToken: string,
     userId: string,
     leadId: string,
+    lead?: LeadSnapshot,
     changes: Partial<Omit<SavedLeadState, 'leadId'>> = {},
   ): Promise<SavedLeadState> {
-    const { data, error } = await this.client(accessToken)
+    const store = this.client(accessToken)
+    const { data: existingData, error: existingError } = await store
       .from('saved_leads')
-      .upsert(
-        {
+      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, updated_at')
+      .eq('user_id', userId)
+      .eq('lead_id', leadId)
+      .maybeSingle()
+
+    throwIfError(existingError)
+
+    const now = new Date().toISOString()
+    const payload = {
+      ...(lead ? { lead_data: lead, lead_data_expires_at: getSnapshotExpiry() } : {}),
+      ...(changes.status !== undefined ? { status: changes.status } : {}),
+      ...(changes.notes !== undefined ? { notes: changes.notes || null } : {}),
+      ...(changes.nextFollowUp !== undefined ? { next_follow_up: changes.nextFollowUp || null } : {}),
+      ...(changes.draftMessage !== undefined ? { draft_message: changes.draftMessage || null } : {}),
+      updated_at: now,
+    }
+
+    const query = existingData
+      ? store.from('saved_leads').update(payload).eq('user_id', userId).eq('lead_id', leadId)
+      : store.from('saved_leads').insert({
           user_id: userId,
           lead_id: leadId,
-          // Only the Google Place ID is stored permanently. Business details stay in the
-          // active browser session and are requested from Google only when necessary.
-          lead_data: { id: leadId },
+          lead_data: lead ?? { id: leadId },
+          lead_data_expires_at: lead ? getSnapshotExpiry() : null,
           status: changes.status ?? 'Novo',
-          notes: changes.notes ?? null,
-          next_follow_up: changes.nextFollowUp ?? null,
-          draft_message: changes.draftMessage ?? null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id,lead_id' },
-      )
-      .select('lead_id, status, notes, next_follow_up, draft_message, updated_at')
+          notes: changes.notes || null,
+          next_follow_up: changes.nextFollowUp || null,
+          draft_message: changes.draftMessage || null,
+          updated_at: now,
+        })
+
+    const { data, error } = await query
+      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, updated_at')
       .single()
 
     throwIfError(error)
@@ -157,13 +191,32 @@ export class SupabaseStore {
   ): Promise<SavedLeadState | undefined> {
     const { data, error } = await this.client(accessToken)
       .from('saved_leads')
-      .select('lead_id, status, notes, next_follow_up, draft_message, updated_at')
+      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, updated_at')
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .maybeSingle()
 
     throwIfError(error)
     return data ? mapSavedLeadState(data as SavedLeadRow) : undefined
+  }
+
+  async refreshSavedLeadSnapshot(
+    accessToken: string,
+    userId: string,
+    lead: Lead,
+  ): Promise<void> {
+    const { status: _status, notes: _notes, nextFollowUp: _nextFollowUp, draftMessage: _draftMessage, ...snapshot } = lead
+    const { error } = await this.client(accessToken)
+      .from('saved_leads')
+      .update({
+        lead_data: snapshot,
+        lead_data_expires_at: getSnapshotExpiry(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('lead_id', lead.id)
+
+    throwIfError(error)
   }
 
   async removeSavedLead(accessToken: string, userId: string, leadId: string): Promise<void> {

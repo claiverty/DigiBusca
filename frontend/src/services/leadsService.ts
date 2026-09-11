@@ -12,6 +12,7 @@ type SearchLeadsParams = {
 
 export type SavedLeadState = {
   leadId: string
+  lead?: Omit<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage'>
   status: Lead['status']
   notes?: string
   nextFollowUp?: string
@@ -249,6 +250,25 @@ function mergeSavedLeadState(lead: Lead, state: SavedLeadState): Lead {
 export async function saveLead(lead: Lead): Promise<Lead> {
   const response = await authenticatedFetch(`${apiBaseUrl}/leads/${encodeURIComponent(lead.id)}/save`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lead: {
+        id: lead.id,
+        name: lead.name,
+        category: lead.category,
+        address: lead.address,
+        phone: lead.phone,
+        rating: lead.rating,
+        reviews: lead.reviews,
+        ...(lead.website ? { website: lead.website } : {}),
+        ...(lead.googleMapsUri ? { googleMapsUri: lead.googleMapsUri } : {}),
+        source: lead.source,
+        retrievedAt: lead.retrievedAt,
+        opportunity: lead.opportunity,
+        score: lead.score,
+        diagnosis: lead.diagnosis,
+      },
+    }),
   })
 
   if (!response.ok) {

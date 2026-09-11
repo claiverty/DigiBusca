@@ -1,6 +1,6 @@
 import { ArrowUpRight, CalendarClock, Check, ChevronLeft, ChevronRight, Download, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getSavedLead, getSavedLeads, type SavedLeadState } from '../services/leadsService'
+import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import { exportLeadsCsv } from '../services/exportLeadsCsv'
 import type { Lead } from '../types'
 import './SavedLeadsPage.css'
@@ -9,7 +9,6 @@ type SavedLeadsPageProps = {
   cachedLeads: Lead[]
   onOpenLead: (leadId: string) => Promise<void>
   onRemoveLead: (leadId: string) => Promise<void>
-  onHydrateLead: (lead: Lead) => void
   onSearch: () => void
 }
 
@@ -42,12 +41,9 @@ export function SavedLeadsPage({
   cachedLeads,
   onOpenLead,
   onRemoveLead,
-  onHydrateLead,
   onSearch,
 }: SavedLeadsPageProps) {
   const [leads, setLeads] = useState<SavedLeadState[]>([])
-  const [hydratedLeads, setHydratedLeads] = useState<Map<string, Lead>>(new Map())
-  const [leadHydrationStatus, setLeadHydrationStatus] = useState<Map<string, 'loading' | 'error'>>(new Map())
   const statusTabsRef = useRef<HTMLDivElement>(null)
   const [statusTabsOverflow, setStatusTabsOverflow] = useState({ left: false, right: false })
   const [status, setStatus] = useState('loading')
@@ -65,14 +61,11 @@ export function SavedLeadsPage({
   const cachedLeadById = useMemo(
     () => new Map([
       ...cachedLeads.map((lead) => [lead.id, lead] as const),
-      ...hydratedLeads.entries(),
+      ...leads.flatMap((savedLead) => savedLead.lead
+        ? [[savedLead.leadId, { ...savedLead.lead, status: savedLead.status } as Lead] as const]
+        : []),
     ]),
-    [cachedLeads, hydratedLeads],
-  )
-
-  const isHydratingLeads = useMemo(
-    () => Array.from(leadHydrationStatus.values()).some((value) => value === 'loading'),
-    [leadHydrationStatus],
+    [cachedLeads, leads],
   )
 
   const exportableLeads = useMemo(
@@ -91,28 +84,6 @@ export function SavedLeadsPage({
         if (!active) return
         setLeads(data)
         setStatus('ready')
-
-        const cachedIds = new Set(cachedLeads.map((lead) => lead.id))
-        const leadsToHydrate = data.filter((lead) => !cachedIds.has(lead.leadId))
-        setLeadHydrationStatus(new Map(leadsToHydrate.map((lead) => [lead.leadId, 'loading'])))
-
-        for (const savedLead of leadsToHydrate) {
-          void getSavedLead(savedLead.leadId)
-            .then((lead) => {
-              if (!active) return
-              setHydratedLeads((current) => new Map(current).set(lead.id, lead))
-              setLeadHydrationStatus((current) => {
-                const next = new Map(current)
-                next.delete(savedLead.leadId)
-                return next
-              })
-              onHydrateLead(lead)
-            })
-            .catch(() => {
-              if (!active) return
-              setLeadHydrationStatus((current) => new Map(current).set(savedLead.leadId, 'error'))
-            })
-        }
       })
       .catch(() => {
         if (active) setStatus('error')
@@ -153,10 +124,7 @@ export function SavedLeadsPage({
 
   function getLeadName(lead: SavedLeadState) {
     const cachedName = cachedLeadById.get(lead.leadId)?.name
-    if (cachedName) return cachedName
-    return leadHydrationStatus.get(lead.leadId) === 'error'
-      ? 'Empresa indisponível'
-      : 'Carregando empresa...'
+    return cachedName ?? 'Empresa indisponível'
   }
 
   const visibleLeads = useMemo(() => {
@@ -257,7 +225,7 @@ export function SavedLeadsPage({
   }
 
   function handleExport() {
-    if (isHydratingLeads || exportableLeads.length === 0) return
+    if (exportableLeads.length === 0) return
 
     exportLeadsCsv(exportableLeads)
     const unavailableCount = leads.length - exportableLeads.length
@@ -376,11 +344,11 @@ export function SavedLeadsPage({
                 className="saved-leads-export"
                 type="button"
                 onClick={handleExport}
-                disabled={isHydratingLeads || exportableLeads.length === 0}
-                title={isHydratingLeads ? 'Preparando os dados dos leads' : 'Baixar leads em CSV'}
+                disabled={exportableLeads.length === 0}
+                title="Baixar leads em CSV"
               >
                 <Download size={16} aria-hidden="true" />
-                {isHydratingLeads ? 'Preparando...' : 'Exportar CSV'}
+                Exportar CSV
               </button>
             </div>
           </header>
