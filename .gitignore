@@ -3,6 +3,8 @@ frontend/dist/
 backend/dist/
 frontend/public/location-data/
 worker-dist/
+playwright-report/
+test-results/
 .env
 .env.*
 !.env.example
