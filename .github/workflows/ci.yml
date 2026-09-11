@@ -55,3 +55,52 @@ jobs:
 
       - name: Executar testes E2E em desktop e mobile
         run: npm run test:e2e
+
+  deploy:
+    name: Publicar na Cloudflare
+    needs: quality
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL || 'https://digibusca.claiverty.workers.dev' }}
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      PRODUCTION_URL: ${{ vars.PRODUCTION_URL || 'https://digibusca.claiverty.workers.dev' }}
+
+    steps:
+      - name: Baixar o código aprovado pelo CI
+        uses: actions/checkout@v7
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validar credenciais de produção
+        run: |
+          missing=0
+          for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Secret obrigatório não configurado: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Gerar pacote de produção
+        run: npm run deploy:build
+
+      - name: Publicar Worker e frontend
+        run: npx wrangler deploy
+
+      - name: Validar ambiente publicado
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 3 "$PRODUCTION_URL/api/health"

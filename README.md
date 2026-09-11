@@ -64,4 +64,15 @@ Os testes públicos não dependem de segredos. Para habilitar também os testes 
 
 Use uma conta exclusiva de teste. A chave anônima do Supabase pode ser usada no frontend; nunca configure a chave `service_role` nesse workflow.
 
+### Deploy automático
+
+Depois que o CI for aprovado, o workflow pode publicar a `main` automaticamente na Cloudflare. Configure:
+
+- Secret `CLOUDFLARE_ACCOUNT_ID` com o ID da conta.
+- Secret `CLOUDFLARE_API_TOKEN` com um token restrito à conta do DigiBusca e permissão para editar Workers.
+- Variable `CLOUDFLARE_DEPLOY_ENABLED` com o valor `true` para ativar o deploy.
+- Variable opcional `PRODUCTION_URL` caso o endereço publicado deixe de ser `https://digibusca.claiverty.workers.dev`.
+
+O job de produção só roda em pushes na branch `main`, depois de todos os testes, e encerra validando o health check da API. Os segredos de runtime do Worker continuam configurados diretamente na Cloudflare e não devem ser colocados no repositório.
+
 # DigiBusca
