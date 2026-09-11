@@ -16,6 +16,7 @@ const placeFields = [
   'places.userRatingCount',
   'places.websiteUri',
   'places.googleMapsUri',
+  'places.businessStatus',
 ]
 const searchFieldMask = [...placeFields, 'nextPageToken'].join(',')
 const detailsFieldMask = placeFields.map((field) => field.replace('places.', '')).join(',')
@@ -32,6 +33,7 @@ type GooglePlace = {
   userRatingCount?: number
   websiteUri?: string
   googleMapsUri?: string
+  businessStatus?: 'OPERATIONAL' | 'CLOSED_TEMPORARILY' | 'CLOSED_PERMANENTLY'
 }
 
 type GooglePlacesResponse = {
@@ -88,8 +90,12 @@ function getDiagnosis(place: GooglePlace, opportunity: Lead['opportunity']): str
   return 'O negócio possui um site informado. Os dados públicos consultados não permitem avaliar sua qualidade ou identificar uma falha específica.'
 }
 
+function isClosedBusiness(place: GooglePlace) {
+  return place.businessStatus === 'CLOSED_PERMANENTLY' || place.businessStatus === 'CLOSED_TEMPORARILY'
+}
+
 function mapPlace(place: GooglePlace): Lead | undefined {
-  if (!place.id || !place.displayName?.text) {
+  if (isClosedBusiness(place) || !place.id || !place.displayName?.text) {
     return undefined
   }
 
