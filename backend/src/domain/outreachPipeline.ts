@@ -132,13 +132,16 @@ export function validateGeneratedOutreach(
   }
 
   if (context.leadAnalysis.leadType === 'NO_WEBSITE') {
-    if (/\b(nao tem|nao possuem?|sem um site|sem site proprio)\b/.test(initial)) {
+    const hasScopedSiteObservation = /\bsite\b/.test(initial)
+      && /\b(informado|vinculado|cadastrado|listado|const[aá])\b/.test(initial)
+      && /\b(perfil|google)\b/.test(initial)
+    const assertsNoWebsite = /\b(?:nao tem|nao possuem?|nao existe)(?: um)?\s+site\b|\bsem(?: um)?\s+site\b/.test(initial)
+    if (assertsNoWebsite && !hasScopedSiteObservation) {
       issues.push('A resposta afirma que a empresa não possui site.')
     }
-    const reportsSearchResult = /\b(nao encontrei|nao localizei)\b/.test(initial)
-    const describesPublicListing = /\bsite\b/.test(initial)
-      && /\b(informado|vinculado|cadastrado|listado)\b/.test(initial)
-      && /\b(perfil|google)\b/.test(initial)
+    const reportsSearchResult = /\b(nao encontrei|nao localizei|nao identifiquei|nao consta|nao aparece|nao foi informado|nao esta informado)\b/.test(initial)
+      || /\bnao tem (?:um )?site informado\b/.test(initial)
+    const describesPublicListing = hasScopedSiteObservation
     if (!reportsSearchResult || !describesPublicListing) {
       issues.push('A observação sobre o site não está formulada de maneira factual.')
     }

@@ -19,7 +19,7 @@ const testLead = {
   name: 'Empresa de teste E2E',
   category: 'Serviços profissionais',
   address: 'Rua de Teste, 123, São Paulo - SP',
-  phone: '+55 11 99999-9999',
+  phone: '(11) 99999-9999',
   rating: 4.7,
   reviews: 83,
   source: 'Google Maps' as const,
@@ -199,6 +199,10 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
 
   test('acompanha um lead, gera abordagem e registra a conversão', async ({ page }) => {
     await openTestLeadFromCachedSearch(page)
+    await expect(page.getByRole('link', { name: 'Abrir no WhatsApp' })).toHaveAttribute(
+      'href',
+      /^https:\/\/wa\.me\/5511999999999\?text=/,
+    )
 
     await page.getByRole('button', { name: 'Salvar lead', exact: true }).first().click()
     await expect(page.getByRole('button', { name: 'Lead salvo', exact: true })).toBeVisible()

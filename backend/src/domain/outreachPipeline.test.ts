@@ -67,6 +67,25 @@ test('aceita variações factuais sem afirmar que a empresa não possui site', (
   assert.deepEqual(validateGeneratedOutreach(copy, context), [])
 })
 
+test('aceita observações naturais que continuam vinculadas ao perfil público', () => {
+  const context = buildOutreachContext(baseInput)
+  const variations = [
+    'Oi, tudo bem? Notei que a empresa não tem um site informado no perfil do Google. Posso enviar uma ideia rápida?',
+    'Oi, tudo bem? No perfil do Google não consta um site cadastrado. Posso compartilhar uma sugestão?',
+    'Oi, tudo bem? Não identifiquei um site vinculado ao perfil da empresa no Google. Posso mostrar uma possibilidade?',
+  ]
+
+  for (const whatsappMessage of variations) {
+    const copy: GeneratedOutreachCopy = {
+      whatsappMessage,
+      followUpMessage: 'Oi! Posso enviar uma ideia simples por aqui?',
+      salesArgument: 'Um site é um canal próprio para apresentar informações e facilitar o contato.',
+    }
+
+    assert.deepEqual(validateGeneratedOutreach(copy, context), [])
+  }
+})
+
 test('rejeita nome pessoal na saudação, voz de equipe e afirmação sem evidência', () => {
   const context = buildOutreachContext(baseInput)
   const unsafeCopy: GeneratedOutreachCopy = {

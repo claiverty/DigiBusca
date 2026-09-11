@@ -1,7 +1,7 @@
 import { ArrowLeft, Bookmark, ExternalLink, History, MessageCircle, Phone } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { createApproachMessage } from '../lib/approachMessage'
-import { hasContactPhone } from '../lib/phone'
+import { hasContactPhone, toWhatsappPhone } from '../lib/phone'
 import { createLeadInteraction, getLeadInteractions } from '../services/leadsService'
 import { CurrencyInput, currencyCentsToNumber } from './CurrencyInput'
 import { DatePicker } from './DatePicker'
@@ -76,8 +76,9 @@ export function LeadDetail({
   const [interactionFeedback, setInteractionFeedback] = useState('')
   const [isRegisteringInteraction, setIsRegisteringInteraction] = useState(false)
   const hasPhone = hasContactPhone(lead.phone)
+  const whatsappPhone = toWhatsappPhone(lead.phone)
   const whatsappLink = hasPhone
-    ? `https://wa.me/${lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
+    ? `https://wa.me/${whatsappPhone ?? lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
     : undefined
 
   useEffect(() => {
