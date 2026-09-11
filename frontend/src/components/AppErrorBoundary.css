@@ -1,0 +1,84 @@
+.app-error-page {
+  display: grid;
+  min-height: 100dvh;
+  padding: 24px;
+  place-items: center;
+  background: var(--color-background);
+}
+
+.app-error-card {
+  width: min(100%, 520px);
+  padding: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+}
+
+.app-error-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 54px;
+  padding: 0;
+  border: 0;
+  color: var(--color-text);
+  background: transparent;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.app-error-brand > span {
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  background: var(--color-text);
+  box-shadow: 5px 5px 0 #d9d7ff;
+}
+
+.app-error-card h1 {
+  max-width: 420px;
+  margin-top: 12px;
+  font-size: clamp(30px, 6vw, 46px);
+  font-weight: 500;
+  letter-spacing: -0.055em;
+  line-height: 1.03;
+}
+
+.app-error-card > p:not(.eyebrow) {
+  max-width: 410px;
+  margin-top: 16px;
+  color: var(--color-text-subtle);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.app-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+@media (max-width: 590px) {
+  .app-error-page {
+    padding: 16px;
+  }
+
+  .app-error-card {
+    padding: 24px 20px;
+  }
+
+  .app-error-brand {
+    margin-bottom: 42px;
+  }
+
+  .app-error-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .app-error-actions button {
+    min-height: 48px;
+  }
+}

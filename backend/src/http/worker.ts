@@ -7,6 +7,7 @@ import { interactionChannels, type CreateLeadInteractionInput } from '../contrac
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import { checkRateLimit } from './rateLimit.js'
+import { logError } from '../observability/logger.js'
 import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 
@@ -341,7 +342,12 @@ export default {
         return jsonResponse(request, 401, { error: 'Sua sessão não é mais válida. Faça login novamente.' })
       }
 
-      console.error('DigiBusca API:', error)
+      const url = new URL(request.url)
+      logError('api_request_failed', error, {
+        method: request.method,
+        path: url.pathname,
+        rayId: request.headers.get('cf-ray'),
+      })
       return jsonResponse(request, 500, { error: 'Não foi possível concluir a operação agora.' })
     }
   },

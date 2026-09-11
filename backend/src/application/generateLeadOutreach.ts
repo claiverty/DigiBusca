@@ -12,6 +12,7 @@ import {
   generateOutreachWithGemini,
   GeminiOutreachError,
 } from '../integrations/geminiOutreachProvider.js'
+import { logWarning } from '../observability/logger.js'
 
 export async function generateLeadOutreach(
   apiKey: string,
@@ -25,7 +26,7 @@ export async function generateLeadOutreach(
   } catch (error) {
     if (error instanceof GeminiOutreachError && error.status === 429) throw error
 
-    console.warn('Gemini indisponível; usando o modelo seguro:', error)
+    logWarning('ai_safe_template_used', { reason: 'provider_unavailable' }, error)
     return {
       ...createSafeOutreachTemplate(context),
       analysis: context.leadAnalysis,
@@ -36,7 +37,10 @@ export async function generateLeadOutreach(
   const validationIssues = validateGeneratedOutreach(generatedCopy, context)
 
   if (validationIssues.length > 0) {
-    console.warn('Abordagem do Gemini substituída pelo modelo seguro:', validationIssues)
+    logWarning('ai_safe_template_used', {
+      reason: 'validation_failed',
+      issueCount: validationIssues.length,
+    })
     return {
       ...createSafeOutreachTemplate(context),
       analysis: context.leadAnalysis,

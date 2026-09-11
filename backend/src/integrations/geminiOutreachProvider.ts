@@ -3,6 +3,7 @@ import {
   type GeneratedOutreachCopy,
   type OutreachContext,
 } from '../contracts/aiOutreach.js'
+import { logError } from '../observability/logger.js'
 
 const model = 'gemini-3.5-flash-lite'
 const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
@@ -101,8 +102,11 @@ export async function generateOutreachWithGemini(
     })
 
     if (!response.ok) {
-      const providerError = await response.text().catch(() => '')
-      console.error('Gemini API:', response.status, providerError.slice(0, 1_000))
+      logError(
+        'gemini_request_failed',
+        new Error('O provedor de IA respondeu com erro.'),
+        { status: response.status },
+      )
       if (response.status === 429) {
         throw new GeminiOutreachError(
           'O limite gratuito da IA foi atingido. Tente novamente mais tarde.',

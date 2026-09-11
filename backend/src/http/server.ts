@@ -13,6 +13,7 @@ import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 import { checkRateLimit } from './rateLimit.js'
+import { logError, logInfo } from '../observability/logger.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -67,7 +68,10 @@ function sendRequestError(response: ServerResponse, error: unknown) {
     return
   }
 
-  console.error('DigiBusca API:', error)
+  logError('api_request_failed', error, {
+    method: response.req.method ?? 'UNKNOWN',
+    path: response.req.url?.split('?')[0] ?? '/',
+  })
   sendJson(response, 500, { error: 'Não foi possível concluir a operação agora.' })
 }
 
@@ -477,5 +481,5 @@ const server = createServer((request, response) => {
 })
 
 server.listen(port, () => {
-  console.log(`DigiBusca API em http://127.0.0.1:${port}`)
+  logInfo('api_started', { port })
 })
