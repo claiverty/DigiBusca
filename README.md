@@ -51,4 +51,17 @@ E2E_USER_EMAIL=teste@exemplo.com E2E_USER_PASSWORD='senha-da-conta' npm run test
 
 A suíte autenticada é somente de leitura: valida login, navegação, recarga direta das quatro áreas e ausência de rolagem horizontal. Sem essas variáveis, ela é ignorada e apenas os testes públicos são executados. Não salve as credenciais no repositório.
 
+## Integração contínua
+
+O workflow `.github/workflows/ci.yml` executa auditoria de dependências, TypeScript, testes unitários, build e testes E2E em desktop e mobile a cada push e pull request.
+
+Os testes públicos não dependem de segredos. Para habilitar também os testes autenticados no GitHub Actions, configure estes Secrets no repositório:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `E2E_USER_EMAIL`
+- `E2E_USER_PASSWORD`
+
+Use uma conta exclusiva de teste. A chave anônima do Supabase pode ser usada no frontend; nunca configure a chave `service_role` nesse workflow.
+
 # DigiBusca
