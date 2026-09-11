@@ -283,6 +283,6 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     const download = await downloadPromise
 
     expect(download.suggestedFilename()).toMatch(/^leads-digibusca-\d{4}-\d{2}-\d{2}\.csv$/)
-    await expect(page.getByRole('status')).toHaveText('1 lead(s) exportado(s).')
+    await expect(page.getByText('1 lead(s) exportado(s).', { exact: true })).toBeVisible()
   })
 })
