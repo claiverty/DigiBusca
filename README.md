@@ -41,7 +41,7 @@ Durante o beta, o acesso é completo e não há quotas comerciais para os usuár
 - `npm test`: executa os testes das regras de abordagem.
 - `npm run test:e2e`: inicia frontend e backend e valida as rotas públicas e, quando configurada, a área autenticada em desktop e mobile.
 - `npm run test:all`: executa as duas suítes locais.
-- `PLAYWRIGHT_BASE_URL=https://seu-dominio npm run test:e2e`: executa o smoke test contra um ambiente publicado.
+- `PLAYWRIGHT_BASE_URL=https://digibusca.claiverty.workers.dev npm run test:e2e`: executa o smoke test contra o ambiente publicado.
 
 Os testes E2E usam o Google Chrome instalado na máquina e não criam contas nem alteram leads reais.
 
