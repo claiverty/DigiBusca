@@ -8,3 +8,5 @@ export type Sale = {
 }
 
 export type CreateSaleInput = Omit<Sale, 'id'>
+
+export type UpdateSaleInput = Pick<Sale, 'businessName' | 'service' | 'amount' | 'soldAt'>

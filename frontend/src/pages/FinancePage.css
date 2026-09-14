@@ -331,8 +331,25 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  width: 100%;
   padding: 15px 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
   border-top: 1px solid var(--color-border-soft);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sale-row:hover {
+  background: var(--color-background);
+}
+.sale-row:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
 }
 .sale-row:first-child {
   border-top: 0;
@@ -401,6 +418,90 @@
 }
 .sale-modal .panel-actions {
   margin-top: 0;
+}
+.sale-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.sale-modal-submit {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-left: auto;
+}
+.danger-button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid #e3c7c7;
+  border-radius: var(--radius-control);
+  color: #9b3f3f;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.danger-button:hover {
+  border-color: #dbaaaa;
+  background: #fff7f7;
+}
+.danger-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.danger-button-filled {
+  border-color: #a33e3e;
+  color: #fff;
+  background: #a33e3e;
+}
+.danger-button-filled:hover {
+  border-color: #883333;
+  background: #883333;
+}
+.sale-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(23, 24, 28, 0.34);
+  backdrop-filter: blur(5px);
+}
+.sale-confirm {
+  width: min(440px, 100%);
+  padding: 26px;
+}
+.sale-confirm h2 {
+  margin-top: 8px;
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+.sale-confirm p {
+  margin-top: 12px;
+  color: var(--color-text-subtle);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.sale-confirm p strong {
+  color: var(--color-text);
+}
+.sale-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+.danger-feedback {
+  display: block;
+  margin-top: 12px;
+  color: #a33e3e;
 }
 
 @media (max-width: 760px) {
@@ -471,6 +572,27 @@
     padding: 20px;
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+  .sale-modal-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+  .sale-modal-submit {
+    align-items: stretch;
+    flex-direction: column;
+    margin-left: 0;
+  }
+  .sale-modal-submit .primary-button {
+    width: 100%;
+  }
+  .sale-confirm {
+    padding: 22px;
+  }
+  .sale-confirm-actions {
+    flex-direction: column-reverse;
+  }
+  .sale-confirm-actions button {
+    width: 100%;
   }
   .sale-calendar {
     right: auto;

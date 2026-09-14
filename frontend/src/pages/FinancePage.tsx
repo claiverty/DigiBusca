@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { CalendarDays, Plus, Receipt, X } from 'lucide-react'
+import { CalendarDays, Plus, Receipt, Trash2, X } from 'lucide-react'
 import { CurrencyInput, currencyCentsToNumber } from '../components/CurrencyInput'
 import { DatePicker } from '../components/DatePicker'
 import { SaleServiceField } from '../components/SaleServiceField'
-import { createSale, getSales } from '../services/leadsService'
+import { createSale, deleteSale, getSales, updateSale } from '../services/leadsService'
 import type { Sale } from '../types/sales'
 import './FinancePage.css'
 
@@ -89,8 +89,64 @@ export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePag
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [feedback, setFeedback] = useState('')
   const [showSaleForm, setShowSaleForm] = useState(false)
+  const [editingSale, setEditingSale] = useState<Sale | null>(null)
+  const [salePendingDeletion, setSalePendingDeletion] = useState<Sale | null>(null)
   const [saleToast, setSaleToast] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDeletingSale, setIsDeletingSale] = useState(false)
+  const [saleActionError, setSaleActionError] = useState('')
+
+  function resetSaleForm() {
+    setBusinessName('')
+    setService('')
+    setAmount('')
+    setSoldAt(today())
+  }
+
+  function closeSaleForm() {
+    setShowSaleForm(false)
+    setEditingSale(null)
+    setFeedback('')
+    setSaleActionError('')
+  }
+
+  function openNewSaleForm() {
+    resetSaleForm()
+    setEditingSale(null)
+    setFeedback('')
+    setSaleActionError('')
+    setShowSaleForm(true)
+  }
+
+  function openEditSale(sale: Sale) {
+    setEditingSale(sale)
+    setBusinessName(sale.businessName)
+    setService(sale.service)
+    setAmount(String(Math.round(sale.amount * 100)))
+    setSoldAt(sale.soldAt)
+    setFeedback('')
+    setSaleActionError('')
+    setShowSaleForm(true)
+  }
+
+  async function handleDeleteSale() {
+    if (!salePendingDeletion) return
+
+    setIsDeletingSale(true)
+    setSaleActionError('')
+    try {
+      await deleteSale(salePendingDeletion.id)
+      setSales((current) => current.filter((sale) => sale.id !== salePendingDeletion.id))
+      setSalePendingDeletion(null)
+      closeSaleForm()
+      setSaleToast('Venda excluída.')
+      window.setTimeout(() => setSaleToast(''), 3000)
+    } catch (error) {
+      setSaleActionError(error instanceof Error ? error.message : 'Não foi possível excluir a venda.')
+    } finally {
+      setIsDeletingSale(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -114,16 +170,22 @@ export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePag
   useEffect(() => {
     if (!showSaleForm) return
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setShowSaleForm(false)
+      if (event.key !== 'Escape') return
+      if (salePendingDeletion) {
+        setSalePendingDeletion(null)
+        setSaleActionError('')
+        return
+      }
+      closeSaleForm()
     }
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [showSaleForm])
+  }, [salePendingDeletion, showSaleForm])
 
   useEffect(() => {
     if (!openNewSale) return
     setFeedback('')
-    setShowSaleForm(true)
+    openNewSaleForm()
     onNewSaleOpened?.()
   }, [onNewSaleOpened, openNewSale])
 
@@ -159,14 +221,19 @@ export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePag
     }
     try {
       setIsSubmitting(true)
-      const sale = await createSale({ businessName, service, amount: value, soldAt })
-      setSales((current) => [sale, ...current])
-      setBusinessName('')
-      setService('')
-      setAmount('')
-      setFeedback('')
-      setShowSaleForm(false)
-      setSaleToast('Venda registrada.')
+      const input = { businessName, service, amount: value, soldAt }
+      const sale = editingSale
+        ? await updateSale(editingSale.id, input)
+        : await createSale(input)
+      setSales((current) => {
+        const next = editingSale
+          ? current.map((item) => (item.id === sale.id ? sale : item))
+          : [sale, ...current]
+        return next.sort((first, second) => second.soldAt.localeCompare(first.soldAt))
+      })
+      resetSaleForm()
+      closeSaleForm()
+      setSaleToast(editingSale ? 'Venda atualizada.' : 'Venda registrada.')
       window.setTimeout(() => setSaleToast(''), 3000)
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Não foi possível registrar a venda.')
@@ -189,10 +256,7 @@ export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePag
         className="primary-button floating-sale-button"
         type="button"
         aria-expanded={showSaleForm}
-        onClick={() => {
-          setFeedback('')
-          setShowSaleForm(true)
-        }}
+        onClick={openNewSaleForm}
       >
         <Plus size={17} /> Nova venda
       </button>
@@ -279,7 +343,13 @@ export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePag
         {sales.length > 0 && (
           <div className="sales-list">
             {sales.map((sale) => (
-              <article className="sale-row" key={sale.id}>
+              <button
+                className="sale-row"
+                key={sale.id}
+                type="button"
+                aria-label={`Editar venda de ${sale.businessName}`}
+                onClick={() => openEditSale(sale)}
+              >
                 <div>
                   <strong>{sale.businessName}</strong>
                   <span>{sale.service}</span>
@@ -288,7 +358,7 @@ export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePag
                   <time>{formatDate(sale.soldAt)}</time>
                   <strong>{formatCurrency(sale.amount)}</strong>
                 </div>
-              </article>
+              </button>
             ))}
           </div>
         )}
@@ -298,7 +368,7 @@ export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePag
         <div
           className="sale-modal-backdrop"
           role="presentation"
-          onMouseDown={() => setShowSaleForm(false)}
+          onMouseDown={closeSaleForm}
         >
           <form
             className="sale-modal panel"
@@ -310,14 +380,14 @@ export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePag
           >
             <div className="section-heading">
               <div>
-                <span className="eyebrow">NOVA VENDA</span>
-                <h2 id="sale-modal-title">Adicionar ao histórico</h2>
+                <span className="eyebrow">{editingSale ? 'EDITAR VENDA' : 'NOVA VENDA'}</span>
+                <h2 id="sale-modal-title">{editingSale ? 'Corrigir registro' : 'Adicionar ao histórico'}</h2>
               </div>
               <button
                 className="icon-button"
                 type="button"
                 aria-label="Fechar formulário"
-                onClick={() => setShowSaleForm(false)}
+                onClick={closeSaleForm}
               >
                 <X size={17} />
               </button>
@@ -345,17 +415,71 @@ export function FinancePage({ openNewSale = false, onNewSaleOpened }: FinancePag
                 <DatePicker value={soldAt} onChange={setSoldAt} />
               </label>
             </div>
-            <div className="panel-actions">
-              <button className="primary-button" type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Registrando...' : 'Registrar venda'}
-              </button>
-              {feedback && (
-                <span className="form-feedback" role="alert">
-                  {feedback}
-                </span>
+            <div className="sale-modal-actions">
+              {editingSale && (
+                <button
+                  className="danger-button"
+                  type="button"
+                  onClick={() => {
+                    setSaleActionError('')
+                    setSalePendingDeletion(editingSale)
+                  }}
+                >
+                  <Trash2 size={16} aria-hidden="true" /> Excluir venda
+                </button>
               )}
+              <div className="sale-modal-submit">
+                <button className="primary-button" type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? 'Salvando...' : editingSale ? 'Salvar alterações' : 'Registrar venda'}
+                </button>
+                {feedback && (
+                  <span className="form-feedback" role="alert">
+                    {feedback}
+                  </span>
+                )}
+              </div>
             </div>
           </form>
+        </div>
+      )}
+      {salePendingDeletion && (
+        <div
+          className="sale-confirm-backdrop"
+          role="presentation"
+          onMouseDown={() => {
+            if (!isDeletingSale) setSalePendingDeletion(null)
+          }}
+        >
+          <section
+            className="sale-confirm panel"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="sale-confirm-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <span className="eyebrow">EXCLUIR VENDA</span>
+            <h2 id="sale-confirm-title">Remover este registro?</h2>
+            <p>
+              A venda de <strong>{salePendingDeletion.businessName}</strong> será excluída do histórico e dos totais.
+            </p>
+            {saleActionError && <span className="form-feedback danger-feedback" role="alert">{saleActionError}</span>}
+            <div className="sale-confirm-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={isDeletingSale}
+                onClick={() => {
+                  setSalePendingDeletion(null)
+                  setSaleActionError('')
+                }}
+              >
+                Cancelar
+              </button>
+              <button className="danger-button danger-button-filled" type="button" disabled={isDeletingSale} onClick={() => void handleDeleteSale()}>
+                {isDeletingSale ? 'Excluindo...' : 'Excluir venda'}
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </section>

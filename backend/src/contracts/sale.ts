@@ -10,3 +10,5 @@ export type Sale = {
 export type CreateSaleInput = Pick<Sale, 'businessName' | 'service' | 'amount' | 'soldAt'> & {
   leadId?: string
 }
+
+export type UpdateSaleInput = Pick<Sale, 'businessName' | 'service' | 'amount' | 'soldAt'>

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Lead, LeadSnapshot, LeadStatus } from '../contracts/lead.js'
-import type { CreateSaleInput, Sale } from '../contracts/sale.js'
+import type { CreateSaleInput, Sale, UpdateSaleInput } from '../contracts/sale.js'
 import type {
   CreateLeadInteractionInput,
   InteractionChannel,
@@ -296,6 +296,41 @@ export class SupabaseStore {
 
     throwIfError(error)
     return mapSale(data as SaleRow)
+  }
+
+  async updateSale(
+    accessToken: string,
+    userId: string,
+    saleId: string,
+    input: UpdateSaleInput,
+  ): Promise<Sale | undefined> {
+    const { data, error } = await this.client(accessToken)
+      .from('sales')
+      .update({
+        business_name: input.businessName,
+        service: input.service,
+        amount: input.amount,
+        sold_at: input.soldAt,
+      })
+      .eq('id', saleId)
+      .eq('user_id', userId)
+      .select('id, lead_id, business_name, service, amount, sold_at')
+      .maybeSingle()
+
+    throwIfError(error)
+    return data ? mapSale(data as SaleRow) : undefined
+  }
+
+  async deleteSale(accessToken: string, userId: string, saleId: string): Promise<boolean> {
+    const { data, error } = await this.client(accessToken)
+      .from('sales')
+      .delete()
+      .eq('id', saleId)
+      .eq('user_id', userId)
+      .select('id')
+
+    throwIfError(error)
+    return Array.isArray(data) && data.length > 0
   }
 
   async recordGoogleApiCall(accessToken: string, requestType: GooglePlacesRequestType): Promise<void> {

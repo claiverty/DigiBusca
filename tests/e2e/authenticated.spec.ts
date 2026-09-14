@@ -255,6 +255,62 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     await expect(page.getByText('Cliente do teste isolado')).toBeVisible()
   })
 
+  test('edita e exclui uma venda com confirmação', async ({ page }) => {
+    let sale = {
+      id: 'e2e-edit-sale',
+      businessName: 'Cliente para corrigir',
+      service: 'Site institucional',
+      amount: 1500,
+      soldAt: '2026-09-14',
+    }
+
+    await page.route('**/api/sales', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({ json: { data: [sale] } })
+        return
+      }
+      await route.fallback()
+    })
+    await page.route('**/api/sales/e2e-edit-sale', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        sale = { ...sale, ...route.request().postDataJSON() }
+        await route.fulfill({ json: { data: sale } })
+        return
+      }
+      if (route.request().method() === 'DELETE') {
+        await route.fulfill({ status: 204 })
+        return
+      }
+      await route.fallback()
+    })
+
+    await page.goto('/sistema/financeiro')
+    await page.getByRole('button', { name: 'Editar venda de Cliente para corrigir' }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Corrigir registro' })
+    await expect(dialog).toBeVisible()
+    await page.getByLabel('Valor').fill('275000')
+    await dialog.getByRole('button', { name: 'Salvar alterações' }).click()
+    await expect(page.getByRole('status')).toHaveText('Venda atualizada.')
+    await expect(page.getByText('R$ 2.750,00')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Editar venda de Cliente para corrigir' }).click()
+    await page.getByRole('button', { name: 'Excluir venda' }).click()
+
+    const confirmation = page.getByRole('alertdialog', { name: 'Remover este registro?' })
+    await expect(confirmation).toBeVisible()
+    await confirmation.getByRole('button', { name: 'Cancelar' }).click()
+    await expect(confirmation).not.toBeVisible()
+    await expect(page.getByText('Cliente para corrigir')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Excluir venda' }).click()
+    await page.getByRole('alertdialog', { name: 'Remover este registro?' })
+      .getByRole('button', { name: 'Excluir venda' })
+      .click()
+    await expect(page.getByRole('status')).toHaveText('Venda excluída.')
+    await expect(page.getByText('Cliente para corrigir')).not.toBeVisible()
+  })
+
   test('exporta a carteira em CSV sem alterar os leads', async ({ page }) => {
     await page.route('**/api/saved-leads', (route) =>
       route.fulfill({

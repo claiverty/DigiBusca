@@ -39,6 +39,8 @@ de lead por minuto) para evitar consumo acidental da API. É uma proteção de e
 configuração de cotas do Google continua sendo a fonte de limite global.
 - `GET /api/sales`: lista o histórico de vendas.
 - `POST /api/sales`: registra uma venda manual ou vinculada a um lead.
+- `PATCH /api/sales/:id`: corrige comércio, serviço, valor ou data de uma venda do usuário.
+- `DELETE /api/sales/:id`: exclui uma venda do usuário.
 
 Todas as rotas de negócio exigem um token Bearer do Supabase Auth. O backend valida o token e executa as consultas com o JWT do usuário, enquanto o PostgreSQL aplica RLS para impedir acesso cruzado entre contas. As migrations estão em `supabase/migrations/`; a tabela de interações é criada por `004_lead_interactions.sql`.
 

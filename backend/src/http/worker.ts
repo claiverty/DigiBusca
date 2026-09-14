@@ -2,7 +2,7 @@ import { executeSearchLeads } from '../application/searchLeads.js'
 import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, type RuntimeEnvironment } from '../config/supabase.js'
 import { parseLeadSnapshot, type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
-import type { CreateSaleInput } from '../contracts/sale.js'
+import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
@@ -70,6 +70,14 @@ function parseSaleInput(value: unknown): CreateSaleInput | undefined {
     soldAt,
     ...(typeof leadId === 'string' && leadId ? { leadId } : {}),
   }
+}
+
+function parseUpdateSaleInput(value: unknown): UpdateSaleInput | undefined {
+  const input = parseSaleInput(value)
+  if (!input) return undefined
+
+  const { leadId: _leadId, ...changes } = input
+  return changes
 }
 
 function parseLeadInteractionInput(value: unknown): CreateLeadInteractionInput | undefined {
@@ -172,6 +180,7 @@ async function handleApiRequest(request: Request) {
     const saveMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/save$/)
     const updateMatch = url.pathname.match(/^\/api\/leads\/([^/]+)$/)
     const interactionMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/interactions$/)
+    const saleMatch = url.pathname.match(/^\/api\/sales\/([^/]+)$/)
 
     if (url.pathname === '/api/ai/outreach' && request.method === 'POST') {
       const input = parseGenerateOutreachInput(await parseBody(request))
@@ -267,6 +276,26 @@ async function handleApiRequest(request: Request) {
       const input = parseSaleInput(await parseBody(request))
       if (!input) return jsonResponse(request, 400, { error: 'Informe comércio, serviço, valor e data da venda.' })
       return jsonResponse(request, 201, { data: await persistenceStore.createSale(accessToken, user.id, input) })
+    }
+
+    if (saleMatch && request.method === 'PATCH') {
+      const input = parseUpdateSaleInput(await parseBody(request))
+      if (!input) return jsonResponse(request, 400, { error: 'Informe comércio, serviço, valor e data da venda.' })
+
+      const sale = await persistenceStore.updateSale(
+        accessToken,
+        user.id,
+        decodeURIComponent(saleMatch[1]),
+        input,
+      )
+      if (!sale) return jsonResponse(request, 404, { error: 'Venda não encontrada.' })
+      return jsonResponse(request, 200, { data: sale })
+    }
+
+    if (saleMatch && request.method === 'DELETE') {
+      const deleted = await persistenceStore.deleteSale(accessToken, user.id, decodeURIComponent(saleMatch[1]))
+      if (!deleted) return jsonResponse(request, 404, { error: 'Venda não encontrada.' })
+      return jsonResponse(request, 204, null)
     }
 
     return jsonResponse(request, 405, { error: 'Método não permitido.' })

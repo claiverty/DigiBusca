@@ -1,6 +1,6 @@
 import type { Lead, LeadUpdate, OpportunityType, SearchLeadsResponse } from '../types'
 import type { CreateLeadInteractionInput, LeadInteraction } from '../types/interactions'
-import type { CreateSaleInput, Sale } from '../types/sales'
+import type { CreateSaleInput, Sale, UpdateSaleInput } from '../types/sales'
 import { supabase } from '../lib/supabase'
 
 type SearchLeadsParams = {
@@ -393,6 +393,33 @@ export async function createSale(input: CreateSaleInput): Promise<Sale> {
 
   const payload = (await response.json()) as { data: Sale }
   return payload.data
+}
+
+export async function updateSale(saleId: string, input: UpdateSaleInput): Promise<Sale> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/sales/${encodeURIComponent(saleId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível atualizar a venda.')
+  }
+
+  const payload = (await response.json()) as { data: Sale }
+  return payload.data
+}
+
+export async function deleteSale(saleId: string): Promise<void> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/sales/${encodeURIComponent(saleId)}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível excluir a venda.')
+  }
 }
 
 export async function generateAiOutreach(input: GenerateOutreachInput): Promise<GeneratedOutreach> {
