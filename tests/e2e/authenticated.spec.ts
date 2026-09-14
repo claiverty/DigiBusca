@@ -292,7 +292,8 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     await page.getByLabel('Valor').fill('275000')
     await dialog.getByRole('button', { name: 'Salvar alterações' }).click()
     await expect(page.getByRole('status')).toHaveText('Venda atualizada.')
-    await expect(page.getByText('R$ 2.750,00')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Editar venda de Cliente para corrigir' }))
+      .toContainText('R$ 2.750,00')
 
     await page.getByRole('button', { name: 'Editar venda de Cliente para corrigir' }).click()
     await page.getByRole('button', { name: 'Excluir venda' }).click()
