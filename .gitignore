@@ -3,6 +3,7 @@ frontend/dist/
 backend/dist/
 frontend/public/location-data/
 worker-dist/
+supabase/.temp/
 playwright-report/
 test-results/
 .env

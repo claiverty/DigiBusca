@@ -1,31 +1,20 @@
 # Backend
 
-Camada reservada para a API Node.js/TypeScript, regras de domínio, repositórios e integrações externas.
+API TypeScript responsável pela autenticação, regras de negócio, integrações e persistência do DigiBusca.
 
-As regras de qualificação, acesso a dados e integração com Google Places devem permanecer aqui ou em módulos de domínio compartilhados, nunca dentro dos componentes React.
+## Organização
 
-## Próximas responsabilidades
+- `src/contracts/`: contratos de entrada e saída.
+- `src/application/`: casos de uso que coordenam as operações.
+- `src/domain/`: regras de qualificação e geração de abordagem.
+- `src/data/`: persistência no Supabase e armazenamento auxiliar.
+- `src/integrations/`: adaptadores para serviços externos.
+- `src/http/`: servidor local e Worker da API.
 
-- API de busca e leads
-- validação de entradas
-- persistência no Supabase/PostgreSQL
-- autenticação e autorização
-- adaptador do Google Places
-- configuração de e-mail de autenticação mantida no Supabase Auth durante o MVP
-
-## Estrutura atual
-
-- `src/contracts/`: contratos de entrada e saída da API.
-- `src/data/`: dados temporários para desenvolvimento.
-- `src/application/`: casos de uso que coordenam domínio e integrações.
-- `src/domain/`: regras de negócio independentes do transporte HTTP.
-- `src/integrations/`: fontes externas ou temporárias de leads.
-- `src/http/`: servidor e rotas HTTP.
-
-## API local
+## Rotas principais
 
 - `GET /api/health`: verifica se a API está disponível.
-- `GET /api/leads?city=Formosa%2C%20Goi%C3%A1s&segment=Todos%20os%20segmentos`: busca negócios reais pelo Google Places API (New). O campo `city` aceita cidade, região ou país.
+- `GET /api/leads?city={cidade}&segment={segmento}`: busca negócios pelo Google Places.
 - `GET /api/saved-leads`: lista os leads salvos da conta autenticada.
 - `GET /api/saved-leads/:id`: atualiza os dados de um lead salvo apenas quando ele é aberto.
 - `POST /api/leads/:id/save`: salva um lead encontrado.
@@ -33,15 +22,11 @@ As regras de qualificação, acesso a dados e integração com Google Places dev
 - `PATCH /api/leads/:id`: atualiza status, observações, follow-up e rascunho da abordagem.
 - `GET /api/leads/:id/interactions`: lista o histórico de interações de um lead.
 - `POST /api/leads/:id/interactions`: registra canal, data, observação e resultado de um contato.
-
-As consultas ao Google Places têm um limite leve por conta (12 buscas por minuto e 24 aberturas
-de lead por minuto) para evitar consumo acidental da API. É uma proteção de experiência; a
-configuração de cotas do Google continua sendo a fonte de limite global.
 - `GET /api/sales`: lista o histórico de vendas.
 - `POST /api/sales`: registra uma venda manual ou vinculada a um lead.
 - `PATCH /api/sales/:id`: corrige comércio, serviço, valor ou data de uma venda do usuário.
 - `DELETE /api/sales/:id`: exclui uma venda do usuário.
 
-Todas as rotas de negócio exigem um token Bearer do Supabase Auth. O backend valida o token e executa as consultas com o JWT do usuário, enquanto o PostgreSQL aplica RLS para impedir acesso cruzado entre contas. As migrations estão em `supabase/migrations/`; a tabela de interações é criada por `004_lead_interactions.sql`.
+Todas as rotas de negócio exigem um token Bearer do Supabase Auth. O backend valida o token e executa as consultas com o contexto do usuário; o PostgreSQL aplica RLS para impedir acesso cruzado entre contas.
 
-A busca usa o `GooglePlacesProvider`. A chave fica somente no ambiente do backend e os campos retornados são limitados por field mask. Leads salvos mantêm o `place_id` e um snapshot dos dados públicos por até 30 dias, além dos campos de acompanhamento editados pelo usuário. Após esse prazo, o próximo acesso atualiza o snapshot no Google Places. A migration `002_saved_leads_place_id_only.sql` representa a limpeza dos snapshots antigos; a `005_saved_lead_snapshot_cache.sql` adiciona o controle de expiração para os novos snapshots.
+As integrações ficam isoladas em adaptadores. A chave do Google Places e a chave do Gemini são lidas apenas do ambiente do backend. As migrations versionadas em `supabase/migrations/` definem tabelas, índices, permissões e políticas de acesso.
