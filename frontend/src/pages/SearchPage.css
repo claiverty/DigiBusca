@@ -74,6 +74,17 @@ h1 {
   font-size: 12px;
 }
 
+.search-quota-notice {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-subtle);
+  background: var(--color-surface);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .pagination-pages {
   display: flex;
   gap: 6px;

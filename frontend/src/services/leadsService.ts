@@ -3,6 +3,13 @@ import type { CreateLeadInteractionInput, LeadInteraction } from '../types/inter
 import type { CreateSaleInput, Sale, UpdateSaleInput } from '../types/sales'
 import { supabase } from '../lib/supabase'
 
+export class GoogleApiMonthlyLimitError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GoogleApiMonthlyLimitError'
+  }
+}
+
 type SearchLeadsParams = {
   city: string
   segment: string
@@ -208,7 +215,11 @@ export async function searchLeads({
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
-    throw new Error(payload?.error ?? 'Não foi possível buscar os leads.')
+    const message = payload?.error ?? 'Não foi possível buscar os leads.'
+    if (response.status === 429 && message.includes('limite mensal de consultas do Google')) {
+      throw new GoogleApiMonthlyLimitError(message)
+    }
+    throw new Error(message)
   }
 
   return response.json() as Promise<SearchLeadsResponse>

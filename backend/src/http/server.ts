@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import dotenv from 'dotenv'
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
+import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit.js'
 import { opportunityTypes, parseLeadSnapshot, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
@@ -227,7 +228,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   const { accessToken, user } = authentication
   const trackedLeadProvider = new GooglePlacesProvider(
     undefined,
-    (requestType) => persistenceStore.recordGoogleApiCall(accessToken, requestType),
+    (requestType) => persistenceStore.reserveGoogleApiRequest(accessToken, requestType),
   )
   const interactionMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/interactions$/)
 
@@ -535,7 +536,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
 
       sendJson(response, 200, { data: mergeSavedLeadState(lead, savedState) })
     } catch (error) {
-      sendJson(response, 503, {
+      sendJson(response, isGoogleApiMonthlyLimitError(error) ? 429 : 503, {
         error: error instanceof Error ? error.message : 'Não foi possível atualizar os dados deste negócio agora.',
       })
     }
@@ -563,7 +564,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     if (
       query.city.length > 120 ||
       (query.segment && query.segment.length > 120) ||
-      (query.pageToken && query.pageToken.length > 2048)
+      (query.pageToken && query.pageToken.length > 24_000)
     ) {
       sendJson(response, 400, { error: 'A localização e o segmento precisam ser mais curtos.' })
       return
@@ -600,7 +601,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
               : undefined,
         ),
       })
-      sendJson(response, 503, {
+      sendJson(response, isGoogleApiMonthlyLimitError(error) ? 429 : 503, {
         error: error instanceof Error ? error.message : 'Não foi possível consultar os negócios agora.',
       })
     }

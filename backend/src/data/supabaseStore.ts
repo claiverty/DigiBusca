@@ -7,7 +7,10 @@ import type {
   LeadInteraction,
 } from '../contracts/interaction.js'
 import { createUserSupabaseClient } from '../config/supabase.js'
-import type { GooglePlacesRequestType } from '../integrations/googlePlacesProvider.js'
+import type {
+  GooglePlacesRequestType,
+  GoogleRequestReservation,
+} from '../integrations/googlePlacesProvider.js'
 
 type SavedLeadRow = {
   lead_id: string
@@ -333,11 +336,18 @@ export class SupabaseStore {
     return Array.isArray(data) && data.length > 0
   }
 
-  async recordGoogleApiCall(accessToken: string, requestType: GooglePlacesRequestType): Promise<void> {
-    const { error } = await this.client(accessToken).rpc('increment_google_api_usage', {
+  async reserveGoogleApiRequest(
+    accessToken: string,
+    requestType: GooglePlacesRequestType,
+  ): Promise<GoogleRequestReservation> {
+    const { data, error } = await this.client(accessToken).rpc('reserve_google_api_usage', {
       google_request_type: requestType,
     })
     throwIfError(error)
+    if (data !== 'reserved' && data !== 'reserved_at_limit' && data !== 'blocked') {
+      throw new Error('Não foi possível confirmar o limite mensal de consultas do Google.')
+    }
+    return data
   }
 
   async getGoogleApiUsage(accessToken: string): Promise<GoogleApiUsage> {

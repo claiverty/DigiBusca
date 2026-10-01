@@ -6,6 +6,7 @@ import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
 import { SupabaseStore } from '../data/supabaseStore.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
+import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit.js'
 import { checkRateLimit } from './rateLimit.js'
 import { getRequestId, logError, logInfo } from '../observability/logger.js'
 import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
@@ -153,7 +154,7 @@ async function handleApiRequest(request: Request) {
   const { accessToken, user } = authentication
   const trackedLeadProvider = new GooglePlacesProvider(
     undefined,
-    (requestType) => persistenceStore.recordGoogleApiCall(accessToken, requestType),
+    (requestType) => persistenceStore.reserveGoogleApiRequest(accessToken, requestType),
   )
 
   function limitGoogleRequest(scope: 'search' | 'saved-lead') {
@@ -340,7 +341,7 @@ async function handleApiRequest(request: Request) {
 
       return jsonResponse(request, 200, { data: mergeSavedLeadState(lead, savedState) })
     } catch (error) {
-      return jsonResponse(request, 503, {
+      return jsonResponse(request, isGoogleApiMonthlyLimitError(error) ? 429 : 503, {
         error: error instanceof Error ? error.message : 'Não foi possível atualizar os dados deste negócio agora.',
       })
     }
@@ -363,7 +364,7 @@ async function handleApiRequest(request: Request) {
   if (request.method === 'GET' && url.pathname === '/api/leads') {
     const { opportunity, ...query } = getSearchParams(url)
     if (!query.city) return jsonResponse(request, 400, { error: 'O parâmetro city é obrigatório.' })
-    if (query.city.length > 120 || query.segment.length > 120 || (query.pageToken && query.pageToken.length > 2048)) {
+    if (query.city.length > 120 || query.segment.length > 120 || (query.pageToken && query.pageToken.length > 24_000)) {
       return jsonResponse(request, 400, { error: 'A localização e o segmento precisam ser mais curtos.' })
     }
     if (opportunity && !opportunityTypes.includes(opportunity as OpportunityType)) {
@@ -387,7 +388,7 @@ async function handleApiRequest(request: Request) {
       logError('lead_search_failed', error, {
         requestId: getRequestId(request),
       })
-      return jsonResponse(request, 503, {
+      return jsonResponse(request, isGoogleApiMonthlyLimitError(error) ? 429 : 503, {
         error: error instanceof Error ? error.message : 'Não foi possível consultar os negócios agora.',
       })
     }

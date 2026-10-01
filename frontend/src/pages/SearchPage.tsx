@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { LeadCard } from '../components/LeadCard'
 import { ResultsHeader } from '../components/ResultsHeader'
 import { SearchPanel, type SearchLocation } from '../components/SearchPanel'
-import { searchLeads } from '../services/leadsService'
+import { GoogleApiMonthlyLimitError, searchLeads } from '../services/leadsService'
 import type { Lead, OpportunityType } from '../types'
 import './SearchPage.css'
 
@@ -100,6 +100,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
   const [searchCache, setSearchCache] = useState<SearchCache>(getSearchCache)
   const [errorMessage, setErrorMessage] = useState('')
   const [loadMoreError, setLoadMoreError] = useState('')
+  const [quotaNotice, setQuotaNotice] = useState('')
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const lastQuery = useRef<SearchQuery | null>(searchCache.lastQuery)
   const requestId = useRef(0)
@@ -169,6 +170,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
     })
     setErrorMessage('')
     setLoadMoreError('')
+    setQuotaNotice('')
 
     try {
       const response = await searchLeads(query)
@@ -179,6 +181,9 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         status: 'success',
         nextPageToken: response.meta.nextPageToken,
       })
+      if (response.meta.monthlyLimitReached) {
+        setQuotaNotice('O limite mensal de consultas do Google foi atingido. Exibindo os resultados encontrados até agora.')
+      }
     } catch (error) {
       if (currentRequest !== requestId.current) return
       updateSearchCache({ status: 'error' })
@@ -213,12 +218,20 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
           nextPageToken: response.meta.nextPageToken,
         }
       })
+      if (response.meta.monthlyLimitReached) {
+        setQuotaNotice('O limite mensal de consultas do Google foi atingido. Exibindo os resultados encontrados até agora.')
+      }
       scrollToResults()
     } catch (error) {
       if (currentRequest !== requestId.current) return
-      setLoadMoreError(
-        error instanceof Error ? error.message : 'Não foi possível carregar mais oportunidades.',
-      )
+      if (error instanceof GoogleApiMonthlyLimitError) {
+        updateSearchCache({ nextPageToken: undefined })
+        setQuotaNotice(error.message)
+      } else {
+        setLoadMoreError(
+          error instanceof Error ? error.message : 'Não foi possível carregar mais oportunidades.',
+        )
+      }
     } finally {
       inFlight.current = false
       setIsLoadingMore(false)
@@ -285,9 +298,11 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
             {status === 'error' && (
               <div className="data-state" role="alert">
                 <p>{errorMessage}</p>
-                <button className="secondary-button" type="button" onClick={() => void loadLeads()}>
-                  Tentar novamente
-                </button>
+                {!errorMessage.includes('limite mensal de consultas do Google') && (
+                  <button className="secondary-button" type="button" onClick={() => void loadLeads()}>
+                    Tentar novamente
+                  </button>
+                )}
               </div>
             )}
             {status === 'success' && currentLeads.length === 0 && (
@@ -341,6 +356,9 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
           )}
           {loadMoreError && <span role="alert">{loadMoreError}</span>}
         </nav>
+      )}
+      {status === 'success' && quotaNotice && (
+        <p className="search-quota-notice" role="status">{quotaNotice}</p>
       )}
       {status === 'success' && (
         <p className="places-attribution" translate="no">

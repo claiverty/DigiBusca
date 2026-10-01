@@ -1,5 +1,6 @@
 import type { Lead, LeadUpdate, SearchLeadsQuery } from '../contracts/lead.js'
 import type { LeadProvider } from '../application/searchLeads.js'
+import { GoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit.js'
 import { getGoogleMapsApiKey } from '../config/supabase.js'
 
 const searchTextUrl = 'https://places.googleapis.com/v1/places:searchText'
@@ -43,7 +44,9 @@ type GooglePlacesResponse = {
 
 export type GooglePlacesRequestType = 'text_search' | 'place_details'
 
-type GoogleRequestTracker = (type: GooglePlacesRequestType) => Promise<void>
+export type GoogleRequestReservation = 'reserved' | 'reserved_at_limit' | 'blocked'
+
+type GoogleRequestTracker = (type: GooglePlacesRequestType) => Promise<GoogleRequestReservation | void>
 
 function isAllSegments(segment: string | undefined): boolean {
   return !segment || segment.trim().toLocaleLowerCase('pt-BR') === 'todos os segmentos'
@@ -154,6 +157,8 @@ export class GooglePlacesProvider implements LeadProvider {
       body.regionCode = query.regionCode.toUpperCase()
     }
 
+    const monthlyLimitReached = await this.reserveRequest('text_search')
+
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
 
@@ -170,7 +175,6 @@ export class GooglePlacesProvider implements LeadProvider {
         body: JSON.stringify(body),
         signal: controller.signal,
       })
-      await this.trackRequest('text_search')
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error('Google Places demorou para responder. Tente novamente em instantes.')
@@ -194,6 +198,7 @@ export class GooglePlacesProvider implements LeadProvider {
 
     return {
       leads: leads.sort((left, right) => right.score - left.score),
+      ...(monthlyLimitReached ? { monthlyLimitReached: true } : {}),
       ...(payload?.nextPageToken ? { nextPageToken: payload.nextPageToken } : {}),
     }
   }
@@ -204,6 +209,8 @@ export class GooglePlacesProvider implements LeadProvider {
         'A busca real ainda não está configurada. Adicione GOOGLE_MAPS_API_KEY ao .env do backend.',
       )
     }
+
+    await this.reserveRequest('place_details')
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
@@ -220,7 +227,6 @@ export class GooglePlacesProvider implements LeadProvider {
           signal: controller.signal,
         },
       )
-      await this.trackRequest('place_details')
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error('Google Places demorou para responder. Tente novamente em instantes.')
@@ -257,11 +263,9 @@ export class GooglePlacesProvider implements LeadProvider {
     return { ...lead, ...changes }
   }
 
-  private async trackRequest(type: GooglePlacesRequestType) {
-    try {
-      await this.onRequest?.(type)
-    } catch {
-      // O acompanhamento não pode impedir a busca caso o banco esteja indisponível.
-    }
+  private async reserveRequest(type: GooglePlacesRequestType): Promise<boolean> {
+    const reservation = await this.onRequest?.(type)
+    if (reservation === 'blocked') throw new GoogleApiMonthlyLimitError()
+    return reservation === 'reserved_at_limit'
   }
 }
