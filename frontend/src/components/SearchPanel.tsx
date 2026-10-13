@@ -142,6 +142,7 @@ function LocationCombobox({
       {leadingIcon && <span className="location-combobox-icon">{leadingIcon}</span>}
       <input
         id={id}
+        name={id}
         value={value}
         onChange={(event) => {
           setShowAllSuggestions(false)
@@ -479,7 +480,7 @@ export function SearchPanel({
     <section className="search-panel" aria-label="Configurar busca">
       <span className="search-label">Onde você quer prospectar?</span>
       <LocationCombobox
-        id="country"
+        id="search-query-1"
         value={countryInput}
         options={countryOptions}
         placeholder={countries.length ? 'Digite ou escolha um país' : 'Carregando países...'}
@@ -505,7 +506,7 @@ export function SearchPanel({
         }}
       />
       <LocationCombobox
-        id="state"
+        id="search-query-2"
         value={stateInput}
         options={stateOptions}
         placeholder={
@@ -536,7 +537,7 @@ export function SearchPanel({
         }}
       />
       <LocationCombobox
-        id="city"
+        id="search-query-3"
         value={city}
         options={cityOptions}
         leadingIcon={<Search size={18} aria-hidden="true" />}
@@ -557,7 +558,7 @@ export function SearchPanel({
         onSelect={(option) => onCityChange(option.value)}
       />
       <LocationCombobox
-        id="segment"
+        id="search-query-4"
         value={segment}
         options={segmentOptions}
         placeholder="Digite ou escolha um segmento"
