@@ -143,6 +143,7 @@ function LocationCombobox({
       <input
         id={id}
         name={id}
+        type="search"
         value={value}
         onChange={(event) => {
           setShowAllSuggestions(false)
@@ -477,7 +478,15 @@ export function SearchPanel({
   }
 
   return (
-    <section className="search-panel" aria-label="Configurar busca">
+    <form
+      className="search-panel"
+      aria-label="Configurar busca"
+      autoComplete="off"
+      onSubmit={(event) => {
+        event.preventDefault()
+        handleSearch()
+      }}
+    >
       <span className="search-label">Onde você quer prospectar?</span>
       <LocationCombobox
         id="search-query-1"
@@ -581,8 +590,7 @@ export function SearchPanel({
       />
       <button
         className="primary-button search-button"
-        type="button"
-        onClick={handleSearch}
+        type="submit"
         disabled={
           isSearching ||
           hasLocationError ||
@@ -601,6 +609,6 @@ export function SearchPanel({
           Não foi possível carregar as localidades. Tente atualizar a página.
         </span>
       )}
-    </section>
+    </form>
   )
 }

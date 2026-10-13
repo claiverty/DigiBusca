@@ -54,6 +54,14 @@
   font-size: 14px;
 }
 
+.location-combobox input[type='search'] {
+  appearance: none;
+}
+
+.location-combobox input[type='search']::-webkit-search-cancel-button {
+  display: none;
+}
+
 .location-combobox input::placeholder {
   color: #868790;
 }
