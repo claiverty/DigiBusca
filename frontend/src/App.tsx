@@ -196,7 +196,7 @@ function App() {
           />
         )}
         {activeView === 'search' && (
-          <SearchPage onSelectLead={(lead) => setSelectedLead(savedLeads.current.get(lead.id) ?? lead)} />
+          <SearchPage savedLeadIds={savedLeadIds} onSelectLead={(lead) => setSelectedLead(savedLeads.current.get(lead.id) ?? lead)} />
         )}
       </main>
     </div>

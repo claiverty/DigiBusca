@@ -7,6 +7,11 @@ export type WebsiteStatus = (typeof websiteStatuses)[number]
 export const googleProfileStatuses = ['complete', 'incomplete'] as const
 export type GoogleProfileStatus = (typeof googleProfileStatuses)[number]
 
+export const conversationStages = ['Abertura', 'Identificar responsável', 'Pedir permissão', 'Entender cenário', 'Explorar necessidade', 'Apresentar ideia', 'Retomar contato', 'Encerrar'] as const
+export type ConversationStage = (typeof conversationStages)[number]
+export const greetingOptions = ['Oi', 'Bom dia', 'Boa tarde', 'Boa noite'] as const
+export type OutreachGreeting = (typeof greetingOptions)[number]
+
 export type GenerateOutreachInput = {
   businessName: string
   category: string
@@ -14,6 +19,10 @@ export type GenerateOutreachInput = {
   googleProfileStatus: GoogleProfileStatus
   service: string
   tone: OutreachTone
+  stage?: ConversationStage
+  lastReply?: string
+  senderName?: string
+  greeting?: OutreachGreeting
 }
 
 export type LeadType =
@@ -64,6 +73,7 @@ export type OutreachContext = {
   leadAnalysis: LeadAnalysis
   campaignConfig: CampaignConfig
   approachStrategy: ApproachStrategy
+  conversation: { stage: ConversationStage; lastReply: string; senderName: string; greeting: OutreachGreeting }
 }
 
 export type GeneratedOutreachCopy = {
@@ -73,6 +83,7 @@ export type GeneratedOutreachCopy = {
 }
 
 export type GeneratedOutreach = GeneratedOutreachCopy & {
+  stage?: ConversationStage
   analysis: LeadAnalysis
   generationSource: 'ai' | 'safe_template'
 }
@@ -100,7 +111,11 @@ export function parseGenerateOutreachInput(value: unknown): GenerateOutreachInpu
     !service ||
     !websiteStatuses.includes(value.websiteStatus as WebsiteStatus) ||
     !googleProfileStatuses.includes(value.googleProfileStatus as GoogleProfileStatus) ||
-    !outreachTones.includes(value.tone as OutreachTone)
+    !outreachTones.includes(value.tone as OutreachTone) ||
+    (value.stage !== undefined && !conversationStages.includes(value.stage as ConversationStage)) ||
+    (value.greeting !== undefined && !greetingOptions.includes(value.greeting as OutreachGreeting)) ||
+    (value.lastReply !== undefined && (typeof value.lastReply !== 'string' || value.lastReply.length > 2000)) ||
+    (value.senderName !== undefined && (typeof value.senderName !== 'string' || value.senderName.length > 80))
   ) {
     return undefined
   }
@@ -112,6 +127,10 @@ export function parseGenerateOutreachInput(value: unknown): GenerateOutreachInpu
     websiteStatus: value.websiteStatus as WebsiteStatus,
     googleProfileStatus: value.googleProfileStatus as GoogleProfileStatus,
     tone: value.tone as OutreachTone,
+    stage: (value.stage as ConversationStage | undefined) ?? 'Abertura',
+    greeting: (value.greeting as OutreachGreeting | undefined) ?? 'Oi',
+    lastReply: typeof value.lastReply === 'string' ? value.lastReply.trim() : '',
+    senderName: typeof value.senderName === 'string' ? value.senderName.trim() : '',
   }
 }
 

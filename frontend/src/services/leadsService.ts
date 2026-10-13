@@ -23,6 +23,9 @@ export type SavedLeadState = {
   status: Lead['status']
   notes?: string
   nextFollowUp?: string
+  conversationStage?: string
+  contactName?: string
+  nextAction?: string
   draftMessage?: string
   updatedAt: string
 }
@@ -42,16 +45,8 @@ export type SiteHealthResult = {
   checkedAt: string
 }
 
-export type OutreachTone = 'Profissional' | 'Direto' | 'Informal'
-
-export type GenerateOutreachInput = {
-  businessName: string
-  category: string
-  websiteStatus: 'listed' | 'not_listed'
-  googleProfileStatus: 'complete' | 'incomplete'
-  service: string
-  tone: OutreachTone
-}
+export type { OutreachTone, GenerateOutreachInput } from '../../../backend/src/contracts/aiOutreach'
+import type { ConversationStage, GenerateOutreachInput } from '../../../backend/src/contracts/aiOutreach'
 
 export type LeadAnalysis = {
   leadType: 'NO_WEBSITE' | 'INCOMPLETE_GOOGLE_PROFILE' | 'NO_CLEAR_OPPORTUNITY'
@@ -62,6 +57,7 @@ export type LeadAnalysis = {
 }
 
 export type GeneratedOutreach = {
+  stage?: ConversationStage
   salesArgument: string
   whatsappMessage: string
   followUpMessage: string
@@ -71,7 +67,7 @@ export type GeneratedOutreach = {
 }
 
 const apiBaseUrl = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_URL ?? '/api')
-const outreachCacheVersion = 'v1'
+const outreachCacheVersion = 'v2-conversation'
 const outreachCacheTtlMs = 60 * 60 * 1_000
 const maxCachedOutreaches = 50
 
@@ -90,6 +86,10 @@ function buildOutreachCacheKey(input: GenerateOutreachInput) {
     googleProfileStatus: input.googleProfileStatus,
     service: input.service.trim().toLocaleLowerCase('pt-BR'),
     tone: input.tone,
+    stage: input.stage ?? 'Abertura',
+    lastReply: input.lastReply ?? '',
+    senderName: input.senderName ?? '',
+    greeting: input.greeting ?? 'Oi',
   })
 }
 

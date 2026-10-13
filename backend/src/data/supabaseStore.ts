@@ -19,6 +19,9 @@ type SavedLeadRow = {
   status: LeadStatus
   notes: string | null
   next_follow_up: string | null
+  conversation_stage: string | null
+  contact_name: string | null
+  next_action: string | null
   draft_message: string | null
   updated_at: string
 }
@@ -58,6 +61,9 @@ export type SavedLeadState = {
   status: LeadStatus
   notes?: string
   nextFollowUp?: string
+  conversationStage?: string
+  contactName?: string
+  nextAction?: string
   draftMessage?: string
   updatedAt: string
 }
@@ -82,6 +88,9 @@ function mapSavedLeadState(row: SavedLeadRow): SavedLeadState {
     status: row.status,
     notes: row.notes ?? undefined,
     nextFollowUp: row.next_follow_up ?? undefined,
+    conversationStage: row.conversation_stage ?? undefined,
+    contactName: row.contact_name ?? undefined,
+    nextAction: row.next_action ?? undefined,
     draftMessage: row.draft_message ?? undefined,
     updatedAt: row.updated_at,
   }
@@ -130,7 +139,7 @@ export class SupabaseStore {
   async listSavedLeadStates(accessToken: string, userId: string): Promise<SavedLeadState[]> {
     const { data, error } = await this.client(accessToken)
       .from('saved_leads')
-      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, updated_at')
+      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
 
@@ -148,7 +157,7 @@ export class SupabaseStore {
     const store = this.client(accessToken)
     const { data: existingData, error: existingError } = await store
       .from('saved_leads')
-      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, updated_at')
+      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at')
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .maybeSingle()
@@ -162,6 +171,9 @@ export class SupabaseStore {
       ...(changes.notes !== undefined ? { notes: changes.notes || null } : {}),
       ...(changes.nextFollowUp !== undefined ? { next_follow_up: changes.nextFollowUp || null } : {}),
       ...(changes.draftMessage !== undefined ? { draft_message: changes.draftMessage || null } : {}),
+      ...(changes.conversationStage !== undefined ? { conversation_stage: changes.conversationStage || null } : {}),
+      ...(changes.contactName !== undefined ? { contact_name: changes.contactName || null } : {}),
+      ...(changes.nextAction !== undefined ? { next_action: changes.nextAction || null } : {}),
       updated_at: now,
     }
 
@@ -176,11 +188,14 @@ export class SupabaseStore {
           notes: changes.notes || null,
           next_follow_up: changes.nextFollowUp || null,
           draft_message: changes.draftMessage || null,
+          conversation_stage: changes.conversationStage || null,
+          contact_name: changes.contactName || null,
+          next_action: changes.nextAction || null,
           updated_at: now,
         })
 
     const { data, error } = await query
-      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, updated_at')
+      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at')
       .single()
 
     throwIfError(error)
@@ -194,7 +209,7 @@ export class SupabaseStore {
   ): Promise<SavedLeadState | undefined> {
     const { data, error } = await this.client(accessToken)
       .from('saved_leads')
-      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, updated_at')
+      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at')
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .maybeSingle()
@@ -208,7 +223,7 @@ export class SupabaseStore {
     userId: string,
     lead: Lead,
   ): Promise<void> {
-    const { status: _status, notes: _notes, nextFollowUp: _nextFollowUp, draftMessage: _draftMessage, ...snapshot } = lead
+    const { status: _status, notes: _notes, nextFollowUp: _nextFollowUp, draftMessage: _draftMessage, conversationStage: _stage, contactName: _contact, nextAction: _action, ...snapshot } = lead
     const { error } = await this.client(accessToken)
       .from('saved_leads')
       .update({

@@ -1,5 +1,7 @@
 import { AlertTriangle, ArrowLeft, Bookmark, CheckCircle2, ExternalLink, History, LoaderCircle, MessageCircle, Phone } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
+import { localDateKey } from '../lib/dates'
+import { conversationStages } from '../../../backend/src/contracts/aiOutreach'
 import { createApproachMessage } from '../lib/approachMessage'
 import { hasContactPhone, toWhatsappPhone } from '../lib/phone'
 import { createLeadInteraction, getLeadInteractions, getSiteHealth, type SiteHealthResult } from '../services/leadsService'
@@ -38,7 +40,7 @@ function formatRetrievedAt(value: string) {
 }
 
 function getToday() {
-  return new Date().toISOString().slice(0, 10)
+  return localDateKey()
 }
 
 function formatInteractionDate(value: string) {
@@ -57,13 +59,16 @@ export function LeadDetail({
 }: LeadDetailProps) {
   const [message, setMessage] = useState(lead.draftMessage ?? createApproachMessage(lead))
   const [status, setStatus] = useState<LeadStatus>(lead.status)
+  const [conversationStage, setConversationStage] = useState(lead.conversationStage ?? 'Abertura')
+  const [contactName, setContactName] = useState(lead.contactName ?? '')
+  const [nextAction, setNextAction] = useState(lead.nextAction ?? '')
   const [notes, setNotes] = useState(lead.notes ?? '')
   const [nextFollowUp, setNextFollowUp] = useState(lead.nextFollowUp ?? '')
   const [isSaving, setIsSaving] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [saleService, setSaleService] = useState('')
   const [saleAmount, setSaleAmount] = useState('')
-  const [saleDate, setSaleDate] = useState(new Date().toISOString().slice(0, 10))
+  const [saleDate, setSaleDate] = useState(localDateKey())
   const [saleFeedback, setSaleFeedback] = useState('')
   const [isRegisteringSale, setIsRegisteringSale] = useState(false)
   const [interactions, setInteractions] = useState<LeadInteraction[]>([])
@@ -153,6 +158,7 @@ export function LeadDetail({
         notes,
         nextFollowUp,
         draftMessage: message,
+        conversationStage, contactName, nextAction,
       })
       setFeedback('Alterações salvas.')
     } catch (error) {
@@ -203,7 +209,7 @@ export function LeadDetail({
         notes: interactionNotes,
         outcome: interactionOutcome,
       })
-      setInteractions((current) => [interaction, ...current])
+      setInteractions((current) => [interaction, ...current].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.createdAt.localeCompare(a.createdAt)))
       setInteractionNotes('')
       setInteractionOutcome('')
       setInteractionFeedback('Interação registrada.')
@@ -255,7 +261,7 @@ export function LeadDetail({
           <div className="panel">
             <div className="approach-heading">
               <span className="eyebrow">Abordagem sugerida</span>
-              <AiOutreachAssistant lead={lead} onUseMessage={setMessage} />
+              <AiOutreachAssistant lead={lead} currentStage={conversationStage} onUseMessage={(text, stage) => { setMessage(text); setConversationStage(stage) }} />
             </div>
             <textarea
               value={message}
@@ -283,7 +289,7 @@ export function LeadDetail({
                 onClick={() => void handleSaveChanges()}
                 disabled={isSaving}
               >
-                {isSaving ? 'Salvando...' : 'Salvar rascunho'}
+                {isSaving ? 'Salvando...' : 'Salvar mensagem e acompanhamento'}
               </button>
             </div>
           </div>
@@ -304,9 +310,18 @@ export function LeadDetail({
                 </select>
               </label>
               <label className="detail-field">
-                <span>Próximo follow-up</span>
+                <span>Próximo contato</span>
                 <DatePicker value={nextFollowUp} onChange={setNextFollowUp} />
               </label>
+            </div>
+            <div className="detail-form-grid">
+              <label className="detail-field"><span>Etapa da conversa</span><select value={conversationStage} onChange={(event) => setConversationStage(event.target.value)}>{conversationStages.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="detail-field"><span>Pessoa de contato</span><input value={contactName} maxLength={120} onChange={(event) => setContactName(event.target.value)} placeholder="Nome e função, se informados" /></label>
+            </div>
+            <label className="detail-field"><span>Próximo passo</span><input value={nextAction} maxLength={500} onChange={(event) => setNextAction(event.target.value)} placeholder="Ex.: descobrir quem cuida da divulgação" /></label>
+            <div className="panel-actions">
+              {[1, 3, 7].map((days) => <button className="text-button" type="button" key={days} onClick={() => { const date = new Date(); date.setDate(date.getDate() + days); setNextFollowUp(localDateKey(date)) }}>Retornar em {days} dia(s)</button>)}
+              <button className="text-button" type="button" onClick={() => setNextFollowUp('')}>Limpar agendamento</button>
             </div>
             <label className="detail-field">
               <span>Observações</span>

@@ -47,7 +47,8 @@ const segments = [
 
 const opportunityOptions: Array<{ value: '' | OpportunityType; label: string }> = [
   { value: '', label: 'Prioridade: todos os perfis' },
-  { value: 'Sem site', label: 'Prioridade: somente sem site' },
+  { value: 'Sem site', label: 'Prioridade: site não informado' },
+  { value: 'Perfil incompleto', label: 'Prioridade: perfil incompleto' },
   { value: 'Site identificado', label: 'Prioridade: negócios com site' },
 ]
 
@@ -371,6 +372,7 @@ export function SearchPanel({
   }))
   const segmentOptions: ChoiceOption[] = [
     { value: '', label: 'Escolha um segmento' },
+    ...(segment && !segments.includes(segment) ? [{ value: segment, label: segment }] : []),
     ...segments.map((option) => ({ value: option, label: option })),
   ]
 
@@ -519,6 +521,7 @@ export function SearchPanel({
         onClear={() => onCityChange('')}
         onSelect={(option) => onCityChange(option.value)}
       />
+      <label className="custom-segment-field"><span>Segmento específico (opcional)</span><input value={segments.includes(segment) ? '' : segment} onChange={(event) => onSegmentChange(event.target.value)} maxLength={120} placeholder="Ex.: pizzarias, fisioterapia" /></label>
       <ChoiceDropdown
         id="segment"
         value={segment}

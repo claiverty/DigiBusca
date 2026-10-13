@@ -19,10 +19,13 @@ export type Lead = {
   status: LeadStatus
   notes?: string
   nextFollowUp?: string
+  conversationStage?: string
+  contactName?: string
+  nextAction?: string
   draftMessage?: string
 }
 
-export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage'>
+export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage' | 'conversationStage' | 'contactName' | 'nextAction'>
 
 export type SearchLeadsResponse = {
   data: Lead[]

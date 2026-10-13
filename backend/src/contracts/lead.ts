@@ -20,6 +20,9 @@ export type Lead = {
   status: LeadStatus
   notes?: string
   nextFollowUp?: string
+  conversationStage?: string
+  contactName?: string
+  nextAction?: string
   draftMessage?: string
 }
 
@@ -86,7 +89,7 @@ export function parseLeadSnapshot(value: unknown, leadId: string): LeadSnapshot 
   }
 }
 
-export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage'>
+export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage' | 'conversationStage' | 'contactName' | 'nextAction'>
 
 export type SearchLeadsQuery = {
   city: string

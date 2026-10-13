@@ -107,7 +107,12 @@ export function buildOutreachContext(input: GenerateOutreachInput): OutreachCont
     leadAnalysis,
     campaignConfig: buildCampaignConfig(input),
     approachStrategy: chooseApproachStrategy(leadAnalysis),
+    conversation: { stage: hasExplicitRefusal(input.lastReply ?? '') ? 'Encerrar' : input.stage ?? 'Abertura', lastReply: input.lastReply ?? '', senderName: input.senderName ?? '', greeting: input.greeting ?? 'Oi' },
   }
+}
+
+export function hasExplicitRefusal(reply: string): boolean {
+  return /\b(nao (?:tenho|temos) interesse|sem interesse|nao (?:quero|queremos|preciso|precisamos)|nao (?:me |nos )?(?:mande|envie|contate)|pare de|remova (?:meu|nosso) contato)\b/.test(normalizedText(reply))
 }
 
 export function validateGeneratedOutreach(
@@ -121,8 +126,16 @@ export function validateGeneratedOutreach(
   if (copy.whatsappMessage.length > 500) issues.push('A mensagem inicial ultrapassa 500 caracteres.')
   if (copy.followUpMessage.length > 320) issues.push('O follow-up ultrapassa 320 caracteres.')
   if (copy.salesArgument.length > 350) issues.push('O argumento ultrapassa 350 caracteres.')
-  if (!/^(oi|ola), tudo bem\?/.test(initial)) issues.push('A saudação inicial não é neutra.')
-  if (!copy.whatsappMessage.trim().endsWith('?')) issues.push('A mensagem inicial não termina com uma pergunta.')
+  const identity = normalizedText(context.conversation.senderName)
+  const opening = identity ? initial.replace(`sou ${identity}. `, '') : initial
+  const isSimpleGreeting = /^(?:(?:oi|ola)(?:, (?:bom dia|boa tarde|boa noite))?|bom dia|boa tarde|boa noite)[!, .]+tudo (?:bem|certo)\?$/.test(opening)
+  if (context.conversation.stage === 'Abertura' && (!isSimpleGreeting || copy.whatsappMessage.length > 140)) {
+    issues.push('A abertura deve conter apenas uma saudação curta e identificação opcional.')
+  }
+  if (context.conversation.stage === 'Abertura' && /\b(site|google|proposta|servico|clientes|vendas|trabalho|oportunidade)\b/.test(initial)) {
+    issues.push('A abertura antecipa uma oferta comercial.')
+  }
+  if (context.conversation.stage !== 'Encerrar' && !hasExplicitRefusal(context.conversation.lastReply) && !copy.whatsappMessage.trim().endsWith('?')) issues.push('A mensagem inicial não termina com uma pergunta.')
   if (/https?:\/\/|www\./i.test(allText)) issues.push('A resposta contém uma URL.')
   if (/\b(vimos|encontramos|trabalhamos|nossa equipe)\b/.test(allText)) {
     issues.push('A resposta usa voz de equipe.')
@@ -131,7 +144,9 @@ export function validateGeneratedOutreach(
     issues.push('A resposta contém uma afirmação comercial proibida.')
   }
 
-  if (context.leadAnalysis.leadType === 'NO_WEBSITE') {
+  if (/\b(?:nao tem|nao possuem?|nao existe)(?: um)?\s+site\b|\bsem(?: um)?\s+site\b/.test(initial) && !/perfil|google/.test(initial)) issues.push('A resposta afirma que a empresa não possui site.')
+
+  if (context.leadAnalysis.leadType === 'NO_WEBSITE' && /nao encontrei|nao localizei|nao identifiquei|nao consta|nao aparece|nao foi informado/.test(initial)) {
     const hasScopedSiteObservation = /\bsite\b/.test(initial)
       && /\b(informado|vinculado|cadastrado|listado|const[aá])\b/.test(initial)
       && /\b(perfil|google)\b/.test(initial)
@@ -147,32 +162,28 @@ export function validateGeneratedOutreach(
     }
   }
 
+  if (context.conversation.stage === 'Identificar responsável' && /\b(proposta|ofereco|oferecer|trabalho com|vender|compra)\b/.test(initial)) issues.push('A identificação do responsável antecipa uma oferta.')
+  if (hasExplicitRefusal(context.conversation.lastReply) && /\?|\b(mas|porem|insistir|oferta|proposta)\b/.test(initial)) issues.push('A resposta não respeita a recusa.')
   return issues
 }
 
 export function createSafeOutreachTemplate(context: OutreachContext): GeneratedOutreachCopy {
   const { service } = context.campaignConfig
-  const { leadType } = context.leadAnalysis
-
-  if (leadType === 'NO_WEBSITE') {
-    return {
-      whatsappMessage: `Oi, tudo bem? Encontrei a empresa de vocês pelo Google e resolvi entrar em contato. Trabalho com ${service} e não encontrei um site informado no perfil. Vocês já pensaram em ter um espaço próprio para apresentar melhor a empresa e os serviços?`,
-      followUpMessage: `Oi, tudo bem? Passando só para saber se faz sentido eu enviar uma sugestão de ${service} para a empresa de vocês. Posso resumir a ideia em poucos pontos por aqui?`,
-      salesArgument: 'Um site pode funcionar como um canal próprio para apresentar a empresa, explicar seus serviços e facilitar o contato de quem já encontrou o negócio pelo Google.',
-    }
+  const { stage, senderName, greeting } = context.conversation
+  const introduction = senderName ? `Sou ${senderName}. ` : ''
+  const messages: Record<typeof stage, string> = {
+    'Abertura': `${greeting === 'Oi' ? 'Oi' : `Oi, ${greeting.toLocaleLowerCase('pt-BR')}`}! ${senderName ? `Sou ${senderName}. ` : ''}Tudo bem?`,
+    'Identificar responsável': 'Por esse contato eu falo com quem cuida da divulgação e da presença digital da empresa ou seria outra pessoa?',
+    'Pedir permissão': `${introduction}Trabalho com ${service}. Queria entender como vocês cuidam dessa parte hoje. Posso te fazer uma pergunta rápida?`,
+    'Entender cenário': 'Hoje vocês usam mais o Instagram e o WhatsApp para apresentar os serviços e receber contatos ou também usam um site?',
+    'Explorar necessidade': 'Entendi. Esse formato atende bem vocês hoje ou tem alguma coisa nessa parte que gostariam de facilitar?',
+    'Apresentar ideia': `Se fizer sentido para vocês, posso mostrar um exemplo de ${service} para avaliarmos juntos se ajuda no que precisam. Quer ver?`,
+    'Retomar contato': 'Oi, tudo bem? Queria saber se podemos continuar a conversa por aqui. Se não for um bom momento, tudo bem também?',
+    'Encerrar': 'Tudo bem, obrigado por me responder. Bom trabalho por aí!',
   }
-
-  if (leadType === 'INCOMPLETE_GOOGLE_PROFILE') {
-    return {
-      whatsappMessage: `Oi, tudo bem? Encontrei a empresa de vocês pelo Google e notei que algumas informações públicas não aparecem no perfil. Trabalho com ${service}. Vocês já pensaram em organizar melhor essa apresentação para quem chega pelo Google?`,
-      followUpMessage: `Oi, tudo bem? Passando só para saber se posso enviar uma sugestão simples de ${service} para melhorar a apresentação das informações da empresa no Google?`,
-      salesArgument: 'Informações organizadas e completas ajudam quem já encontrou a empresa no Google a entender os serviços e escolher o canal de contato.',
-    }
-  }
-
   return {
-    whatsappMessage: `Oi, tudo bem? Encontrei a empresa de vocês pelo Google e resolvi entrar em contato. Trabalho com ${service} para negócios do segmento de ${context.leadData.industry}. Posso enviar uma ideia rápida e sem compromisso por aqui?`,
-    followUpMessage: `Oi, tudo bem? Passando só para saber se faz sentido eu compartilhar aquela ideia de ${service}. Posso resumir em poucos pontos por aqui?`,
-    salesArgument: `Os dados disponíveis não comprovam uma falha específica. A abordagem inicia uma conversa respeitosa sobre ${service}.`,
+    whatsappMessage: hasExplicitRefusal(context.conversation.lastReply) ? messages['Encerrar'] : messages[stage],
+    followUpMessage: stage === 'Encerrar' || hasExplicitRefusal(context.conversation.lastReply) ? messages['Encerrar'] : messages['Retomar contato'],
+    salesArgument: `Entenda o cenário e a necessidade antes de apresentar ${service}. Os dados públicos não comprovam problemas nem resultados futuros.`,
   }
 }

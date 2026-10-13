@@ -1,5 +1,5 @@
 import { Check, Copy, RefreshCw, Sparkles, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   generateAiOutreach,
   getCachedAiOutreach,
@@ -8,12 +8,15 @@ import {
   type LeadAnalysis,
   type OutreachTone,
 } from '../services/leadsService'
+import { conversationStages, greetingOptions, type ConversationStage, type OutreachGreeting } from '../../../backend/src/contracts/aiOutreach'
+import { buildOutreachContext, createSafeOutreachTemplate } from '../../../backend/src/domain/outreachPipeline'
 import type { Lead } from '../types'
 import './AiOutreachAssistant.css'
 
 type AiOutreachAssistantProps = {
   lead: Lead
-  onUseMessage: (message: string) => void
+  currentStage?: string
+  onUseMessage: (message: string, stage: ConversationStage) => void
 }
 
 const tones: OutreachTone[] = ['Profissional', 'Direto', 'Informal']
@@ -31,88 +34,20 @@ const confidenceLabels: Record<LeadAnalysis['confidence'], string> = {
   low: 'Confiança baixa',
 }
 
-function createLocalAnalysis(lead: Lead): LeadAnalysis {
-  if (!lead.website) {
-    return {
-      leadType: 'NO_WEBSITE',
-      primaryOpportunity: 'website',
-      secondaryOpportunities: [],
-      confidence: 'high',
-      evidence: ['Nenhum site foi informado nos dados públicos do perfil do Google.'],
-    }
-  }
-
-  if (lead.opportunity === 'Perfil incompleto') {
-    return {
-      leadType: 'INCOMPLETE_GOOGLE_PROFILE',
-      primaryOpportunity: 'google_profile',
-      secondaryOpportunities: [],
-      confidence: 'medium',
-      evidence: ['O perfil do Google não apresenta todos os dados públicos esperados.'],
-    }
-  }
-
-  return {
-    leadType: 'NO_CLEAR_OPPORTUNITY',
-    primaryOpportunity: 'general_outreach',
-    secondaryOpportunities: [],
-    confidence: 'low',
-    evidence: ['Há um site informado e não existem dados suficientes para avaliar sua qualidade.'],
-  }
+function createGenerationInput(lead: Lead, service: string, tone: OutreachTone, stage: ConversationStage, lastReply: string, senderName: string, greeting: OutreachGreeting): GenerateOutreachInput {
+  return { businessName: lead.name, category: lead.category, websiteStatus: lead.website ? 'listed' : 'not_listed', googleProfileStatus: lead.opportunity === 'Perfil incompleto' ? 'incomplete' : 'complete', service: service.trim() || 'sites e presença digital', tone, stage, lastReply, senderName, greeting }
 }
 
-function createGenerationInput(
-  lead: Lead,
-  service: string,
-  tone: OutreachTone,
-): GenerateOutreachInput {
-  return {
-    businessName: lead.name,
-    category: lead.category,
-    websiteStatus: lead.website ? 'listed' : 'not_listed',
-    googleProfileStatus: lead.opportunity === 'Perfil incompleto' ? 'incomplete' : 'complete',
-    service: service.trim(),
-    tone,
-  }
-}
-
-function createReadyTemplate(lead: Lead, service: string, tone: OutreachTone): GeneratedOutreach {
-  const greeting = tone === 'Profissional' ? 'Olá' : 'Oi'
-  const analysis = createLocalAnalysis(lead)
-  const ending = tone === 'Informal'
-    ? 'Posso te mandar uma ideia rápida por aqui?'
-    : 'Posso compartilhar uma sugestão rápida, sem compromisso?'
-
-  if (analysis.leadType === 'NO_WEBSITE') {
-    return {
-      salesArgument: 'Um site pode funcionar como um canal próprio para apresentar a empresa, explicar seus serviços e facilitar o contato de quem já encontrou o negócio pelo Google.',
-      whatsappMessage: `${greeting}, tudo bem? Encontrei a empresa de vocês pelo Google e resolvi entrar em contato. Trabalho com ${service} e não encontrei um site informado no perfil. Vocês já pensaram em ter um espaço próprio para apresentar melhor a empresa e os serviços?`,
-      followUpMessage: `${greeting}, tudo bem? Passando só para saber se faz sentido eu enviar uma sugestão de ${service}. Posso resumir a ideia em poucos pontos por aqui?`,
-      analysis,
-      generationSource: 'safe_template',
-    }
-  }
-
-  if (analysis.leadType === 'INCOMPLETE_GOOGLE_PROFILE') {
-    return {
-      salesArgument: 'Informações organizadas ajudam quem já encontrou a empresa no Google a entender os serviços e escolher o canal de contato.',
-      whatsappMessage: `${greeting}, tudo bem? Encontrei a empresa de vocês pelo Google e notei que algumas informações públicas não aparecem no perfil. Trabalho com ${service}. ${ending}`,
-      followUpMessage: `${greeting}, tudo bem? Posso enviar uma sugestão simples de ${service} para organizar melhor a apresentação da empresa no Google?`,
-      analysis,
-      generationSource: 'safe_template',
-    }
-  }
-
-  return {
-    salesArgument: `Os dados disponíveis não comprovam uma falha específica. A abordagem inicia uma conversa respeitosa sobre ${service}.`,
-    whatsappMessage: `${greeting}, tudo bem? Encontrei a empresa de vocês pelo Google e resolvi entrar em contato. Trabalho com ${service} para negócios desse segmento. ${ending}`,
-    followUpMessage: `${greeting}, tudo bem? Passando só para saber se faz sentido eu enviar aquela sugestão de ${service}. Posso resumir a ideia em poucos pontos por aqui.`,
-    analysis,
-    generationSource: 'safe_template',
-  }
-}
-
-export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantProps) {
+export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutreachAssistantProps) {
+  const dialogRef = useRef<HTMLElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [stage, setStage] = useState<ConversationStage>(conversationStages.find((item) => item === (currentStage ?? lead.conversationStage)) ?? 'Abertura')
+  const [lastReply, setLastReply] = useState('')
+  const [senderName, setSenderName] = useState('')
+  const [greeting, setGreeting] = useState<OutreachGreeting>(() => {
+    const hour = new Date().getHours()
+    return hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
+  })
   const [isOpen, setIsOpen] = useState(false)
   const [service, setService] = useState('Site institucional')
   const [tone, setTone] = useState<OutreachTone>('Profissional')
@@ -124,12 +59,20 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
   useEffect(() => {
     if (!isOpen) return
 
+    dialogRef.current?.querySelector<HTMLSelectElement>('select')?.focus()
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') setIsOpen(false)
+      if (event.key !== 'Tab') return
+      const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]') ?? [])
+        .filter((element) => element.getClientRects().length > 0)
+      const first = controls[0]
+      const last = controls[controls.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
     }
 
     document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    return () => { document.removeEventListener('keydown', handleKeyDown); triggerRef.current?.focus() }
   }, [isOpen])
 
   useEffect(() => {
@@ -142,20 +85,20 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
     if (!isOpen || !service.trim()) return
     let isCurrent = true
 
-    void getCachedAiOutreach(createGenerationInput(lead, service, tone)).then((cached) => {
+    void getCachedAiOutreach(createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting)).then((cached) => {
       if (isCurrent && cached) {
         setResult(cached)
         setError('')
       }
-    })
+    }).catch(() => { /* Cache is optional. */ })
 
     return () => {
       isCurrent = false
     }
-  }, [isOpen, lead, service, tone])
+  }, [isOpen, lead, service, tone, stage, lastReply, senderName, greeting])
 
   async function handleGenerate() {
-    if (!service.trim()) {
+    if ((stage === 'Pedir permissão' || stage === 'Apresentar ideia') && !service.trim()) {
       setError('Informe qual serviço você quer oferecer.')
       return
     }
@@ -164,7 +107,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
     setError('')
     setResult(undefined)
     try {
-      setResult(await generateAiOutreach(createGenerationInput(lead, service, tone)))
+      setResult(await generateAiOutreach(createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting)))
     } catch (generationError) {
       setError(
         generationError instanceof Error
@@ -177,12 +120,13 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
   }
 
   function handleReadyTemplate() {
-    if (!service.trim()) {
+    if ((stage === 'Pedir permissão' || stage === 'Apresentar ideia') && !service.trim()) {
       setError('Informe qual serviço você quer oferecer.')
       return
     }
     setError('')
-    setResult(createReadyTemplate(lead, service.trim(), tone))
+    const context = buildOutreachContext(createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting))
+    setResult({ ...createSafeOutreachTemplate(context), stage: context.conversation.stage, analysis: context.leadAnalysis, generationSource: 'safe_template' })
   }
 
   async function handleCopy(field: CopyField) {
@@ -198,13 +142,14 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
 
   return (
     <>
-      <button className="secondary-button ai-outreach-trigger" type="button" onClick={() => setIsOpen(true)}>
+      <button ref={triggerRef} className="secondary-button ai-outreach-trigger" type="button" onClick={() => { setStage(conversationStages.find((item) => item === (currentStage ?? lead.conversationStage)) ?? 'Abertura'); setResult(undefined); setIsOpen(true) }}>
         <Sparkles size={17} /> Gerar abordagem com IA
       </button>
 
       {isOpen && (
         <div className="ai-outreach-backdrop" role="presentation" onMouseDown={() => setIsOpen(false)}>
           <section
+            ref={dialogRef}
             className="ai-outreach-modal"
             role="dialog"
             aria-modal="true"
@@ -214,7 +159,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
             <header className="ai-outreach-header">
               <div>
                 <span className="eyebrow">ASSISTENTE COM IA</span>
-                <h2 id="ai-outreach-title">Criar abordagem para {lead.name}</h2>
+                <h2 id="ai-outreach-title">Continuar conversa com {lead.name}</h2>
               </div>
               <button className="ai-outreach-close" type="button" onClick={() => setIsOpen(false)} aria-label="Fechar">
                 <X size={20} />
@@ -222,21 +167,31 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
             </header>
 
             <p className="ai-outreach-privacy">
-              Enviamos somente nome comercial, categoria e disponibilidade de dados públicos. Telefone, endereço e anotações ficam de fora.
+              A resposta informada entra no contexto da IA junto com os dados comerciais e a etapa. Inclua apenas o necessário.
             </p>
 
+            <p className="ai-outreach-note">Comece com um cumprimento e espere a resposta. Avance uma etapa por vez, conforme a conversa.</p>
             <div className="ai-outreach-form">
-              <label>
+              <label><span>Etapa da conversa</span><select value={stage} disabled={isGenerating} onChange={(event) => { setStage(event.target.value as ConversationStage); setResult(undefined) }}>
+                {conversationStages.map((item) => <option key={item}>{item}</option>)}
+              </select></label>
+              {(stage === 'Abertura' || stage === 'Pedir permissão') && <label><span>Seu nome (opcional)</span><input value={senderName} maxLength={80} disabled={isGenerating} onChange={(event) => { setSenderName(event.target.value); setResult(undefined) }} placeholder="Como você quer se apresentar" /></label>}
+              {stage === 'Abertura' ? <label><span>Saudação</span><select value={greeting} disabled={isGenerating} onChange={(event) => { setGreeting(event.target.value as OutreachGreeting); setResult(undefined) }}>
+                {greetingOptions.map((item) => <option key={item}>{item}</option>)}
+              </select></label> : <label><span>O que a pessoa respondeu?</span><textarea value={lastReply} disabled={isGenerating} maxLength={2000} onChange={(event) => { setLastReply(event.target.value); setResult(undefined) }} placeholder="Cole ou resuma a resposta para contextualizar a próxima mensagem" /></label>}
+              {(stage === 'Pedir permissão' || stage === 'Apresentar ideia') && <label>
                 <span>Serviço que você oferece</span>
                 <input
                   value={service}
+                  disabled={isGenerating}
+                  maxLength={120}
                   onChange={(event) => {
                     setService(event.target.value)
                     setResult(undefined)
                   }}
                   placeholder="Ex.: Site institucional"
                 />
-              </label>
+              </label>}
               <fieldset>
                 <legend>Tom da mensagem</legend>
                 <div className="ai-outreach-tones">
@@ -246,6 +201,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
                       type="button"
                       key={option}
                       aria-pressed={tone === option}
+                      disabled={isGenerating}
                       onClick={() => {
                         setTone(option)
                         setResult(undefined)
@@ -288,7 +244,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
                 </div>
                 <article className="ai-outreach-result featured">
                   <div>
-                    <span>Mensagem inicial</span>
+                    <span>{result.stage ?? stage} · próxima mensagem</span>
                     <button type="button" onClick={() => void handleCopy('whatsappMessage')}>
                       {copiedField === 'whatsappMessage' ? <Check size={15} /> : <Copy size={15} />}
                       {copiedField === 'whatsappMessage' ? 'Copiado' : 'Copiar'}
@@ -308,7 +264,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
                 </article>
                 <article className="ai-outreach-result">
                   <div>
-                    <span>Argumento principal</span>
+                    <span>Orientação para a conversa</span>
                     <button type="button" onClick={() => void handleCopy('salesArgument')}>
                       {copiedField === 'salesArgument' ? <Check size={15} /> : <Copy size={15} />}
                       {copiedField === 'salesArgument' ? 'Copiado' : 'Copiar'}
@@ -320,7 +276,7 @@ export function AiOutreachAssistant({ lead, onUseMessage }: AiOutreachAssistantP
                   className="primary-button ai-use-message"
                   type="button"
                   onClick={() => {
-                    onUseMessage(result.whatsappMessage)
+                    onUseMessage(result.whatsappMessage, result.stage ?? stage)
                     setIsOpen(false)
                   }}
                 >

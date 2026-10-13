@@ -292,3 +292,38 @@
     justify-content: center;
   }
 }
+
+.ai-outreach-form select, .ai-outreach-form textarea {
+  width:100%;
+  min-height:44px;
+  padding:12px 14px;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-control);
+  color:var(--color-text);
+  background:var(--color-surface);
+  font:inherit;
+  font-size:14px;
+}
+
+.ai-outreach-form textarea {
+  min-height:110px;
+  resize:vertical;
+}
+
+.ai-outreach-form :is(input, select, textarea):focus-visible {
+  outline:2px solid var(--color-accent);
+  outline-offset:2px;
+}
+
+.ai-outreach-note {
+  font-size:12px;
+  line-height:1.6;
+  margin-bottom:16px;
+}
+
+@media(max-width:590px) {
+  .ai-outreach-form :is(input, select, textarea) {
+    font-size:16px;
+  }
+
+}

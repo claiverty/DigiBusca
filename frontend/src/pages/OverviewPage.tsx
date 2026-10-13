@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getGoogleApiUsage, getSales, getSavedLeads, type GoogleApiUsage, type SavedLeadState } from '../services/leadsService'
 import type { Sale } from '../types/sales'
 import type { AppView } from '../components/Sidebar'
+import { localDay, isOpenStatus } from '../lib/dates'
 import './OverviewPage.css'
 
 type OverviewPageProps = {
@@ -27,7 +28,7 @@ function formatDate(value: string) {
     day: '2-digit',
     month: 'short',
   })
-    .format(new Date(`${value}T12:00:00`))
+    .format(localDay(value))
     .replace('.', '')
 }
 
@@ -40,7 +41,7 @@ function isWithinNextWeek(value?: string) {
   today.setHours(0, 0, 0, 0)
   const nextWeek = new Date(today)
   nextWeek.setDate(today.getDate() + 7)
-  const followUp = new Date(`${value}T12:00:00`)
+  const followUp = localDay(value)
 
   return followUp >= today && followUp <= nextWeek
 }
@@ -70,7 +71,7 @@ export function OverviewPage({ onNavigate }: OverviewPageProps) {
   }, [loadData])
 
   const openLeads = leads.filter((lead) => lead.status !== 'Ganhou' && lead.status !== 'Perdeu')
-  const upcomingFollowUps = leads.filter((lead) => isWithinNextWeek(lead.nextFollowUp))
+  const upcomingFollowUps = leads.filter((lead) => isOpenStatus(lead.status) && isWithinNextWeek(lead.nextFollowUp))
   const recentSales = sales.slice(0, 3)
   const totalSales = sales.reduce((total, sale) => total + sale.amount, 0)
   const recentLeads = useMemo(() => leads.slice(0, 3), [leads])

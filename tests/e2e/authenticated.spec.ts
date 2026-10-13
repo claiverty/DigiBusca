@@ -85,8 +85,8 @@ async function mockLeadWorkflowApi(page: Page) {
       json: {
         data: {
           salesArgument: 'Um site próprio facilita a apresentação dos serviços.',
-          whatsappMessage: 'Olá, preparei uma sugestão de site para sua empresa.',
-          followUpMessage: 'Olá, posso detalhar a sugestão que enviei?',
+          whatsappMessage: 'Oi! Tudo bem?',
+          followUpMessage: 'Oi, tudo bem? Podemos continuar a conversa por aqui?',
           analysis: {
             leadType: 'NO_WEBSITE',
             primaryOpportunity: 'website',
@@ -222,7 +222,7 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     await expect(page.getByText('Gerada com IA', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Usar na abordagem' }).click()
     await expect(page.getByLabel('Mensagem de abordagem')).toHaveValue(
-      'Olá, preparei uma sugestão de site para sua empresa.',
+      'Oi! Tudo bem?',
     )
 
     await page.getByRole('combobox', { name: 'O que foi vendido' }).fill('Site institucional')

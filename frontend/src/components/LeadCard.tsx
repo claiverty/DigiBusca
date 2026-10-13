@@ -3,17 +3,18 @@ import { hasContactPhone } from '../lib/phone'
 import type { Lead } from '../types'
 import './LeadCard.css'
 
-type LeadCardProps = { lead: Lead; onSelect: (lead: Lead) => void }
+type LeadCardProps = { lead: Lead; isSaved?: boolean; onSelect: (lead: Lead) => void }
 
-export function LeadCard({ lead, onSelect }: LeadCardProps) {
+export function LeadCard({ lead, isSaved, onSelect }: LeadCardProps) {
   const hasPhone = hasContactPhone(lead.phone)
 
   return (
     <article className="lead-card">
       <div className="lead-card-topline">
-        <span className="opportunity-pill">{lead.opportunity}</span>
-        <span className="score">{lead.score}% oportunidade</span>
+        <span className="opportunity-pill">{lead.opportunity === 'Sem site' ? 'Site não informado no Google' : lead.opportunity}</span>
+        <span className="score" title="Pontuação baseada em avaliação, quantidade de avaliações e disponibilidade de site; não é uma probabilidade de venda.">{lead.score}/100 prioridade</span>
       </div>
+      {isSaved && <span className="saved-search-badge">Já salvo na carteira</span>}
       <div className="lead-heading">
         <div>
           <h3>{lead.name}</h3>

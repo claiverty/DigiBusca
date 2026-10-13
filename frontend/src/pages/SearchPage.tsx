@@ -3,10 +3,11 @@ import { LeadCard } from '../components/LeadCard'
 import { ResultsHeader } from '../components/ResultsHeader'
 import { SearchPanel, type SearchLocation } from '../components/SearchPanel'
 import { GoogleApiMonthlyLimitError, searchLeads } from '../services/leadsService'
+import { hasContactPhone } from '../lib/phone'
 import type { Lead, OpportunityType } from '../types'
 import './SearchPage.css'
 
-type SearchPageProps = { onSelectLead: (lead: Lead) => void }
+type SearchPageProps = { onSelectLead: (lead: Lead) => void; savedLeadIds?: Set<string> }
 
 type SearchStatus = 'idle' | 'loading' | 'success' | 'error'
 type SearchQuery = { city: string; segment: string; opportunity?: OpportunityType }
@@ -96,11 +97,15 @@ function getSearchCache(): SearchCache {
   }
 }
 
-export function SearchPage({ onSelectLead }: SearchPageProps) {
+export function SearchPage({ onSelectLead, savedLeadIds = new Set() }: SearchPageProps) {
   const [searchCache, setSearchCache] = useState<SearchCache>(getSearchCache)
+  const [hideSaved, setHideSaved] = useState(false)
+  const [onlyWithPhone, setOnlyWithPhone] = useState(false)
+  const [sortOrder, setSortOrder] = useState('score')
   const [errorMessage, setErrorMessage] = useState('')
   const [loadMoreError, setLoadMoreError] = useState('')
   const [quotaNotice, setQuotaNotice] = useState('')
+  const [isSearching, setIsSearching] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const lastQuery = useRef<SearchQuery | null>(searchCache.lastQuery)
   const requestId = useRef(0)
@@ -118,7 +123,8 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
     searchedLocation,
     nextPageToken,
   } = searchCache
-  const currentLeads = pages[currentPage - 1] ?? []
+  const pageLeads = pages[currentPage - 1] ?? []
+  const currentLeads = pageLeads.filter((lead) => (!hideSaved || !savedLeadIds.has(lead.id)) && (!onlyWithPhone || hasContactPhone(lead.phone))).sort((a, b) => sortOrder === 'reviews' ? b.reviews - a.reviews : sortOrder === 'rating' ? b.rating - a.rating : b.score - a.score)
 
   useEffect(() => {
     window.sessionStorage.setItem(
@@ -160,6 +166,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
     lastQuery.current = query
     const currentRequest = ++requestId.current
     inFlight.current = true
+    setIsSearching(true)
 
     updateSearchCache({
       status: 'loading',
@@ -190,6 +197,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
       setErrorMessage(error instanceof Error ? error.message : 'Não foi possível buscar os leads.')
     } finally {
       inFlight.current = false
+      setIsSearching(false)
     }
   }
 
@@ -199,6 +207,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
 
     const currentRequest = ++requestId.current
     inFlight.current = true
+    setIsSearching(true)
     setIsLoadingMore(true)
     setLoadMoreError('')
 
@@ -234,6 +243,7 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
       }
     } finally {
       inFlight.current = false
+      setIsSearching(false)
       setIsLoadingMore(false)
     }
   }
@@ -272,27 +282,29 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
         city={city}
         segment={segment}
         opportunity={opportunity}
-        isSearching={status === 'loading'}
+        isSearching={isSearching}
         onCountryChange={handleCountryChange}
         onStateChange={handleStateChange}
-        onCityChange={(nextCity) =>
-          updateSearchCache({ city: nextCity, status: 'idle', searchedLocation: '' })
-        }
-        onSegmentChange={(nextSegment) =>
-          updateSearchCache({ segment: nextSegment, status: 'idle', searchedLocation: '' })
-        }
-        onOpportunityChange={(nextOpportunity) =>
+        onCityChange={(nextCity) => { requestId.current += 1; updateSearchCache({ city: nextCity, status: 'idle', searchedLocation: '' }) }}
+        onSegmentChange={(nextSegment) => { requestId.current += 1; updateSearchCache({ segment: nextSegment, status: 'idle', searchedLocation: '' }) }}
+        onOpportunityChange={(nextOpportunity) => {
+          requestId.current += 1
           updateSearchCache({
             opportunity: nextOpportunity,
             status: 'idle',
             searchedLocation: '',
           })
-        }
+        }}
         onSearch={(location) => void loadLeads(location)}
       />
       {status !== 'idle' && (
         <>
           <ResultsHeader city={searchedLocation} total={currentLeads.length} />
+          {status === 'success' && <div className="search-result-controls">
+            <label><input type="checkbox" checked={hideSaved} onChange={(event) => setHideSaved(event.target.checked)} /> Ocultar leads já salvos</label>
+            <label><input type="checkbox" checked={onlyWithPhone} onChange={(event) => setOnlyWithPhone(event.target.checked)} /> Somente com telefone</label>
+            <label>Ordenar esta página <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}><option value="score">Prioridade</option><option value="reviews">Quantidade de avaliações</option><option value="rating">Avaliação</option></select></label>
+          </div>}
           <section ref={leadListRef} className="lead-list" aria-label="Lista de leads">
             {status === 'loading' && <div className="data-state">Buscando oportunidades...</div>}
             {status === 'error' && (
@@ -306,16 +318,16 @@ export function SearchPage({ onSelectLead }: SearchPageProps) {
               </div>
             )}
             {status === 'success' && currentLeads.length === 0 && (
-              <div className="data-state">Nenhuma oportunidade encontrada para esses filtros.</div>
+              <div className="data-state"><p>Nenhuma oportunidade nesta página com os filtros atuais.</p><p>Remova um filtro, escolha outro segmento ou continue para a próxima página, se disponível.</p>{(hideSaved || onlyWithPhone) && <button className="secondary-button" type="button" onClick={() => { setHideSaved(false); setOnlyWithPhone(false) }}>Limpar filtros dos resultados</button>}</div>
             )}
             {status === 'success' &&
               currentLeads.map((lead) => (
-                <LeadCard key={lead.id} lead={lead} onSelect={onSelectLead} />
+                <LeadCard key={lead.id} lead={lead} isSaved={savedLeadIds.has(lead.id)} onSelect={onSelectLead} />
               ))}
           </section>
         </>
       )}
-      {status === 'success' && currentLeads.length > 0 && (
+      {status === 'success' && (pages.length > 1 || pageLeads.length > 0 || nextPageToken) && (
         <nav className="search-pagination" aria-label="Páginas de resultados">
           <button
             className="secondary-button"

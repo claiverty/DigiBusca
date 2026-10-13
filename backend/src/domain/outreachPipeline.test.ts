@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { GenerateOutreachInput, GeneratedOutreachCopy } from '../contracts/aiOutreach.js'
+import { conversationStages, parseGenerateOutreachInput, type GenerateOutreachInput, type GeneratedOutreachCopy } from '../contracts/aiOutreach.js'
 import {
   buildOutreachContext,
   createSafeOutreachTemplate,
@@ -57,7 +57,7 @@ test('modelo seguro passa pelas mesmas validações da resposta da IA', () => {
 })
 
 test('aceita variações factuais sem afirmar que a empresa não possui site', () => {
-  const context = buildOutreachContext(baseInput)
+  const context = buildOutreachContext({ ...baseInput, stage: 'Apresentar ideia' })
   const copy: GeneratedOutreachCopy = {
     whatsappMessage: 'Oi, tudo bem? Encontrei a empresa de vocês no Google e não localizei um site vinculado ao perfil. Trabalho com sites institucionais. Já consideraram ter esse canal próprio?',
     followUpMessage: 'Oi! Posso enviar uma ideia simples por aqui?',
@@ -68,7 +68,7 @@ test('aceita variações factuais sem afirmar que a empresa não possui site', (
 })
 
 test('aceita observações naturais que continuam vinculadas ao perfil público', () => {
-  const context = buildOutreachContext(baseInput)
+  const context = buildOutreachContext({ ...baseInput, stage: 'Apresentar ideia' })
   const variations = [
     'Oi, tudo bem? Notei que a empresa não tem um site informado no perfil do Google. Posso enviar uma ideia rápida?',
     'Oi, tudo bem? No perfil do Google não consta um site cadastrado. Posso compartilhar uma sugestão?',
@@ -95,8 +95,44 @@ test('rejeita nome pessoal na saudação, voz de equipe e afirmação sem evidê
   }
   const issues = validateGeneratedOutreach(unsafeCopy, context)
 
-  assert.ok(issues.includes('A saudação inicial não é neutra.'))
+  assert.ok(issues.includes('A abertura antecipa uma oferta comercial.'))
   assert.ok(issues.includes('A resposta usa voz de equipe.'))
   assert.ok(issues.includes('A resposta contém uma afirmação comercial proibida.'))
   assert.ok(issues.includes('A resposta afirma que a empresa não possui site.'))
+})
+
+
+test('abertura padrão não oferece serviço nem presume problema', () => {
+  const copy = createSafeOutreachTemplate(buildOutreachContext(baseInput))
+  assert.equal(copy.whatsappMessage, 'Oi! Tudo bem?')
+  assert.doesNotMatch(copy.whatsappMessage, /site|Google|proposta|clientes/)
+})
+
+test('modelos de todas as etapas passam pela validação com entradas máximas', () => {
+  for (const stage of conversationStages) {
+    const context = buildOutreachContext({ ...baseInput, stage, senderName: 'N'.repeat(80), service: 'S'.repeat(120), greeting: 'Boa tarde' })
+    assert.deepEqual(validateGeneratedOutreach(createSafeOutreachTemplate(context), context), [], stage)
+  }
+})
+
+test('identificação do responsável rejeita oferta antecipada', () => {
+  const context = buildOutreachContext({ ...baseInput, stage: 'Identificar responsável' })
+  const copy = { ...createSafeOutreachTemplate(context), whatsappMessage: 'Trabalho com sites. Posso enviar uma proposta?' }
+  assert.ok(validateGeneratedOutreach(copy, context).length > 0)
+})
+
+test('recusa explícita encerra mesmo que outra etapa esteja selecionada', () => {
+  const context = buildOutreachContext({ ...baseInput, stage: 'Apresentar ideia', lastReply: 'Obrigado, mas não tenho interesse.' })
+  const copy = createSafeOutreachTemplate(context)
+  assert.match(copy.whatsappMessage, /obrigado por me responder/)
+  assert.doesNotMatch(copy.whatsappMessage + copy.followUpMessage, /\?/)
+  assert.deepEqual(validateGeneratedOutreach(copy, context), [])
+  assert.ok(validateGeneratedOutreach({ ...copy, whatsappMessage: 'Mas posso enviar uma proposta?' }, context).length > 0)
+})
+
+test('contrato preserva contexto e rejeita etapas e respostas inválidas', () => {
+  assert.equal(parseGenerateOutreachInput(baseInput)?.stage, 'Abertura')
+  assert.equal(parseGenerateOutreachInput({ ...baseInput, stage: 'Entender cenário', lastReply: 'Sou o responsável.' })?.lastReply, 'Sou o responsável.')
+  assert.equal(parseGenerateOutreachInput({ ...baseInput, stage: 'Oferta agressiva' }), undefined)
+  assert.equal(parseGenerateOutreachInput({ ...baseInput, lastReply: 'x'.repeat(2001) }), undefined)
 })

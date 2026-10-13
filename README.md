@@ -40,3 +40,13 @@ npm run build
 ```
 
 As chaves e credenciais devem ser configuradas no ambiente de execução e nunca adicionadas aos arquivos versionados.
+
+## Prospecção por conversa
+
+A mensagem padrão abre com um cumprimento curto. O assistente gera somente a mensagem da etapa escolhida: abertura, identificação do responsável, permissão, entendimento do cenário, necessidade, ideia, retorno ou encerramento. O contexto da resposta é informado pelo usuário; o aplicativo não lê respostas do WhatsApp. A IA e os modelos locais usam a mesma regra de etapas. Recusas explícitas detectadas geram um encerramento respeitoso.
+
+A carteira registra etapa da conversa, pessoa de contato e próximo passo. Permite pesquisar, ordenar por contato/nome/atualização, filtrar os contatos de hoje e exportar apenas a seleção atual com os dados de acompanhamento. Os filtros de telefone e leads salvos na busca são aplicados aos resultados de cada página; a ordenação também é por página.
+
+Antes de executar esta versão contra um banco existente, aplique `supabase/migrations/007_conversation_tracking.sql` pelo fluxo de migrations do ambiente. Ela acrescenta três colunas opcionais e preserva as políticas RLS existentes. Faça isso antes de publicar a API, pois as consultas passam a selecionar essas colunas.
+
+`npm run test:e2e -- tests/e2e/lead-upgrade.spec.ts` verifica os novos fluxos em desktop e celular com componentes reais e serviços isolados, sem conta nem chamadas externas. A geração real com Gemini e a persistência real no Supabase exigem validação no ambiente configurado.

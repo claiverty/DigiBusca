@@ -5,6 +5,7 @@ import type {
 } from '../contracts/aiOutreach.js'
 import {
   buildOutreachContext,
+  hasExplicitRefusal,
   createSafeOutreachTemplate,
   validateGeneratedOutreach,
 } from '../domain/outreachPipeline.js'
@@ -19,6 +20,9 @@ export async function generateLeadOutreach(
   input: GenerateOutreachInput,
 ): Promise<GeneratedOutreach> {
   const context = buildOutreachContext(input)
+  if (hasExplicitRefusal(context.conversation.lastReply)) {
+    return { ...createSafeOutreachTemplate(context), stage: context.conversation.stage, analysis: context.leadAnalysis, generationSource: 'safe_template' }
+  }
   let generatedCopy: GeneratedOutreachCopy
 
   try {
@@ -29,6 +33,7 @@ export async function generateLeadOutreach(
     logWarning('ai_safe_template_used', { reason: 'provider_unavailable' }, error)
     return {
       ...createSafeOutreachTemplate(context),
+      stage: context.conversation.stage,
       analysis: context.leadAnalysis,
       generationSource: 'safe_template',
     }
@@ -43,6 +48,7 @@ export async function generateLeadOutreach(
     })
     return {
       ...createSafeOutreachTemplate(context),
+      stage: context.conversation.stage,
       analysis: context.leadAnalysis,
       generationSource: 'safe_template',
     }
@@ -50,6 +56,7 @@ export async function generateLeadOutreach(
 
   return {
     ...generatedCopy,
+    stage: context.conversation.stage,
     analysis: context.leadAnalysis,
     generationSource: 'ai',
   }

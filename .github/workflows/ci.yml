@@ -13,8 +13,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Build e testes
+  build:
+    name: Build, unitários e segurança
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://example.supabase.co' }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'ci-public-tests-placeholder' }}
+      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://example.supabase.co' }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'ci-public-tests-placeholder' }}
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v7
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Verificar vulnerabilidades críticas
+        run: npm audit --audit-level=high
+
+      - name: Verificar TypeScript dos testes
+        run: npx tsc -p tests/tsconfig.json
+
+      - name: Gerar e validar o pacote de produção
+        run: npm run deploy:build
+
+      - name: Executar testes unitários compilados
+        run: npm run test:compiled
+
+      - name: Guardar o pacote já validado para publicação
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digibusca-production
+          path: |
+            frontend/dist/
+            worker-dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  e2e:
+    name: Testes E2E
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -38,23 +84,19 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
-      - name: Verificar vulnerabilidades críticas
-        run: npm audit --audit-level=high
+      - name: Instalar Chromium headless e dependências
+        run: npx playwright install chromium --only-shell --with-deps
 
-      - name: Verificar TypeScript dos testes
-        run: npx tsc -p tests/tsconfig.json
-
-      - name: Executar testes unitários
-        run: npm test
-
-      - name: Gerar build de produção
-        run: npm run build
-
-      - name: Instalar Google Chrome para os testes E2E
-        run: npx playwright install --with-deps chrome
-
-      - name: Executar testes E2E em desktop e mobile
+      - name: Executar a suíte E2E completa em desktop e mobile
         run: npm run test:e2e
+
+  quality:
+    name: Build e testes
+    needs: [build, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Qualidade completa validada
+        run: echo "Build, segurança, testes unitários e E2E concluídos."
 
   deploy:
     name: Publicar na Cloudflare
@@ -93,11 +135,14 @@ jobs:
           done
           exit "$missing"
 
-      - name: Instalar dependências
+      - name: Instalar dependências do publicador
         run: npm ci
 
-      - name: Gerar pacote de produção
-        run: npm run deploy:build
+      - name: Baixar o pacote já aprovado
+        uses: actions/download-artifact@v4
+        with:
+          name: digibusca-production
+          path: .
 
       - name: Publicar Worker e frontend
         run: npx wrangler deploy

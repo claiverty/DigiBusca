@@ -116,3 +116,13 @@
     max-width: 100%;
   }
 }
+
+.saved-search-badge {
+  display:inline-block;
+  align-self:flex-start;
+  padding:5px 8px;
+  border-radius:var(--radius-control);
+  background:var(--color-accent-soft);
+  color:var(--color-accent);
+  font-size:12px;
+}

@@ -11,17 +11,16 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL,
-    channel: 'chrome',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
   projects: [
     {
-      name: 'desktop-chrome',
+      name: 'desktop-chromium',
       use: { viewport: { width: 1440, height: 900 } },
     },
     {
-      name: 'mobile-chrome',
+      name: 'mobile-chromium',
       use: {
         viewport: { width: 390, height: 844 },
         isMobile: true,

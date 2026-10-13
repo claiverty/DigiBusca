@@ -2,6 +2,7 @@ import { ArrowUpRight, CalendarClock, Check, ChevronLeft, ChevronRight, Download
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import { exportLeadsCsv } from '../services/exportLeadsCsv'
+import { localDateKey, localDay, isOpenStatus } from '../lib/dates'
 import type { Lead } from '../types'
 import './SavedLeadsPage.css'
 
@@ -15,7 +16,7 @@ type SavedLeadsPageProps = {
 const statuses = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
 
 function toLocalDate(value: string) {
-  return new Date(`${value}T12:00:00`)
+  return localDay(value)
 }
 
 function getToday() {
@@ -48,6 +49,8 @@ export function SavedLeadsPage({
   const [statusTabsOverflow, setStatusTabsOverflow] = useState({ left: false, right: false })
   const [status, setStatus] = useState('loading')
   const [attempt, setAttempt] = useState(0)
+  const [searchText, setSearchText] = useState('')
+  const [sortOrder, setSortOrder] = useState('followUp')
   const [statusFilter, setStatusFilter] = useState('Todos')
   const [followUpFilter, setFollowUpFilter] = useState('Todos')
   const [openingLeadId, setOpeningLeadId] = useState<string | null>(null)
@@ -62,18 +65,12 @@ export function SavedLeadsPage({
     () => new Map([
       ...cachedLeads.map((lead) => [lead.id, lead] as const),
       ...leads.flatMap((savedLead) => savedLead.lead
-        ? [[savedLead.leadId, { ...savedLead.lead, status: savedLead.status } as Lead] as const]
+        ? [[savedLead.leadId, { ...savedLead.lead, status: savedLead.status, notes: savedLead.notes, nextFollowUp: savedLead.nextFollowUp, draftMessage: savedLead.draftMessage, conversationStage: savedLead.conversationStage, contactName: savedLead.contactName, nextAction: savedLead.nextAction } as Lead] as const]
         : []),
     ]),
     [cachedLeads, leads],
   )
 
-  const exportableLeads = useMemo(
-    () => leads
-      .map((savedLead) => cachedLeadById.get(savedLead.leadId))
-      .filter((lead): lead is Lead => Boolean(lead)),
-    [cachedLeadById, leads],
-  )
 
   useEffect(() => {
     let active = true
@@ -132,16 +129,25 @@ export function SavedLeadsPage({
     const weekEnd = new Date(today)
     weekEnd.setDate(today.getDate() + 7)
     return leads.filter((lead) => {
-      if (statusFilter !== 'Todos' && lead.status !== statusFilter) return false
+      const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR')
+      if (searchText.trim() && !normalize(`${getLeadName(lead)} ${lead.contactName ?? ''} ${cachedLeadById.get(lead.leadId)?.category ?? ''}`).includes(normalize(searchText.trim()))) return false
+      if (statusFilter !== 'Todos'  && lead.status !== statusFilter) return false
       if (followUpFilter === 'Todos') return true
+      if (!isOpenStatus(lead.status)) return false
+      if (followUpFilter === 'Hoje') return lead.nextFollowUp === localDateKey()
       if (followUpFilter === 'Sem agendamento') return !lead.nextFollowUp
       if (!lead.nextFollowUp) return false
       const date = toLocalDate(lead.nextFollowUp)
       return followUpFilter === 'Atrasados'
         ? date < today
         : date >= today && date < weekEnd
-    })
-  }, [leads, statusFilter, followUpFilter])
+    }).sort((a, b) => sortOrder === 'name' ? getLeadName(a).localeCompare(getLeadName(b), 'pt-BR') : sortOrder === 'recent' ? b.updatedAt.localeCompare(a.updatedAt) : (a.nextFollowUp ?? '9999').localeCompare(b.nextFollowUp ?? '9999'))
+  }, [leads, statusFilter, followUpFilter, searchText, sortOrder, cachedLeadById])
+
+  const exportableLeads = visibleLeads.flatMap((state) => {
+    const lead = cachedLeadById.get(state.leadId)
+    return lead ? [{ ...lead, status: state.status, notes: state.notes, nextFollowUp: state.nextFollowUp, conversationStage: state.conversationStage, contactName: state.contactName, nextAction: state.nextAction }] : []
+  })
 
   const agendaLeads = useMemo(() => {
     const today = getToday()
@@ -228,7 +234,7 @@ export function SavedLeadsPage({
     if (exportableLeads.length === 0) return
 
     exportLeadsCsv(exportableLeads)
-    const unavailableCount = leads.length - exportableLeads.length
+    const unavailableCount = visibleLeads.length - exportableLeads.length
     setExportFeedback(
       unavailableCount > 0
         ? `${exportableLeads.length} lead(s) exportado(s); ${unavailableCount} indisponível(is).`
@@ -257,7 +263,7 @@ export function SavedLeadsPage({
             <CalendarClock className="section-muted-icon" size={19} aria-hidden="true" />
           </div>
           <div className="lead-priority-summary">
-            <span><strong>{attentionLeads.filter((lead) => toLocalDate(lead.nextFollowUp!) < getToday()).length}</strong> atrasado(s)</span>
+            <span><strong>{agendaLeads.filter((lead) => toLocalDate(lead.nextFollowUp!) < getToday()).length}</strong> atrasado(s)</span>
             <span><strong>{unscheduledCount}</strong> sem próximo contato</span>
           </div>
           {attentionLeads.length > 0 ? (
@@ -324,7 +330,7 @@ export function SavedLeadsPage({
                   {followUpFilter === 'Todos' ? 'Agendamento' : followUpFilter}
                 </summary>
                 <div className="saved-leads-filter-options" role="group" aria-label="Filtrar por próximo contato">
-                  {['Todos', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento'].map((option) => (
+                  {['Todos', 'Hoje', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento'].map((option) => (
                     <button
                       className={followUpFilter === option ? 'active' : ''}
                       type="button"
@@ -355,6 +361,10 @@ export function SavedLeadsPage({
 
           {exportFeedback && <p className="saved-leads-export-feedback" role="status">{exportFeedback}</p>}
 
+          <div className="portfolio-controls">
+            <label><span>Buscar na carteira</span><input type="search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Empresa, segmento ou pessoa de contato" /></label>
+            <label><span>Ordenar por</span><select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}><option value="followUp">Próximo contato</option><option value="recent">Atualização recente</option><option value="name">Nome da empresa</option></select></label>
+          </div>
           <div className="lead-status-tabs-shell">
             <div className="lead-status-tabs" role="group" aria-label="Filtrar por status" ref={statusTabsRef}>
               {['Todos', ...statuses].map((item) => (
@@ -436,7 +446,7 @@ export function SavedLeadsPage({
                         disabled={openingLeadId === lead.leadId || removingLeadId === lead.leadId}
                       >
                         <strong>{getLeadName(lead)}</strong>
-                        <small>{cachedLead?.category || lead.notes?.trim() || 'Segmento não informado'}</small>
+                        <small>{lead.nextAction || cachedLead?.category || lead.notes?.trim() || 'Segmento não informado'}</small>
                       </button>
                       <span className="saved-lead-status">{lead.status}</span>
                       <span className={lead.nextFollowUp && toLocalDate(lead.nextFollowUp) < getToday() ? 'saved-lead-follow-up overdue' : 'saved-lead-follow-up'}>

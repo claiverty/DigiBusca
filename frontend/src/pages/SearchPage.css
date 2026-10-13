@@ -131,3 +131,41 @@ h1 {
     height: 44px;
   }
 }
+
+.search-result-controls {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:12px 24px;
+  margin:16px 0;
+  color:var(--color-text-subtle);
+  font-size:13px;
+}
+
+.search-result-controls label {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:44px;
+}
+
+.search-result-controls select {
+  max-width:100%;
+  min-height:44px;
+  padding:8px;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-control);
+  color:var(--color-text);
+  background:var(--color-surface);
+}
+
+@media(max-width:590px) {
+  .search-result-controls label {
+    flex-wrap:wrap;
+  }
+
+  .search-result-controls select {
+    font-size:16px;
+  }
+
+}

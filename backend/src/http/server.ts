@@ -405,13 +405,22 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         return
       }
 
+      for (const key of ['conversationStage', 'contactName', 'nextAction'] as const) {
+        if (body[key] !== undefined && (typeof body[key] !== 'string' || body[key].length > 500)) {
+          sendJson(response, 400, { error: 'Dados de acompanhamento inválidos.' })
+          return
+        }
+      }
       const changes: Partial<LeadUpdate> = {}
+      for (const key of ['conversationStage', 'contactName', 'nextAction'] as const) {
+        if (typeof body[key] === 'string') changes[key] = body[key].trim()
+      }
       if (body.status !== undefined) changes.status = body.status as LeadStatus
       if (body.notes !== undefined) changes.notes = typeof body.notes === 'string' ? body.notes : ''
       if (body.nextFollowUp !== undefined)
         changes.nextFollowUp = typeof body.nextFollowUp === 'string' && body.nextFollowUp
           ? body.nextFollowUp
-          : undefined
+          : ''
       if (body.draftMessage !== undefined)
         changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
 

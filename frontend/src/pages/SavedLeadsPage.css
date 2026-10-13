@@ -602,3 +602,41 @@
     height: 44px;
   }
 }
+
+.portfolio-controls {
+  display:grid;
+  grid-template-columns:minmax(0, 1fr) minmax(180px, 240px);
+  gap:16px;
+  padding:0 24px 20px;
+}
+
+.portfolio-controls label {
+  display:grid;
+  gap:8px;
+  font-size:13px;
+  color:var(--color-text-subtle);
+}
+
+.portfolio-controls :is(input, select) {
+  width:100%;
+  min-width:0;
+  min-height:44px;
+  padding:10px 12px;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-control);
+  background:var(--color-surface);
+  color:var(--color-text);
+  font:inherit;
+}
+
+@media(max-width:590px) {
+  .portfolio-controls {
+    grid-template-columns:1fr;
+    padding-inline:16px;
+  }
+
+  .portfolio-controls :is(input,select) {
+    font-size:16px;
+  }
+
+}
