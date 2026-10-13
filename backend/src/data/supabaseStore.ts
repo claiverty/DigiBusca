@@ -355,9 +355,17 @@ export class SupabaseStore {
     accessToken: string,
     requestType: GooglePlacesRequestType,
   ): Promise<GoogleRequestReservation> {
-    const { data, error } = await this.client(accessToken).rpc('reserve_google_api_usage', {
+    const client = this.client(accessToken)
+    const { data, error } = await client.rpc('reserve_google_api_usage', {
       google_request_type: requestType,
     })
+
+    if (error?.code === 'PGRST202' && error.message.includes('reserve_google_api_usage')) {
+      // Older Supabase deployments only had best-effort usage tracking; keep Places requests available.
+      await client.rpc('increment_google_api_usage', { google_request_type: requestType })
+      return 'reserved'
+    }
+
     throwIfError(error)
     if (data !== 'reserved' && data !== 'reserved_at_limit' && data !== 'blocked') {
       throw new Error('Não foi possível confirmar o limite mensal de consultas do Google.')
