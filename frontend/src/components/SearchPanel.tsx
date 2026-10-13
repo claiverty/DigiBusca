@@ -83,6 +83,9 @@ type LocationComboboxProps = {
   options: LocationOption[]
   placeholder: string
   ariaLabel: string
+  allowCustomValue?: boolean
+  showAllOptionsOnFocus?: boolean
+  maxLength?: number
   disabled?: boolean
   invalid?: boolean
   leadingIcon?: ReactNode
@@ -98,6 +101,9 @@ function LocationCombobox({
   options,
   placeholder,
   ariaLabel,
+  allowCustomValue = false,
+  showAllOptionsOnFocus = false,
+  maxLength,
   disabled = false,
   invalid = false,
   leadingIcon,
@@ -107,8 +113,9 @@ function LocationCombobox({
   onSelect,
 }: LocationComboboxProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [showAllSuggestions, setShowAllSuggestions] = useState(false)
   const suggestions = useMemo(() => {
-    const query = normalizeLocation(value)
+    const query = showAllSuggestions ? '' : normalizeLocation(value)
     return options
       .filter(
         (option) =>
@@ -117,7 +124,13 @@ function LocationCombobox({
             normalizeLocation(term).startsWith(query),
           ),
       )
-  }, [options, value])
+  }, [options, showAllSuggestions, value])
+  const customValue = value.trim()
+  const canUseCustomValue = allowCustomValue && customValue.length > 0 && !options.some(
+    (option) => [option.value, option.label].some(
+      (optionValue) => normalizeLocation(optionValue) === normalizeLocation(customValue),
+    ),
+  )
 
   function chooseOption(option: LocationOption) {
     onSelect(option)
@@ -131,10 +144,14 @@ function LocationCombobox({
         id={id}
         value={value}
         onChange={(event) => {
+          setShowAllSuggestions(false)
           onValueChange(event.target.value)
           setIsOpen(true)
         }}
-        onFocus={() => setIsOpen(true)}
+        onFocus={() => {
+          setShowAllSuggestions(showAllOptionsOnFocus)
+          setIsOpen(true)
+        }}
         onBlur={() => window.setTimeout(() => setIsOpen(false), 120)}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
@@ -144,6 +161,9 @@ function LocationCombobox({
           if (event.key === 'Enter' && suggestions[0]) {
             event.preventDefault()
             chooseOption(suggestions[0])
+          } else if (event.key === 'Enter' && canUseCustomValue) {
+            event.preventDefault()
+            chooseOption({ value: customValue, label: customValue })
           }
         }}
         role="combobox"
@@ -154,6 +174,7 @@ function LocationCombobox({
         aria-invalid={invalid || undefined}
         placeholder={placeholder}
         disabled={disabled}
+        maxLength={maxLength}
         autoComplete="off"
       />
       {value && !disabled && (
@@ -177,7 +198,10 @@ function LocationCombobox({
         aria-expanded={isOpen}
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={() => {
+          setShowAllSuggestions(showAllOptionsOnFocus)
+          setIsOpen((current) => !current)
+        }}
       >
         <ChevronDown size={17} aria-hidden="true" />
       </button>
@@ -196,8 +220,20 @@ function LocationCombobox({
                 {option.label}
               </button>
             ))
-          ) : (
+          ) : !canUseCustomValue ? (
             <span>Nenhuma opção encontrada</span>
+          ) : null}
+          {canUseCustomValue && (
+            <button
+              key={`${id}-custom-value`}
+              type="button"
+              role="option"
+              aria-selected="true"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseOption({ value: customValue, label: customValue })}
+            >
+              Usar segmento “{customValue}”
+            </button>
           )}
         </div>
       )}
@@ -370,11 +406,10 @@ export function SearchPanel({
     value: availableCity.name,
     label: availableCity.name,
   }))
-  const segmentOptions: ChoiceOption[] = [
-    { value: '', label: 'Escolha um segmento' },
-    ...(segment && !segments.includes(segment) ? [{ value: segment, label: segment }] : []),
-    ...segments.map((option) => ({ value: option, label: option })),
-  ]
+  const segmentOptions: LocationOption[] = segments.map((option) => ({
+    value: option,
+    label: option,
+  }))
 
   useEffect(() => {
     if (selectedCountry) {
@@ -521,13 +556,18 @@ export function SearchPanel({
         onClear={() => onCityChange('')}
         onSelect={(option) => onCityChange(option.value)}
       />
-      <label className="custom-segment-field"><span>Segmento específico (opcional)</span><input value={segments.includes(segment) ? '' : segment} onChange={(event) => onSegmentChange(event.target.value)} maxLength={120} placeholder="Ex.: pizzarias, fisioterapia" /></label>
-      <ChoiceDropdown
+      <LocationCombobox
         id="segment"
         value={segment}
         options={segmentOptions}
+        placeholder="Digite ou escolha um segmento"
         ariaLabel="Segmento"
-        onChange={onSegmentChange}
+        allowCustomValue
+        showAllOptionsOnFocus
+        maxLength={120}
+        onValueChange={onSegmentChange}
+        onClear={() => onSegmentChange('')}
+        onSelect={(option) => onSegmentChange(option.value)}
       />
       <ChoiceDropdown
         id="opportunity"

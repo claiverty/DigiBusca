@@ -223,30 +223,3 @@
     height: 44px;
   }
 }
-
-.custom-segment-field {
-  display:grid;
-  gap:7px;
-  min-width:0;
-  grid-column:1 / -1;
-  font-size:12px;
-  color:var(--color-text-subtle);
-}
-
-.custom-segment-field input {
-  width:100%;
-  min-height:44px;
-  padding:10px 14px;
-  border:1px solid var(--color-border);
-  border-radius:var(--radius-control);
-  color:var(--color-text);
-  background:var(--color-surface);
-  font:inherit;
-}
-
-@media(max-width:590px) {
-  .custom-segment-field input {
-    font-size:16px;
-  }
-
-}
