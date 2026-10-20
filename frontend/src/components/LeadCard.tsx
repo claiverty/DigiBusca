@@ -11,10 +11,12 @@ export function LeadCard({ lead, isSaved, onSelect }: LeadCardProps) {
   return (
     <article className="lead-card">
       <div className="lead-card-topline">
-        <span className="opportunity-pill">{lead.opportunity === 'Sem site' ? 'Site não informado no Google' : lead.opportunity}</span>
+        <div className="lead-card-badges">
+          <span className="opportunity-pill">{lead.opportunity === 'Sem site' ? 'Site não informado no Google' : lead.opportunity}</span>
+          {isSaved && <span className="saved-search-badge">Já salvo na carteira</span>}
+        </div>
         <span className="score" title="Pontuação baseada em avaliação, quantidade de avaliações e disponibilidade de site; não é uma probabilidade de venda.">{lead.score}/100 prioridade</span>
       </div>
-      {isSaved && <span className="saved-search-badge">Já salvo na carteira</span>}
       <div className="lead-heading">
         <div>
           <h3>{lead.name}</h3>

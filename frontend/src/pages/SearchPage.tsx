@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Check, ChevronDown } from 'lucide-react'
 import { LeadCard } from '../components/LeadCard'
 import { ResultsHeader } from '../components/ResultsHeader'
 import { SearchPanel, type SearchLocation } from '../components/SearchPanel'
@@ -24,6 +25,12 @@ type SearchCache = {
   lastQuery: SearchQuery | null
   nextPageToken?: string
 }
+
+const sortOptions = [
+  { value: 'score', label: 'Prioridade' },
+  { value: 'reviews', label: 'Quantidade de avaliações' },
+  { value: 'rating', label: 'Avaliação' },
+] as const
 
 const searchCacheKey = 'digibusca:lead-search'
 
@@ -101,7 +108,7 @@ export function SearchPage({ onSelectLead, savedLeadIds = new Set() }: SearchPag
   const [searchCache, setSearchCache] = useState<SearchCache>(getSearchCache)
   const [hideSaved, setHideSaved] = useState(false)
   const [onlyWithPhone, setOnlyWithPhone] = useState(false)
-  const [sortOrder, setSortOrder] = useState('score')
+  const [sortOrder, setSortOrder] = useState<(typeof sortOptions)[number]['value']>('score')
   const [errorMessage, setErrorMessage] = useState('')
   const [loadMoreError, setLoadMoreError] = useState('')
   const [quotaNotice, setQuotaNotice] = useState('')
@@ -124,6 +131,7 @@ export function SearchPage({ onSelectLead, savedLeadIds = new Set() }: SearchPag
     nextPageToken,
   } = searchCache
   const pageLeads = pages[currentPage - 1] ?? []
+  const selectedSortLabel = sortOptions.find((option) => option.value === sortOrder)?.label ?? sortOptions[0].label
   const currentLeads = pageLeads.filter((lead) => (!hideSaved || !savedLeadIds.has(lead.id)) && (!onlyWithPhone || hasContactPhone(lead.phone))).sort((a, b) => sortOrder === 'reviews' ? b.reviews - a.reviews : sortOrder === 'rating' ? b.rating - a.rating : b.score - a.score)
 
   useEffect(() => {
@@ -301,9 +309,40 @@ export function SearchPage({ onSelectLead, savedLeadIds = new Set() }: SearchPag
         <>
           <ResultsHeader city={searchedLocation} total={currentLeads.length} />
           {status === 'success' && <div className="search-result-controls">
-            <label><input type="checkbox" checked={hideSaved} onChange={(event) => setHideSaved(event.target.checked)} /> Ocultar leads já salvos</label>
-            <label><input type="checkbox" checked={onlyWithPhone} onChange={(event) => setOnlyWithPhone(event.target.checked)} /> Somente com telefone</label>
-            <label>Ordenar esta página <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}><option value="score">Prioridade</option><option value="reviews">Quantidade de avaliações</option><option value="rating">Avaliação</option></select></label>
+            <label className="search-result-filter">
+              <input type="checkbox" checked={hideSaved} onChange={(event) => setHideSaved(event.target.checked)} />
+              <span>Ocultar leads já salvos</span>
+            </label>
+            <label className="search-result-filter">
+              <input type="checkbox" checked={onlyWithPhone} onChange={(event) => setOnlyWithPhone(event.target.checked)} />
+              <span>Somente com telefone</span>
+            </label>
+            <div className="search-result-sort">
+              <span className="search-result-sort-label">Ordenar esta página</span>
+              <details className="search-result-sort-menu">
+                <summary aria-label={`Ordenar esta página: ${selectedSortLabel}`}>
+                  <span>{selectedSortLabel}</span>
+                  <ChevronDown size={16} aria-hidden="true" />
+                </summary>
+                <div className="search-result-sort-options" role="group" aria-label="Opções de ordenação">
+                  {sortOptions.map((option) => (
+                    <button
+                      className={sortOrder === option.value ? 'active' : ''}
+                      type="button"
+                      key={option.value}
+                      aria-pressed={sortOrder === option.value}
+                      onClick={(event) => {
+                        setSortOrder(option.value)
+                        event.currentTarget.closest('details')?.removeAttribute('open')
+                      }}
+                    >
+                      <span>{option.label}</span>
+                      {sortOrder === option.value && <Check size={15} aria-hidden="true" />}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            </div>
           </div>}
           <section ref={leadListRef} className="lead-list" aria-label="Lista de leads">
             {status === 'loading' && <div className="data-state">Buscando oportunidades...</div>}
