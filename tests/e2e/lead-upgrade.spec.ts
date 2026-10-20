@@ -39,6 +39,7 @@ async function mountWorkflow(page: Page, view: 'assistant' | 'portfolio' | 'sear
       export async function searchLeads() { return { data: [{ ...window.fixtureLead, id:'lead-two', name:'Outro negócio' }], meta: { total:1 } } }
       export async function getLeadInteractions() { return [] }
       export async function createLeadInteraction(id, input) { return { id:'interaction', leadId:id, ...input, createdAt:new Date().toISOString() } }
+      export async function sendWhatsAppTemplateMessage() { return { messageId:'e2e-message-id', logSaved:true } }
       export async function getSiteHealth() { return { status:'healthy' } }
     `,
   }))
