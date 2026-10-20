@@ -23,9 +23,12 @@ export type Lead = {
   contactName?: string
   nextAction?: string
   draftMessage?: string
+  whatsappConsentStatus?: 'unknown' | 'opted_in' | 'opted_out'
+  whatsappConsentSource?: string
+  whatsappConsentAt?: string
 }
 
-export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage' | 'conversationStage' | 'contactName' | 'nextAction'>
+export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage' | 'conversationStage' | 'contactName' | 'nextAction' | 'whatsappConsentStatus' | 'whatsappConsentSource' | 'whatsappConsentAt'>
 
 export type SearchLeadsResponse = {
   data: Lead[]

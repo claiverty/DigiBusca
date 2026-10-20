@@ -3,11 +3,11 @@ import dotenv from 'dotenv'
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit.js'
-import { opportunityTypes, parseLeadSnapshot, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
+import { opportunityTypes, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
 import { authenticateRequest, configureRuntimeEnvironment } from '../config/supabase.js'
-import { SupabaseStore } from '../data/supabaseStore.js'
+import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { getGeminiApiKey } from '../config/supabase.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
@@ -16,6 +16,7 @@ import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 import { checkRateLimit } from './rateLimit.js'
 import { createRequestId, logError, logInfo } from '../observability/logger.js'
 import { checkSiteHealth } from '../integrations/siteHealth.js'
+import { parseWhatsAppTemplateSendInput, sendWhatsAppTemplateForLead, WhatsAppSendFlowError } from '../application/sendWhatsAppTemplate.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -78,6 +79,11 @@ function sendRequestError(response: ServerResponse, error: unknown) {
 
   if (isAuthTokenError(error)) {
     sendJson(response, 401, { error: 'Sua sessão não é mais válida. Faça login novamente.' })
+    return
+  }
+
+  if (error instanceof WhatsAppConsentSchemaMissingError) {
+    sendJson(response, 503, { error: error.message })
     return
   }
 
@@ -273,6 +279,47 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     const salesMatch = requestUrl.pathname === '/api/sales'
     const saleMatch = requestUrl.pathname.match(/^\/api\/sales\/([^/]+)$/)
 
+    if (requestUrl.pathname === '/api/whatsapp/send-template' && request.method === 'POST') {
+      let body: unknown
+      try {
+        body = await readJsonBody(request)
+      } catch {
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+
+      const input = parseWhatsAppTemplateSendInput(body)
+      if (!input) {
+        sendJson(response, 400, { error: 'Informe um lead salvo e uma mensagem de até 1.024 caracteres.' })
+        return
+      }
+
+      const rateLimit = checkRateLimit({ key: `whatsapp-send:${user.id}`, limit: 10, windowMs: 60_000 })
+      if (!rateLimit.allowed) {
+        response.setHeader('Retry-After', String(rateLimit.retryAfterSeconds))
+        sendJson(response, 429, { error: 'Aguarde antes de fazer outro envio pela API.' })
+        return
+      }
+
+      try {
+        const data = await sendWhatsAppTemplateForLead(
+          persistenceStore,
+          accessToken,
+          user.id,
+          input.leadId,
+          input.message,
+        )
+        sendJson(response, 200, { data })
+      } catch (error) {
+        if (error instanceof WhatsAppSendFlowError) {
+          sendJson(response, error.status, { error: error.message })
+          return
+        }
+        throw error
+      }
+      return
+    }
+
     if (requestUrl.pathname === '/api/ai/outreach' && request.method === 'POST') {
       let body: unknown
       try {
@@ -423,6 +470,15 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
           : ''
       if (body.draftMessage !== undefined)
         changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
+
+      if (['whatsappConsentStatus', 'whatsappConsentSource', 'whatsappConsentAt'].some((key) => body[key] !== undefined)) {
+        const consentChanges = parseWhatsAppConsentChanges(body)
+        if (!consentChanges) {
+          sendJson(response, 400, { error: 'Para registrar autorização, informe a origem e uma data válida. Marque apenas consentimento explícito.' })
+          return
+        }
+        Object.assign(changes, consentChanges)
+      }
 
       const updatedLead = await persistenceStore.saveLeadState(
         accessToken,

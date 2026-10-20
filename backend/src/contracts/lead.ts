@@ -24,6 +24,9 @@ export type Lead = {
   contactName?: string
   nextAction?: string
   draftMessage?: string
+  whatsappConsentStatus?: 'unknown' | 'opted_in' | 'opted_out'
+  whatsappConsentSource?: string
+  whatsappConsentAt?: string
 }
 
 export type LeadSnapshot = Pick<
@@ -89,7 +92,33 @@ export function parseLeadSnapshot(value: unknown, leadId: string): LeadSnapshot 
   }
 }
 
-export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage' | 'conversationStage' | 'contactName' | 'nextAction'>
+export type LeadUpdate = Pick<Lead, 'status' | 'notes' | 'nextFollowUp' | 'draftMessage' | 'conversationStage' | 'contactName' | 'nextAction' | 'whatsappConsentStatus' | 'whatsappConsentSource' | 'whatsappConsentAt'>
+
+export function parseWhatsAppConsentChanges(value: Record<string, unknown>): Pick<LeadUpdate, 'whatsappConsentStatus' | 'whatsappConsentSource' | 'whatsappConsentAt'> | undefined {
+  const consentKeys = ['whatsappConsentStatus', 'whatsappConsentSource', 'whatsappConsentAt'] as const
+  if (!consentKeys.some((key) => value[key] !== undefined)) return undefined
+
+  const status = value.whatsappConsentStatus
+  if (status !== 'unknown' && status !== 'opted_in' && status !== 'opted_out') return undefined
+
+  if (status !== 'opted_in') {
+    return { whatsappConsentStatus: status, whatsappConsentSource: '', whatsappConsentAt: '' }
+  }
+
+  const source = typeof value.whatsappConsentSource === 'string' ? value.whatsappConsentSource.trim() : ''
+  if (!source || source.length > 250) return undefined
+
+  const suppliedAt = value.whatsappConsentAt
+  const consentAt = typeof suppliedAt === 'string' && suppliedAt ? suppliedAt : new Date().toISOString()
+  const consentTime = Date.parse(consentAt)
+  if (!Number.isFinite(consentTime) || consentTime > Date.now()) return undefined
+
+  return {
+    whatsappConsentStatus: 'opted_in',
+    whatsappConsentSource: source,
+    whatsappConsentAt: new Date(consentTime).toISOString(),
+  }
+}
 
 export type SearchLeadsQuery = {
   city: string

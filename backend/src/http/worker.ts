@@ -1,10 +1,10 @@
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, type RuntimeEnvironment } from '../config/supabase.js'
-import { parseLeadSnapshot, type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
+import { parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { SupabaseStore } from '../data/supabaseStore.js'
+import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit.js'
 import { checkRateLimit } from './rateLimit.js'
@@ -12,6 +12,7 @@ import { getRequestId, logError, logInfo } from '../observability/logger.js'
 import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 import { checkSiteHealth } from '../integrations/siteHealth.js'
+import { parseWhatsAppTemplateSendInput, sendWhatsAppTemplateForLead, WhatsAppSendFlowError } from '../application/sendWhatsAppTemplate.js'
 
 type WorkerEnvironment = RuntimeEnvironment & {
   ASSETS?: { fetch(request: Request): Promise<Response> }
@@ -183,6 +184,37 @@ async function handleApiRequest(request: Request) {
     const interactionMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/interactions$/)
     const saleMatch = url.pathname.match(/^\/api\/sales\/([^/]+)$/)
 
+    if (url.pathname === '/api/whatsapp/send-template' && request.method === 'POST') {
+      const input = parseWhatsAppTemplateSendInput(await parseBody(request))
+      if (!input) return jsonResponse(request, 400, { error: 'Informe um lead salvo e uma mensagem de até 1.024 caracteres.' })
+
+      const rateLimit = checkRateLimit({ key: `whatsapp-send:${user.id}`, limit: 10, windowMs: 60_000 })
+      if (!rateLimit.allowed) {
+        return jsonResponse(
+          request,
+          429,
+          { error: 'Aguarde antes de fazer outro envio pela API.' },
+          { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+        )
+      }
+
+      try {
+        const data = await sendWhatsAppTemplateForLead(
+          persistenceStore,
+          accessToken,
+          user.id,
+          input.leadId,
+          input.message,
+        )
+        return jsonResponse(request, 200, { data })
+      } catch (error) {
+        if (error instanceof WhatsAppSendFlowError) {
+          return jsonResponse(request, error.status, { error: error.message })
+        }
+        throw error
+      }
+    }
+
     if (url.pathname === '/api/ai/outreach' && request.method === 'POST') {
       const input = parseGenerateOutreachInput(await parseBody(request))
       if (!input) return jsonResponse(request, 400, { error: 'Revise os dados da abordagem e tente novamente.' })
@@ -275,6 +307,14 @@ async function handleApiRequest(request: Request) {
           : ''
       }
       if (body.draftMessage !== undefined) changes.draftMessage = typeof body.draftMessage === 'string' ? body.draftMessage : ''
+
+      if (['whatsappConsentStatus', 'whatsappConsentSource', 'whatsappConsentAt'].some((key) => body[key] !== undefined)) {
+        const consentChanges = parseWhatsAppConsentChanges(body)
+        if (!consentChanges) {
+          return jsonResponse(request, 400, { error: 'Para registrar autorização, informe a origem e uma data válida. Marque apenas consentimento explícito.' })
+        }
+        Object.assign(changes, consentChanges)
+      }
 
       return jsonResponse(request, 200, {
         data: await persistenceStore.saveLeadState(accessToken, user.id, updateMatch[1], undefined, changes),
@@ -416,6 +456,10 @@ export default {
     } catch (error) {
       if (isAuthTokenError(error)) {
         return jsonResponse(request, 401, { error: 'Sua sessão não é mais válida. Faça login novamente.' })
+      }
+
+      if (error instanceof WhatsAppConsentSchemaMissingError) {
+        return jsonResponse(request, 503, { error: error.message })
       }
 
       const url = new URL(request.url)

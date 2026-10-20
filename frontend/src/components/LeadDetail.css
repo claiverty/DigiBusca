@@ -34,6 +34,34 @@
   gap: 14px;
 }
 
+.whatsapp-cloud-action {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.whatsapp-cloud-action > span,
+.whatsapp-consent-note {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.whatsapp-consent-fields {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle, #fafafd);
+}
+
+.whatsapp-consent-note {
+  margin: 0;
+}
+
 .sale-from-lead {
   display: grid;
   gap: 16px;

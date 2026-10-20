@@ -7,6 +7,11 @@ export type RuntimeEnvironment = {
   VITE_SUPABASE_ANON_KEY?: string
   GOOGLE_MAPS_API_KEY?: string
   GEMINI_API_KEY?: string
+  WHATSAPP_ACCESS_TOKEN?: string
+  WHATSAPP_PHONE_NUMBER_ID?: string
+  WHATSAPP_GRAPH_API_VERSION?: string
+  WHATSAPP_TEMPLATE_NAME?: string
+  WHATSAPP_TEMPLATE_LANGUAGE?: string
 }
 
 let runtimeEnvironment: RuntimeEnvironment | undefined
@@ -33,6 +38,20 @@ export function getGoogleMapsApiKey() {
 
 export function getGeminiApiKey() {
   return environment().GEMINI_API_KEY
+}
+
+export function getWhatsAppCloudConfig() {
+  const values = environment()
+  const accessToken = values.WHATSAPP_ACCESS_TOKEN?.trim()
+  const phoneNumberId = values.WHATSAPP_PHONE_NUMBER_ID?.trim()
+  const graphApiVersion = values.WHATSAPP_GRAPH_API_VERSION?.trim()
+  const templateName = values.WHATSAPP_TEMPLATE_NAME?.trim()
+  const templateLanguage = values.WHATSAPP_TEMPLATE_LANGUAGE?.trim() || 'pt_BR'
+
+  if (!accessToken || !phoneNumberId || !graphApiVersion || !templateName) return undefined
+  if (!/^v\d+\.\d+$/.test(graphApiVersion)) return undefined
+
+  return { accessToken, phoneNumberId, graphApiVersion, templateName, templateLanguage }
 }
 
 function getSupabaseConfig() {

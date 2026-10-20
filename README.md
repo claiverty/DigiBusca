@@ -7,7 +7,7 @@ O DigiBusca é uma plataforma de prospecção digital para freelancers e agênci
 1. O usuário pesquisa empresas por localização e segmento.
 2. A aplicação organiza os dados públicos e identifica oportunidades de presença digital.
 3. Leads podem ser salvos, classificados por status e acompanhados com observações, contatos e próximos passos.
-4. A IA gera uma sugestão de abordagem baseada nas informações encontradas. O usuário revisa o texto antes de abrir o canal de contato.
+4. A IA gera uma sugestão de abordagem baseada nas informações encontradas. O usuário revisa o texto antes de abrir o canal de contato; o envio pela Cloud API exige autorização registrada e template aprovado.
 5. Vendas podem ser registradas, editadas e acompanhadas em um resumo financeiro.
 
 ## Arquitetura
@@ -23,6 +23,7 @@ O Supabase Auth gerencia as contas. O backend valida cada sessão e acessa os da
 
 - Google Places: pesquisa de empresas e dados públicos de localização.
 - Gemini: geração de rascunhos de abordagem comercial.
+- WhatsApp Business Cloud API: envio individual de templates aprovados para contatos com autorização explícita registrada.
 - Supabase: autenticação e persistência de leads, interações e vendas.
 
 ## Desenvolvimento
@@ -47,6 +48,6 @@ A mensagem padrão abre com um cumprimento curto. O assistente gera somente a me
 
 A carteira registra etapa da conversa, pessoa de contato e próximo passo. Permite pesquisar, ordenar por contato/nome/atualização, filtrar os contatos de hoje e exportar apenas a seleção atual com os dados de acompanhamento. Os filtros de telefone e leads salvos na busca são aplicados aos resultados de cada página; a ordenação também é por página.
 
-Antes de executar esta versão contra um banco existente, aplique `supabase/migrations/007_conversation_tracking.sql` pelo fluxo de migrations do ambiente. Ela acrescenta três colunas opcionais e preserva as políticas RLS existentes. Faça isso antes de publicar a API, pois as consultas passam a selecionar essas colunas.
+Antes de executar esta versão contra um banco existente, aplique `supabase/migrations/007_conversation_tracking.sql` e `supabase/migrations/008_whatsapp_cloud_consent.sql` pelo fluxo de migrations do ambiente. Elas acrescentam campos de acompanhamento e consentimento, preservando as políticas RLS existentes. Faça isso antes de publicar a API, pois as consultas passam a selecionar essas colunas. A configuração da Cloud API está em [docs/whatsapp-cloud-api.md](docs/whatsapp-cloud-api.md).
 
 `npm run test:e2e -- tests/e2e/lead-upgrade.spec.ts` verifica os novos fluxos em desktop e celular com componentes reais e serviços isolados, sem conta nem chamadas externas. A geração real com Gemini e a persistência real no Supabase exigem validação no ambiente configurado.

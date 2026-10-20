@@ -4,7 +4,7 @@ import { localDateKey } from '../lib/dates'
 import { conversationStages } from '../../../backend/src/contracts/aiOutreach'
 import { createApproachMessage } from '../lib/approachMessage'
 import { hasContactPhone, toWhatsappPhone } from '../lib/phone'
-import { createLeadInteraction, getLeadInteractions, getSiteHealth, type SiteHealthResult } from '../services/leadsService'
+import { createLeadInteraction, getLeadInteractions, getSiteHealth, sendWhatsAppTemplateMessage, type SiteHealthResult } from '../services/leadsService'
 import { CurrencyInput, currencyCentsToNumber } from './CurrencyInput'
 import { DatePicker } from './DatePicker'
 import { SaleServiceField } from './SaleServiceField'
@@ -80,6 +80,11 @@ export function LeadDetail({
   const [interactionOutcome, setInteractionOutcome] = useState('')
   const [interactionFeedback, setInteractionFeedback] = useState('')
   const [isRegisteringInteraction, setIsRegisteringInteraction] = useState(false)
+  const [whatsappConsentStatus, setWhatsappConsentStatus] = useState<'unknown' | 'opted_in' | 'opted_out'>(lead.whatsappConsentStatus ?? 'unknown')
+  const [whatsappConsentSource, setWhatsappConsentSource] = useState(lead.whatsappConsentSource ?? '')
+  const [whatsappConsentAt, setWhatsappConsentAt] = useState(lead.whatsappConsentAt ?? '')
+  const [whatsappSendFeedback, setWhatsappSendFeedback] = useState('')
+  const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false)
   const [siteHealth, setSiteHealth] = useState<SiteHealthResult | undefined>()
   const [siteHealthStatus, setSiteHealthStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const hasPhone = hasContactPhone(lead.phone)
@@ -149,6 +154,11 @@ export function LeadDetail({
   }
 
   async function handleSaveChanges() {
+    if (whatsappConsentStatus === 'opted_in' && !whatsappConsentSource.trim()) {
+      setFeedback('Informe como e quando a pessoa autorizou receber mensagens.')
+      return false
+    }
+
     setIsSaving(true)
     setFeedback('')
 
@@ -159,12 +169,44 @@ export function LeadDetail({
         nextFollowUp,
         draftMessage: message,
         conversationStage, contactName, nextAction,
+        whatsappConsentStatus,
+        whatsappConsentSource: whatsappConsentStatus === 'opted_in' ? whatsappConsentSource.trim() : '',
+        whatsappConsentAt: whatsappConsentStatus === 'opted_in' ? whatsappConsentAt || new Date().toISOString() : '',
       })
       setFeedback('Alterações salvas.')
+      return true
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Não foi possível salvar as alterações.')
+      return false
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleSendWhatsAppTemplate() {
+    setWhatsappSendFeedback('')
+    if (!isSaved) {
+      setWhatsappSendFeedback('Salve o lead antes de enviar pela API.')
+      return
+    }
+    if (whatsappConsentStatus !== 'opted_in' || !whatsappConsentSource.trim()) {
+      setWhatsappSendFeedback('Registre a autorização explícita do contato antes do envio.')
+      return
+    }
+
+    setIsSendingWhatsApp(true)
+    try {
+      const saved = await handleSaveChanges()
+      if (!saved) return
+      const result = await sendWhatsAppTemplateMessage(lead.id, message)
+      setWhatsappSendFeedback(result.logSaved
+        ? 'Mensagem aceita pela API oficial e registrada no histórico.'
+        : 'Mensagem aceita pela API oficial, mas não foi possível registrá-la no histórico.')
+      setInteractionAttempt((current) => current + 1)
+    } catch (error) {
+      setWhatsappSendFeedback(error instanceof Error ? error.message : 'Não foi possível enviar pela API do WhatsApp.')
+    } finally {
+      setIsSendingWhatsApp(false)
     }
   }
 
@@ -292,6 +334,23 @@ export function LeadDetail({
                 {isSaving ? 'Salvando...' : 'Salvar mensagem e acompanhamento'}
               </button>
             </div>
+            <div className="whatsapp-cloud-action">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void handleSendWhatsAppTemplate()}
+                disabled={!isSaved || whatsappConsentStatus !== 'opted_in' || !whatsappConsentSource.trim() || !whatsappPhone || isSaving || isSendingWhatsApp}
+                title={!isSaved
+                  ? 'Salve o lead e registre a autorização explícita para habilitar o envio.'
+                  : !whatsappPhone
+                    ? 'O telefone precisa estar em um formato brasileiro válido.'
+                    : undefined}
+              >
+                <MessageCircle size={16} />
+                {isSendingWhatsApp ? 'Enviando...' : 'Enviar pela API oficial'}
+              </button>
+              {whatsappSendFeedback && <span role="status">{whatsappSendFeedback}</span>}
+            </div>
           </div>
           <div className="panel detail-follow-up">
             <span className="eyebrow">Acompanhamento</span>
@@ -319,6 +378,36 @@ export function LeadDetail({
               <label className="detail-field"><span>Pessoa de contato</span><input value={contactName} maxLength={120} onChange={(event) => setContactName(event.target.value)} placeholder="Nome e função, se informados" /></label>
             </div>
             <label className="detail-field"><span>Próximo passo</span><input value={nextAction} maxLength={500} onChange={(event) => setNextAction(event.target.value)} placeholder="Ex.: descobrir quem cuida da divulgação" /></label>
+            <div className="whatsapp-consent-fields">
+              <label className="detail-field">
+                <span>Autorização para WhatsApp</span>
+                <select
+                  value={whatsappConsentStatus}
+                  onChange={(event) => {
+                    const nextStatus = event.target.value as 'unknown' | 'opted_in' | 'opted_out'
+                    setWhatsappConsentStatus(nextStatus)
+                    setWhatsappConsentAt(nextStatus === 'opted_in' ? new Date().toISOString() : '')
+                    if (nextStatus !== 'opted_in') setWhatsappConsentSource('')
+                  }}
+                >
+                  <option value="unknown">Não registrada</option>
+                  <option value="opted_in">Autorizou receber mensagens</option>
+                  <option value="opted_out">Pediu para não receber</option>
+                </select>
+              </label>
+              {whatsappConsentStatus === 'opted_in' && (
+                <label className="detail-field">
+                  <span>Como a autorização foi dada?</span>
+                  <input
+                    value={whatsappConsentSource}
+                    maxLength={250}
+                    onChange={(event) => setWhatsappConsentSource(event.target.value)}
+                    placeholder="Ex.: pediu contato pelo formulário em 20/10/2026"
+                  />
+                </label>
+              )}
+              <p className="whatsapp-consent-note">Use “Autorizou” somente quando a pessoa tiver concordado explicitamente em receber mensagens neste número. Telefone público no Google, por si só, não é autorização.</p>
+            </div>
             <div className="panel-actions">
               {[1, 3, 7].map((days) => <button className="text-button" type="button" key={days} onClick={() => { const date = new Date(); date.setDate(date.getDate() + days); setNextFollowUp(localDateKey(date)) }}>Retornar em {days} dia(s)</button>)}
               <button className="text-button" type="button" onClick={() => setNextFollowUp('')}>Limpar agendamento</button>

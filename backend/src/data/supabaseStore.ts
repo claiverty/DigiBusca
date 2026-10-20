@@ -23,6 +23,9 @@ type SavedLeadRow = {
   contact_name: string | null
   next_action: string | null
   draft_message: string | null
+  whatsapp_consent_status?: 'unknown' | 'opted_in' | 'opted_out' | null
+  whatsapp_consent_source?: string | null
+  whatsapp_consent_at?: string | null
   updated_at: string
 }
 
@@ -65,6 +68,9 @@ export type SavedLeadState = {
   contactName?: string
   nextAction?: string
   draftMessage?: string
+  whatsappConsentStatus: 'unknown' | 'opted_in' | 'opted_out'
+  whatsappConsentSource?: string
+  whatsappConsentAt?: string
   updatedAt: string
 }
 
@@ -92,6 +98,9 @@ function mapSavedLeadState(row: SavedLeadRow): SavedLeadState {
     contactName: row.contact_name ?? undefined,
     nextAction: row.next_action ?? undefined,
     draftMessage: row.draft_message ?? undefined,
+    whatsappConsentStatus: row.whatsapp_consent_status ?? 'unknown',
+    whatsappConsentSource: row.whatsapp_consent_source ?? undefined,
+    whatsappConsentAt: row.whatsapp_consent_at ?? undefined,
     updatedAt: row.updated_at,
   }
 }
@@ -131,17 +140,44 @@ function throwIfError(error: { message: string } | null) {
   }
 }
 
+const savedLeadSelect = 'lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at, updated_at'
+const savedLeadLegacySelect = 'lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at'
+
+function isMissingWhatsAppConsentColumns(error: { code?: string; message: string } | null): boolean {
+  if (!error || !/whatsapp_consent_(status|source|at)/i.test(error.message)) return false
+  return error.code === '42703' || error.code === 'PGRST204' || /does not exist|schema cache|could not find/i.test(error.message)
+}
+
+export class WhatsAppConsentSchemaMissingError extends Error {
+  constructor() {
+    super('Aplique a migration 008 do WhatsApp no Supabase para salvar o consentimento deste contato.')
+  }
+}
+
 export class SupabaseStore {
   private client(accessToken: string): SupabaseClient {
     return createUserSupabaseClient(accessToken)
   }
 
   async listSavedLeadStates(accessToken: string, userId: string): Promise<SavedLeadState[]> {
-    const { data, error } = await this.client(accessToken)
+    const store = this.client(accessToken)
+    const currentResult = await store
       .from('saved_leads')
-      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at')
+      .select(savedLeadSelect)
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
+    let data: unknown = currentResult.data
+    let error = currentResult.error as { code?: string; message: string } | null
+
+    if (isMissingWhatsAppConsentColumns(error)) {
+      const legacyResult = await store
+        .from('saved_leads')
+        .select(savedLeadLegacySelect)
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false })
+      data = legacyResult.data
+      error = legacyResult.error
+    }
 
     throwIfError(error)
     return (data as SavedLeadRow[]).map(mapSavedLeadState)
@@ -155,14 +191,38 @@ export class SupabaseStore {
     changes: Partial<Omit<SavedLeadState, 'leadId'>> = {},
   ): Promise<SavedLeadState> {
     const store = this.client(accessToken)
-    const { data: existingData, error: existingError } = await store
+    let hasWhatsAppConsentColumns = true
+    const existingResult = await store
       .from('saved_leads')
-      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at')
+      .select(savedLeadSelect)
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .maybeSingle()
+    let existingData: unknown = existingResult.data
+    let existingError = existingResult.error as { code?: string; message: string } | null
+
+    if (isMissingWhatsAppConsentColumns(existingError)) {
+      hasWhatsAppConsentColumns = false
+      const legacyResult = await store
+        .from('saved_leads')
+        .select(savedLeadLegacySelect)
+        .eq('user_id', userId)
+        .eq('lead_id', leadId)
+        .maybeSingle()
+      existingData = legacyResult.data
+      existingError = legacyResult.error
+    }
 
     throwIfError(existingError)
+
+    if (!hasWhatsAppConsentColumns && (
+      changes.whatsappConsentStatus === 'opted_in' ||
+      changes.whatsappConsentStatus === 'opted_out' ||
+      Boolean(changes.whatsappConsentSource?.trim()) ||
+      Boolean(changes.whatsappConsentAt?.trim())
+    )) {
+      throw new WhatsAppConsentSchemaMissingError()
+    }
 
     const now = new Date().toISOString()
     const payload = {
@@ -174,6 +234,9 @@ export class SupabaseStore {
       ...(changes.conversationStage !== undefined ? { conversation_stage: changes.conversationStage || null } : {}),
       ...(changes.contactName !== undefined ? { contact_name: changes.contactName || null } : {}),
       ...(changes.nextAction !== undefined ? { next_action: changes.nextAction || null } : {}),
+      ...(hasWhatsAppConsentColumns && changes.whatsappConsentStatus !== undefined ? { whatsapp_consent_status: changes.whatsappConsentStatus } : {}),
+      ...(hasWhatsAppConsentColumns && changes.whatsappConsentSource !== undefined ? { whatsapp_consent_source: changes.whatsappConsentSource || null } : {}),
+      ...(hasWhatsAppConsentColumns && changes.whatsappConsentAt !== undefined ? { whatsapp_consent_at: changes.whatsappConsentAt || null } : {}),
       updated_at: now,
     }
 
@@ -191,15 +254,28 @@ export class SupabaseStore {
           conversation_stage: changes.conversationStage || null,
           contact_name: changes.contactName || null,
           next_action: changes.nextAction || null,
+          ...(hasWhatsAppConsentColumns ? {
+            whatsapp_consent_status: changes.whatsappConsentStatus ?? 'unknown',
+            whatsapp_consent_source: changes.whatsappConsentSource || null,
+            whatsapp_consent_at: changes.whatsappConsentAt || null,
+          } : {}),
           updated_at: now,
         })
 
-    const { data, error } = await query
-      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at')
-      .single()
+    let savedData: unknown
+    let savedError: { message: string } | null
+    if (hasWhatsAppConsentColumns) {
+      const savedResult = await query.select(savedLeadSelect).single()
+      savedData = savedResult.data
+      savedError = savedResult.error
+    } else {
+      const savedResult = await query.select(savedLeadLegacySelect).single()
+      savedData = savedResult.data
+      savedError = savedResult.error
+    }
 
-    throwIfError(error)
-    return mapSavedLeadState(data as SavedLeadRow)
+    throwIfError(savedError)
+    return mapSavedLeadState(savedData as SavedLeadRow)
   }
 
   async getSavedLeadState(
@@ -207,12 +283,26 @@ export class SupabaseStore {
     userId: string,
     leadId: string,
   ): Promise<SavedLeadState | undefined> {
-    const { data, error } = await this.client(accessToken)
+    const store = this.client(accessToken)
+    const currentResult = await store
       .from('saved_leads')
-      .select('lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at')
+      .select(savedLeadSelect)
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .maybeSingle()
+    let data: unknown = currentResult.data
+    let error = currentResult.error as { code?: string; message: string } | null
+
+    if (isMissingWhatsAppConsentColumns(error)) {
+      const legacyResult = await store
+        .from('saved_leads')
+        .select(savedLeadLegacySelect)
+        .eq('user_id', userId)
+        .eq('lead_id', leadId)
+        .maybeSingle()
+      data = legacyResult.data
+      error = legacyResult.error
+    }
 
     throwIfError(error)
     return data ? mapSavedLeadState(data as SavedLeadRow) : undefined
@@ -223,7 +313,7 @@ export class SupabaseStore {
     userId: string,
     lead: Lead,
   ): Promise<void> {
-    const { status: _status, notes: _notes, nextFollowUp: _nextFollowUp, draftMessage: _draftMessage, conversationStage: _stage, contactName: _contact, nextAction: _action, ...snapshot } = lead
+    const { status: _status, notes: _notes, nextFollowUp: _nextFollowUp, draftMessage: _draftMessage, conversationStage: _stage, contactName: _contact, nextAction: _action, whatsappConsentStatus: _consentStatus, whatsappConsentSource: _consentSource, whatsappConsentAt: _consentAt, ...snapshot } = lead
     const { error } = await this.client(accessToken)
       .from('saved_leads')
       .update({
