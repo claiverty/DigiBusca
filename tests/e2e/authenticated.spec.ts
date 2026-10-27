@@ -217,8 +217,8 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     await page.getByRole('button', { name: 'Registrar interação' }).click()
     await expect(page.getByLabel('Interações registradas')).toContainText('Apresentei a proposta inicial.')
 
-    await page.getByRole('button', { name: 'Gerar abordagem com IA' }).click()
-    await page.getByRole('button', { name: 'Gerar com IA' }).click()
+    await page.getByRole('button', { name: 'Gerar abordagem', exact: true }).click()
+    await page.getByRole('button', { name: 'Gerar com IA', exact: true }).click()
     await expect(page.getByText('Gerada com IA', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Usar na abordagem' }).click()
     await expect(page.getByLabel('Mensagem de abordagem')).toHaveValue(
