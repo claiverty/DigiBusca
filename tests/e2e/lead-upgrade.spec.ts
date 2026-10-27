@@ -30,11 +30,18 @@ async function mountWorkflow(page: Page, view: 'assistant' | 'portfolio' | 'sear
       export class GoogleApiMonthlyLimitError extends Error {}
       export async function getSavedLeads() { return window.fixtureLeads }
       export async function getCachedAiOutreach() { return undefined }
+      export async function getOpenBotAgents() { return [] }
       export async function generateAiOutreach(input) {
         window.lastGenerationInput = input;
         const { buildOutreachContext, createSafeOutreachTemplate } = await import('/@fs${projectRoot}/backend/src/domain/outreachPipeline.ts');
         const context = buildOutreachContext(input);
         return { ...createSafeOutreachTemplate(context), analysis: context.leadAnalysis, generationSource: 'ai' }
+      }
+      export async function generateOpenBotOutreach(input) {
+        window.lastGenerationInput = input;
+        const { buildOutreachContext, createSafeOutreachTemplate } = await import('/@fs${projectRoot}/backend/src/domain/outreachPipeline.ts');
+        const context = buildOutreachContext(input);
+        return { ...createSafeOutreachTemplate(context), analysis: context.leadAnalysis, generationSource: 'openbot' }
       }
       export async function searchLeads() { return { data: [{ ...window.fixtureLead, id:'lead-two', name:'Outro negócio' }], meta: { total:1 } } }
       export async function getLeadInteractions() { return [] }
@@ -50,7 +57,7 @@ async function mountWorkflow(page: Page, view: 'assistant' | 'portfolio' | 'sear
 
 test('cold chat começa curto, identifica responsável e usa resposta na IA', async ({ page }, testInfo) => {
   await mountWorkflow(page, 'assistant')
-  await page.getByRole('button', { name: 'Gerar abordagem com IA' }).click()
+  await page.getByRole('button', { name: 'Gerar abordagem', exact: true }).click()
   await page.getByLabel('Saudação').selectOption('Boa tarde')
   await page.getByRole('button', { name: 'Usar modelo sem IA' }).click()
   await expect(page.getByText('Oi, boa tarde! Tudo bem?', { exact: true })).toBeVisible()
