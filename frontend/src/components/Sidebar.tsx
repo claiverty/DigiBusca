@@ -1,13 +1,14 @@
-import { Bookmark, Compass, LayoutDashboard, LogOut, Menu, Plus, Wallet, X } from 'lucide-react'
+import { Bookmark, Compass, LayoutDashboard, LogOut, Menu, MessageCircle, Plus, Wallet, X } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import './Sidebar.css'
 
-export type AppView = 'overview' | 'search' | 'saved' | 'finance'
+export type AppView = 'overview' | 'search' | 'saved' | 'whatsapp' | 'finance'
 
 const links = [
   { label: 'Visão geral', icon: LayoutDashboard, view: 'overview' as AppView },
   { label: 'Buscar leads', icon: Compass, view: 'search' as AppView },
   { label: 'Meus leads', icon: Bookmark, view: 'saved' as AppView },
+  { label: 'WhatsApp', icon: MessageCircle, view: 'whatsapp' as AppView },
   { label: 'Financeiro', icon: Wallet, view: 'finance' as AppView },
 ]
 

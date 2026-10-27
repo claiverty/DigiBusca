@@ -65,11 +65,14 @@ export type GeneratedOutreach = {
   whatsappMessage: string
   followUpMessage: string
   analysis: LeadAnalysis
-  generationSource: 'ai' | 'safe_template'
+  generationSource: 'ai' | 'openbot' | 'safe_template'
   cacheHit?: boolean
 }
 
+export type OpenBotAgent = { id: string; name: string }
+
 const apiBaseUrl = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_URL ?? '/api')
+const openBotApiBaseUrl = 'http://127.0.0.1:3001/api'
 const outreachCacheVersion = 'v2-conversation'
 const outreachCacheTtlMs = 60 * 60 * 1_000
 const maxCachedOutreaches = 50
@@ -105,7 +108,7 @@ function isGeneratedOutreach(value: unknown): value is GeneratedOutreach {
     typeof candidate.salesArgument === 'string' &&
     typeof candidate.analysis === 'object' &&
     candidate.analysis !== null &&
-    (candidate.generationSource === 'ai' || candidate.generationSource === 'safe_template')
+    (candidate.generationSource === 'ai' || candidate.generationSource === 'openbot' || candidate.generationSource === 'safe_template')
   )
 }
 
@@ -472,6 +475,58 @@ export async function generateAiOutreach(input: GenerateOutreachInput): Promise<
   const payload = (await response.json()) as { data: GeneratedOutreach }
   await cacheAiOutreach(input, payload.data)
   return { ...payload.data, cacheHit: false }
+}
+
+export async function getOpenBotAgents(): Promise<OpenBotAgent[]> {
+  const response = await authenticatedFetch(`${openBotApiBaseUrl}/openbot/agents`)
+  const payload = (await response.json().catch(() => null)) as { data?: OpenBotAgent[]; error?: string } | null
+  if (!response.ok || !Array.isArray(payload?.data)) {
+    throw new Error(payload?.error ?? 'Não foi possível listar os agentes do OpenBot neste computador.')
+  }
+  return payload.data.filter((agent) => typeof agent.id === 'string' && typeof agent.name === 'string')
+}
+
+export async function generateOpenBotOutreach(
+  input: GenerateOutreachInput,
+  agentId: string,
+): Promise<GeneratedOutreach> {
+  const clientMessageId = globalThis.crypto?.randomUUID?.() ?? `digibusca-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const startResponse = await authenticatedFetch(`${openBotApiBaseUrl}/openbot/outreach`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agentId, clientMessageId, input }),
+  })
+  const startPayload = (await startResponse.json().catch(() => null)) as {
+    data?: { agentName: string; deliveryId: string }
+    error?: string
+  } | null
+  if (!startResponse.ok || !startPayload?.data?.deliveryId) {
+    throw new Error(startPayload?.error ?? 'Não foi possível iniciar a tarefa no OpenBot.')
+  }
+
+  const deadline = Date.now() + 180_000
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 1_500))
+    const pollResponse = await authenticatedFetch(
+      `${openBotApiBaseUrl}/openbot/agents/${encodeURIComponent(agentId)}/deliveries/${encodeURIComponent(startPayload.data.deliveryId)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input }),
+      },
+    )
+    const pollPayload = (await pollResponse.json().catch(() => null)) as {
+      data?: { status: string; result?: GeneratedOutreach }
+      error?: string
+    } | null
+    if (pollResponse.status === 202) continue
+    if (!pollResponse.ok || !pollPayload?.data?.result) {
+      throw new Error(pollPayload?.error ?? `O agente ${startPayload.data.agentName} não concluiu o rascunho.`)
+    }
+    return pollPayload.data.result
+  }
+
+  throw new Error(`O agente ${startPayload.data.agentName} ainda está trabalhando ou aguarda uma ação no OpenBot. Confira a tarefa no OpenBot antes de iniciar outra.`)
 }
 
 export type { Lead }

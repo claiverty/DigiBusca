@@ -6,6 +6,7 @@ import { FinancePage } from './pages/FinancePage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SearchPage } from './pages/SearchPage'
 import { SavedLeadsPage } from './pages/SavedLeadsPage'
+import { WhatsAppPage } from './pages/WhatsAppPage'
 import {
   createSale,
   getSavedLead,
@@ -22,6 +23,7 @@ const viewPaths: Record<AppView, string> = {
   overview: '/sistema',
   search: '/sistema/buscar',
   saved: '/sistema/leads',
+  whatsapp: '/sistema/whatsapp',
   finance: '/sistema/financeiro',
 }
 
@@ -195,6 +197,7 @@ function App() {
             onNewSaleOpened={() => setIsNewSaleRequested(false)}
           />
         )}
+        {activeView === 'whatsapp' && <WhatsAppPage />}
         {activeView === 'search' && (
           <SearchPage savedLeadIds={savedLeadIds} onSelectLead={(lead) => setSelectedLead(savedLeads.current.get(lead.id) ?? lead)} />
         )}

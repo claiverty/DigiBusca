@@ -85,7 +85,7 @@ export type GeneratedOutreachCopy = {
 export type GeneratedOutreach = GeneratedOutreachCopy & {
   stage?: ConversationStage
   analysis: LeadAnalysis
-  generationSource: 'ai' | 'safe_template'
+  generationSource: 'ai' | 'openbot' | 'safe_template'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

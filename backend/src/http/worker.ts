@@ -1,5 +1,5 @@
 import { executeSearchLeads } from '../application/searchLeads.js'
-import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, type RuntimeEnvironment } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig, type RuntimeEnvironment } from '../config/supabase.js'
 import { parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
@@ -13,6 +13,11 @@ import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 import { checkSiteHealth } from '../integrations/siteHealth.js'
 import { parseWhatsAppTemplateSendInput, sendWhatsAppTemplateForLead, WhatsAppSendFlowError } from '../application/sendWhatsAppTemplate.js'
+import { handleWhatsAppWebhook, WhatsAppWebhookBodyTooLargeError } from '../application/handleWhatsAppWebhook.js'
+import { whatsappWebhookMaxBodyBytes } from '../application/whatsappWebhook.js'
+import { isUuid, parseWhatsAppEmbeddedSignupInput, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
+import { WhatsAppConnectionConflictError, WhatsAppStore } from '../data/whatsappStore.js'
+import { exchangeWhatsAppEmbeddedSignupCode, findCoexistencePhoneNumber, WhatsAppEmbeddedSignupError } from '../integrations/whatsappEmbeddedSignup.js'
 
 type WorkerEnvironment = RuntimeEnvironment & {
   ASSETS?: { fetch(request: Request): Promise<Response> }
@@ -132,6 +137,47 @@ async function parseBody(request: Request) {
   }
 }
 
+async function readRawWebhookBody(request: Request): Promise<Uint8Array> {
+  const contentLength = request.headers.get('Content-Length')
+  if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > whatsappWebhookMaxBodyBytes) {
+    throw new WhatsAppWebhookBodyTooLargeError()
+  }
+  if (!request.body) return new Uint8Array()
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    totalBytes += value.byteLength
+    if (totalBytes > whatsappWebhookMaxBodyBytes) {
+      await reader.cancel().catch(() => undefined)
+      throw new WhatsAppWebhookBodyTooLargeError()
+    }
+    chunks.push(value)
+  }
+
+  const body = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return body
+}
+
+function webhookResponse(result: Awaited<ReturnType<typeof handleWhatsAppWebhook>>, request: Request) {
+  return new Response(result.body, {
+    status: result.status,
+    headers: {
+      'Content-Type': result.contentType,
+      'Cache-Control': 'no-store',
+      'X-Request-Id': getRequestId(request),
+    },
+  })
+}
+
 async function handleApiRequest(request: Request) {
   if (request.method === 'OPTIONS') return jsonResponse(request, 204, null)
 
@@ -147,12 +193,84 @@ async function handleApiRequest(request: Request) {
     })
   }
 
+  if (url.pathname === '/api/webhooks/whatsapp') {
+    const result = await handleWhatsAppWebhook(
+      request.method,
+      url,
+      request.headers.get('X-Hub-Signature-256'),
+      () => readRawWebhookBody(request),
+    )
+    return webhookResponse(result, request)
+  }
+
   const authentication = await authenticateRequest(request.headers.get('Authorization') ?? undefined)
   if (!authentication) {
     return jsonResponse(request, 401, { error: 'Faça login para acessar os dados da sua conta.' })
   }
 
   const { accessToken, user } = authentication
+
+  if (request.method === 'GET' && url.pathname === '/api/whatsapp/connections') {
+    return jsonResponse(request, 200, { data: await new WhatsAppStore().listConnections(user.id) }, { 'Cache-Control': 'no-store' })
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/whatsapp/connections/embedded-signup') {
+    const input = parseWhatsAppEmbeddedSignupInput(await parseBody(request))
+    if (!input) return jsonResponse(request, 400, { error: 'A resposta do Embedded Signup está incompleta. Reinicie a conexão.' })
+    const config = getWhatsAppEmbeddedSignupServerConfig()
+    if (!config) {
+      return jsonResponse(request, 503, { error: 'O backend ainda precisa configurar a troca segura de código do Embedded Signup.' })
+    }
+    const whatsappStore = new WhatsAppStore()
+    if (!(await whatsappStore.isCoexistenceStorageReady())) {
+      return jsonResponse(request, 503, { error: 'A migration local do WhatsApp precisa estar aplicada ao Supabase antes de conectar uma conta.' })
+    }
+
+    try {
+      const exchanged = await exchangeWhatsAppEmbeddedSignupCode(input.code, config)
+      const phone = await findCoexistencePhoneNumber(input.wabaId, input.phoneNumberId, exchanged.accessToken, config.graphApiVersion)
+      const data = await whatsappStore.connectCoexistencePhone(
+        user.id,
+        input.wabaId,
+        phone,
+        exchanged.accessToken,
+        exchanged.expiresAt,
+      )
+      return jsonResponse(request, 201, { data }, { 'Cache-Control': 'no-store' })
+    } catch (error) {
+      if (error instanceof WhatsAppEmbeddedSignupError) {
+        return jsonResponse(request, error.status, { error: error.message }, { 'Cache-Control': 'no-store' })
+      }
+      if (error instanceof WhatsAppConnectionConflictError) {
+        return jsonResponse(request, 409, { error: error.message }, { 'Cache-Control': 'no-store' })
+      }
+      throw error
+    }
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/whatsapp/conversations') {
+    const options = parseWhatsAppPageOptions(url.searchParams)
+    if (!options) return jsonResponse(request, 400, { error: 'Os parâmetros de paginação são inválidos.' })
+    return jsonResponse(request, 200, await new WhatsAppStore().listConversations(accessToken, user.id, options))
+  }
+
+  const whatsappMessagesMatch = url.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/messages$/)
+  if (request.method === 'GET' && whatsappMessagesMatch) {
+    const conversationId = whatsappMessagesMatch[1]
+    const options = parseWhatsAppPageOptions(url.searchParams)
+    if (!isUuid(conversationId) || !options) {
+      return jsonResponse(request, 400, { error: 'A conversa ou os parâmetros de paginação são inválidos.' })
+    }
+    const data = await new WhatsAppStore().listConversationMessages(accessToken, user.id, conversationId, options)
+    if (!data) return jsonResponse(request, 404, { error: 'Conversa não encontrada.' })
+    return jsonResponse(request, 200, data)
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/whatsapp/status') {
+    const connectionStorageReady = await new WhatsAppStore().isCoexistenceStorageReady()
+    return jsonResponse(request, 200, { data: { ...getWhatsAppCloudSetupStatus(), connectionStorageReady } })
+  }
+
   const trackedLeadProvider = new GooglePlacesProvider(
     undefined,
     (requestType) => persistenceStore.reserveGoogleApiRequest(accessToken, requestType),

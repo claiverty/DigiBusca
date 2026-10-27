@@ -1,8 +1,10 @@
 import { createClient, type User } from '@supabase/supabase-js'
+import { isWhatsAppTokenEncryptionKeyValid } from '../integrations/whatsappTokenVault.js'
 
 export type RuntimeEnvironment = {
   SUPABASE_URL?: string
   SUPABASE_ANON_KEY?: string
+  SUPABASE_SERVICE_ROLE_KEY?: string
   VITE_SUPABASE_URL?: string
   VITE_SUPABASE_ANON_KEY?: string
   GOOGLE_MAPS_API_KEY?: string
@@ -12,6 +14,10 @@ export type RuntimeEnvironment = {
   WHATSAPP_GRAPH_API_VERSION?: string
   WHATSAPP_TEMPLATE_NAME?: string
   WHATSAPP_TEMPLATE_LANGUAGE?: string
+  WHATSAPP_APP_SECRET?: string
+  WHATSAPP_WEBHOOK_VERIFY_TOKEN?: string
+  META_APP_ID?: string
+  WHATSAPP_TOKEN_ENCRYPTION_KEY?: string
 }
 
 let runtimeEnvironment: RuntimeEnvironment | undefined
@@ -54,6 +60,53 @@ export function getWhatsAppCloudConfig() {
   return { accessToken, phoneNumberId, graphApiVersion, templateName, templateLanguage }
 }
 
+export function getWhatsAppCloudSetupStatus() {
+  const values = environment()
+  const accessTokenConfigured = Boolean(values.WHATSAPP_ACCESS_TOKEN?.trim())
+  const phoneNumberConfigured = Boolean(values.WHATSAPP_PHONE_NUMBER_ID?.trim())
+  const graphApiVersionConfigured = /^v\d+\.\d+$/.test(values.WHATSAPP_GRAPH_API_VERSION?.trim() ?? '')
+  const templateConfigured = Boolean(values.WHATSAPP_TEMPLATE_NAME?.trim())
+  const webhookSecretsConfigured = Boolean(
+    values.WHATSAPP_APP_SECRET?.trim() && values.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim(),
+  )
+  const webhookPersistenceConfigured = Boolean(
+    (values.SUPABASE_URL ?? values.VITE_SUPABASE_URL)?.trim() &&
+    values.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+  )
+  const embeddedSignupServerReady = Boolean(
+    values.META_APP_ID?.trim() &&
+    values.WHATSAPP_APP_SECRET?.trim() &&
+    isWhatsAppTokenEncryptionKeyValid(values.WHATSAPP_TOKEN_ENCRYPTION_KEY) &&
+    graphApiVersionConfigured &&
+    webhookPersistenceConfigured,
+  )
+
+  return {
+    sendReady: accessTokenConfigured && phoneNumberConfigured && graphApiVersionConfigured && templateConfigured,
+    webhookReady: webhookSecretsConfigured && webhookPersistenceConfigured,
+    accessTokenConfigured,
+    phoneNumberConfigured,
+    graphApiVersionConfigured,
+    templateConfigured,
+    embeddedSignupServerReady,
+  }
+}
+
+export function getWhatsAppEmbeddedSignupServerConfig() {
+  const values = environment()
+  const graphApiVersion = values.WHATSAPP_GRAPH_API_VERSION?.trim()
+  const appId = values.META_APP_ID?.trim()
+  const appSecret = values.WHATSAPP_APP_SECRET?.trim()
+  const encryptionKey = values.WHATSAPP_TOKEN_ENCRYPTION_KEY?.trim()
+
+  if (
+    !appId || !appSecret || !isWhatsAppTokenEncryptionKeyValid(encryptionKey) ||
+    !graphApiVersion || !/^v\d+\.\d+$/.test(graphApiVersion)
+  ) return undefined
+
+  return { appId, appSecret, encryptionKey: encryptionKey!, graphApiVersion }
+}
+
 function getSupabaseConfig() {
   const values = environment()
   return {
@@ -65,6 +118,33 @@ function getSupabaseConfig() {
 export function isSupabaseConfigured() {
   const { url, anonKey } = getSupabaseConfig()
   return Boolean(url && anonKey)
+}
+
+export function getWhatsAppWebhookSecrets() {
+  const values = environment()
+  return {
+    appSecret: values.WHATSAPP_APP_SECRET?.trim(),
+    verifyToken: values.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim(),
+  }
+}
+
+export function isWhatsAppWebhookPersistenceConfigured() {
+  const values = environment()
+  const { url } = getSupabaseConfig()
+  return Boolean(url?.trim() && values.SUPABASE_SERVICE_ROLE_KEY?.trim())
+}
+
+export function createWhatsAppWebhookSupabaseClient() {
+  const values = environment()
+  const { url } = getSupabaseConfig()
+  const serviceRoleKey = values.SUPABASE_SERVICE_ROLE_KEY?.trim()
+  if (!url || !serviceRoleKey) {
+    throw new Error('A persistência autenticada do webhook WhatsApp não está configurada.')
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
 }
 
 export type AuthenticatedRequest = {

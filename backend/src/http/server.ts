@@ -6,10 +6,9 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { opportunityTypes, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, configureRuntimeEnvironment } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
-import { getGeminiApiKey } from '../config/supabase.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
@@ -17,6 +16,13 @@ import { checkRateLimit } from './rateLimit.js'
 import { createRequestId, logError, logInfo } from '../observability/logger.js'
 import { checkSiteHealth } from '../integrations/siteHealth.js'
 import { parseWhatsAppTemplateSendInput, sendWhatsAppTemplateForLead, WhatsAppSendFlowError } from '../application/sendWhatsAppTemplate.js'
+import { buildOpenBotOutreachPrompt, OpenBotOutreachResponseError, validateOpenBotOutreachAnswer } from '../application/generateOpenBotOutreach.js'
+import { getOpenBotDelivery, listOpenBotAgents, OpenBotAutomationError, sendOpenBotAgentMessage } from '../integrations/openbotAutomationApi.js'
+import { handleWhatsAppWebhook, WhatsAppWebhookBodyTooLargeError } from '../application/handleWhatsAppWebhook.js'
+import { whatsappWebhookMaxBodyBytes } from '../application/whatsappWebhook.js'
+import { isUuid, parseWhatsAppEmbeddedSignupInput, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
+import { WhatsAppConnectionConflictError, WhatsAppStore } from '../data/whatsappStore.js'
+import { exchangeWhatsAppEmbeddedSignupCode, findCoexistencePhoneNumber, WhatsAppEmbeddedSignupError } from '../integrations/whatsappEmbeddedSignup.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -33,7 +39,13 @@ const leadStatuses: LeadStatus[] = [
   'Ganhou',
   'Perdeu',
 ]
-const allowedOrigins = new Set(['http://localhost:5173', 'http://127.0.0.1:5173'])
+const allowedOrigins = new Set([
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5174',
+  ...(process.env.DIGIBUSCA_APP_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
+])
 
 function mergeSavedLeadState(lead: Lead, state: Awaited<ReturnType<SupabaseStore['getSavedLeadState']>>) {
   if (!state) {
@@ -61,10 +73,18 @@ function sendJson(response: ServerResponse, statusCode: number, payload: unknown
       origin && allowedOrigins.has(origin) ? origin : 'http://127.0.0.1:5173',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    ...(origin && allowedOrigins.has(origin) && requestHasPrivateNetworkHeader(response.req)
+      ? { 'Access-Control-Allow-Private-Network': 'true' }
+      : {}),
+    Vary: 'Origin',
     'Content-Type': 'application/json; charset=utf-8',
     'X-Request-Id': requestId,
   })
   response.end(JSON.stringify(payload))
+}
+
+function requestHasPrivateNetworkHeader(request: IncomingMessage) {
+  return request.headers['access-control-request-private-network'] === 'true'
 }
 
 function isAuthTokenError(error: unknown): boolean {
@@ -127,6 +147,58 @@ function readJsonBody(request: IncomingMessage): Promise<unknown> {
     })
     request.on('error', reject)
   })
+}
+
+function readRawWebhookBody(request: IncomingMessage): Promise<Uint8Array> {
+  const contentLength = request.headers['content-length']
+  if (typeof contentLength === 'string' && /^\d+$/.test(contentLength) && Number(contentLength) > whatsappWebhookMaxBodyBytes) {
+    request.resume()
+    return Promise.reject(new WhatsAppWebhookBodyTooLargeError())
+  }
+
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let totalBytes = 0
+    let tooLarge = false
+    request.on('data', (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      totalBytes += buffer.byteLength
+      if (totalBytes > whatsappWebhookMaxBodyBytes) {
+        tooLarge = true
+        chunks.length = 0
+        return
+      }
+      if (!tooLarge) chunks.push(buffer)
+    })
+    request.on('end', () => {
+      if (tooLarge) {
+        reject(new WhatsAppWebhookBodyTooLargeError())
+        return
+      }
+      resolve(new Uint8Array(Buffer.concat(chunks, totalBytes)))
+    })
+    request.on('error', reject)
+  })
+}
+
+function sendWhatsAppWebhookResult(
+  request: IncomingMessage,
+  response: ServerResponse,
+  result: Awaited<ReturnType<typeof handleWhatsAppWebhook>>,
+) {
+  const requestId = createRequestId(
+    typeof request.headers['cf-ray'] === 'string'
+      ? request.headers['cf-ray']
+      : typeof request.headers['x-request-id'] === 'string'
+        ? request.headers['x-request-id']
+        : undefined,
+  )
+  response.writeHead(result.status, {
+    'Content-Type': result.contentType,
+    'Cache-Control': 'no-store',
+    'X-Request-Id': requestId,
+  })
+  response.end(result.body)
 }
 
 function parseSaleInput(value: unknown): CreateSaleInput | undefined {
@@ -194,6 +266,20 @@ function parseLeadInteractionInput(value: unknown): CreateLeadInteractionInput |
   }
 }
 
+function parseOpenBotOutreachStartInput(value: unknown): { agentId: string; clientMessageId: string; input: NonNullable<ReturnType<typeof parseGenerateOutreachInput>> } | undefined {
+  if (!isRecord(value) || !isRecord(value.input)) return undefined
+  const agentId = typeof value.agentId === 'string' ? value.agentId.trim() : ''
+  const clientMessageId = typeof value.clientMessageId === 'string' ? value.clientMessageId.trim() : ''
+  const input = parseGenerateOutreachInput(value.input)
+  if (!agentId || agentId.length > 200 || !clientMessageId || clientMessageId.length > 128 || !input) return undefined
+  return { agentId, clientMessageId, input }
+}
+
+function parseOpenBotOutreachPollInput(value: unknown): NonNullable<ReturnType<typeof parseGenerateOutreachInput>> | undefined {
+  if (!isRecord(value)) return undefined
+  return parseGenerateOutreachInput(value.input)
+}
+
 function getSearchParams(request: IncomingMessage) {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
   const opportunity = requestUrl.searchParams.get('opportunity')?.trim()
@@ -225,6 +311,18 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
 
+  if (requestUrl.pathname === '/api/webhooks/whatsapp') {
+    const signatureHeader = request.headers['x-hub-signature-256']
+    const result = await handleWhatsAppWebhook(
+      request.method ?? 'GET',
+      requestUrl,
+      typeof signatureHeader === 'string' ? signatureHeader : undefined,
+      () => readRawWebhookBody(request),
+    )
+    sendWhatsAppWebhookResult(request, response, result)
+    return
+  }
+
   const authentication = await authenticateRequest(request.headers.authorization)
   if (!authentication) {
     sendJson(response, 401, { error: 'Faça login para acessar os dados da sua conta.' })
@@ -232,11 +330,115 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 
   const { accessToken, user } = authentication
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/connections') {
+    response.setHeader('Cache-Control', 'no-store')
+    sendJson(response, 200, { data: await new WhatsAppStore().listConnections(user.id) })
+    return
+  }
+
+  if (request.method === 'POST' && requestUrl.pathname === '/api/whatsapp/connections/embedded-signup') {
+    let body: unknown
+    try {
+      body = await readJsonBody(request)
+    } catch {
+      sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+      return
+    }
+    const input = parseWhatsAppEmbeddedSignupInput(body)
+    if (!input) {
+      sendJson(response, 400, { error: 'A resposta do Embedded Signup está incompleta. Reinicie a conexão.' })
+      return
+    }
+    const config = getWhatsAppEmbeddedSignupServerConfig()
+    if (!config) {
+      sendJson(response, 503, { error: 'O backend ainda precisa configurar a troca segura de código do Embedded Signup.' })
+      return
+    }
+    const whatsappStore = new WhatsAppStore()
+    if (!(await whatsappStore.isCoexistenceStorageReady())) {
+      sendJson(response, 503, { error: 'A migration local do WhatsApp precisa estar aplicada ao Supabase antes de conectar uma conta.' })
+      return
+    }
+
+    try {
+      const exchanged = await exchangeWhatsAppEmbeddedSignupCode(input.code, config)
+      const phone = await findCoexistencePhoneNumber(input.wabaId, input.phoneNumberId, exchanged.accessToken, config.graphApiVersion)
+      const data = await whatsappStore.connectCoexistencePhone(
+        user.id,
+        input.wabaId,
+        phone,
+        exchanged.accessToken,
+        exchanged.expiresAt,
+      )
+      response.setHeader('Cache-Control', 'no-store')
+      sendJson(response, 201, { data })
+    } catch (error) {
+      response.setHeader('Cache-Control', 'no-store')
+      if (error instanceof WhatsAppEmbeddedSignupError) {
+        sendJson(response, error.status, { error: error.message })
+        return
+      }
+      if (error instanceof WhatsAppConnectionConflictError) {
+        sendJson(response, 409, { error: error.message })
+        return
+      }
+      throw error
+    }
+    return
+  }
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/conversations') {
+    const options = parseWhatsAppPageOptions(requestUrl.searchParams)
+    if (!options) {
+      sendJson(response, 400, { error: 'Os parâmetros de paginação são inválidos.' })
+      return
+    }
+    sendJson(response, 200, await new WhatsAppStore().listConversations(accessToken, user.id, options))
+    return
+  }
+
+  const whatsappMessagesMatch = requestUrl.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/messages$/)
+  if (request.method === 'GET' && whatsappMessagesMatch) {
+    const conversationId = whatsappMessagesMatch[1]
+    const options = parseWhatsAppPageOptions(requestUrl.searchParams)
+    if (!isUuid(conversationId) || !options) {
+      sendJson(response, 400, { error: 'A conversa ou os parâmetros de paginação são inválidos.' })
+      return
+    }
+    const data = await new WhatsAppStore().listConversationMessages(accessToken, user.id, conversationId, options)
+    if (!data) {
+      sendJson(response, 404, { error: 'Conversa não encontrada.' })
+      return
+    }
+    sendJson(response, 200, data)
+    return
+  }
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/status') {
+    const connectionStorageReady = await new WhatsAppStore().isCoexistenceStorageReady()
+    sendJson(response, 200, { data: { ...getWhatsAppCloudSetupStatus(), connectionStorageReady } })
+    return
+  }
+
   const trackedLeadProvider = new GooglePlacesProvider(
     undefined,
     (requestType) => persistenceStore.reserveGoogleApiRequest(accessToken, requestType),
   )
   const interactionMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/interactions$/)
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/openbot/agents') {
+    try {
+      sendJson(response, 200, { data: await listOpenBotAgents() })
+    } catch (error) {
+      if (error instanceof OpenBotAutomationError) {
+        sendJson(response, error.status, { error: error.message })
+        return
+      }
+      throw error
+    }
+    return
+  }
 
   if (request.method === 'GET' && interactionMatch) {
     sendJson(response, 200, {
@@ -312,6 +514,95 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         sendJson(response, 200, { data })
       } catch (error) {
         if (error instanceof WhatsAppSendFlowError) {
+          sendJson(response, error.status, { error: error.message })
+          return
+        }
+        throw error
+      }
+      return
+    }
+
+    if (requestUrl.pathname === '/api/openbot/outreach' && request.method === 'POST') {
+      let body: unknown
+      try {
+        body = await readJsonBody(request)
+      } catch {
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+
+      const input = parseOpenBotOutreachStartInput(body)
+      if (!input) {
+        sendJson(response, 400, { error: 'Revise o agente e os dados da abordagem antes de continuar.' })
+        return
+      }
+
+      const rateLimit = checkRateLimit({ key: `openbot-outreach:${user.id}`, limit: 8, windowMs: 60_000 })
+      if (!rateLimit.allowed) {
+        response.setHeader('Retry-After', String(rateLimit.retryAfterSeconds))
+        sendJson(response, 429, { error: 'Aguarde um instante antes de pedir outro rascunho ao OpenBot.' })
+        return
+      }
+
+      try {
+        const delivery = await sendOpenBotAgentMessage(
+          input.agentId,
+          buildOpenBotOutreachPrompt(input.input),
+          input.clientMessageId,
+        )
+        sendJson(response, 202, { data: { ...delivery, status: 'queued' } })
+      } catch (error) {
+        if (error instanceof OpenBotAutomationError) {
+          sendJson(response, error.status, { error: error.message })
+          return
+        }
+        throw error
+      }
+      return
+    }
+
+    const openBotDeliveryMatch = requestUrl.pathname.match(/^\/api\/openbot\/agents\/([^/]+)\/deliveries\/([^/]+)$/)
+    if (openBotDeliveryMatch && request.method === 'POST') {
+      let body: unknown
+      try {
+        body = await readJsonBody(request)
+      } catch {
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+
+      const input = parseOpenBotOutreachPollInput(body)
+      if (!input) {
+        sendJson(response, 400, { error: 'Os dados de contexto da abordagem são inválidos.' })
+        return
+      }
+
+      let agentId: string
+      let deliveryId: string
+      try {
+        agentId = decodeURIComponent(openBotDeliveryMatch[1])
+        deliveryId = decodeURIComponent(openBotDeliveryMatch[2])
+      } catch {
+        sendJson(response, 400, { error: 'O identificador da tarefa do OpenBot é inválido.' })
+        return
+      }
+
+      try {
+        const delivery = await getOpenBotDelivery(agentId, deliveryId)
+        if (delivery.status === 'failed' || delivery.status === 'interrupted' || delivery.status === 'cancelled') {
+          sendJson(response, 502, { error: 'O agente não concluiu o rascunho. Confira o estado da tarefa no OpenBot.' })
+          return
+        }
+        if (delivery.status !== 'completed') {
+          sendJson(response, 202, { data: { status: delivery.status } })
+          return
+        }
+
+        sendJson(response, 200, {
+          data: { status: 'completed', result: validateOpenBotOutreachAnswer(delivery.answer, input) },
+        })
+      } catch (error) {
+        if (error instanceof OpenBotAutomationError || error instanceof OpenBotOutreachResponseError) {
           sendJson(response, error.status, { error: error.message })
           return
         }
@@ -680,6 +971,6 @@ const server = createServer((request, response) => {
   void handleRequest(request, response).catch((error) => sendRequestError(response, error))
 })
 
-server.listen(port, () => {
+server.listen(port, '127.0.0.1', () => {
   logInfo('api_started', { port })
 })

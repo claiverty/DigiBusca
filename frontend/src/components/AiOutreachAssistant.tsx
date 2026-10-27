@@ -2,10 +2,13 @@ import { Check, Copy, RefreshCw, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import {
   generateAiOutreach,
+  generateOpenBotOutreach,
   getCachedAiOutreach,
+  getOpenBotAgents,
   type GenerateOutreachInput,
   type GeneratedOutreach,
   type LeadAnalysis,
+  type OpenBotAgent,
   type OutreachTone,
 } from '../services/leadsService'
 import { conversationStages, greetingOptions, type ConversationStage, type OutreachGreeting } from '../../../backend/src/contracts/aiOutreach'
@@ -20,6 +23,7 @@ type AiOutreachAssistantProps = {
 }
 
 const tones: OutreachTone[] = ['Profissional', 'Direto', 'Informal']
+type OutreachGenerator = 'gemini' | 'openbot'
 type CopyField = 'salesArgument' | 'whatsappMessage' | 'followUpMessage'
 
 const analysisLabels: Record<LeadAnalysis['leadType'], string> = {
@@ -41,6 +45,7 @@ function createGenerationInput(lead: Lead, service: string, tone: OutreachTone, 
 export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutreachAssistantProps) {
   const dialogRef = useRef<HTMLElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const generatorChosenByUser = useRef(false)
   const [stage, setStage] = useState<ConversationStage>(conversationStages.find((item) => item === (currentStage ?? lead.conversationStage)) ?? 'Abertura')
   const [lastReply, setLastReply] = useState('')
   const [senderName, setSenderName] = useState('')
@@ -51,10 +56,39 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
   const [isOpen, setIsOpen] = useState(false)
   const [service, setService] = useState('Site institucional')
   const [tone, setTone] = useState<OutreachTone>('Profissional')
+  const [generator, setGenerator] = useState<OutreachGenerator>('gemini')
+  const [openBotAgents, setOpenBotAgents] = useState<OpenBotAgent[]>([])
+  const [selectedOpenBotAgentId, setSelectedOpenBotAgentId] = useState('')
+  const [isLoadingOpenBotAgents, setIsLoadingOpenBotAgents] = useState(false)
+  const [openBotAgentsError, setOpenBotAgentsError] = useState('')
   const [result, setResult] = useState<GeneratedOutreach>()
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState('')
   const [copiedField, setCopiedField] = useState<CopyField>()
+
+  useEffect(() => {
+    if (!isOpen) return
+    let isCurrent = true
+    setIsLoadingOpenBotAgents(true)
+    setOpenBotAgentsError('')
+    void getOpenBotAgents().then((agents) => {
+      if (!isCurrent) return
+      setOpenBotAgents(agents)
+      const prospectingAgent = agents.find((agent) => agent.name.toLocaleLowerCase('pt-BR') === 'digiprospector')
+      setSelectedOpenBotAgentId((selected) => agents.some((agent) => agent.id === selected)
+        ? selected
+        : prospectingAgent?.id ?? '')
+      if (prospectingAgent && !generatorChosenByUser.current) {
+        setGenerator('openbot')
+        setResult(undefined)
+      }
+    }).catch((agentError) => {
+      if (isCurrent) setOpenBotAgentsError(agentError instanceof Error ? agentError.message : 'Não foi possível conectar aos agentes do OpenBot.')
+    }).finally(() => {
+      if (isCurrent) setIsLoadingOpenBotAgents(false)
+    })
+    return () => { isCurrent = false }
+  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen) return
@@ -82,7 +116,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
   }, [lead.id])
 
   useEffect(() => {
-    if (!isOpen || !service.trim()) return
+    if (!isOpen || generator !== 'gemini' || !service.trim()) return
     let isCurrent = true
 
     void getCachedAiOutreach(createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting)).then((cached) => {
@@ -95,7 +129,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
     return () => {
       isCurrent = false
     }
-  }, [isOpen, lead, service, tone, stage, lastReply, senderName, greeting])
+  }, [isOpen, generator, lead, service, tone, stage, lastReply, senderName, greeting])
 
   async function handleGenerate() {
     if ((stage === 'Pedir permissão' || stage === 'Apresentar ideia') && !service.trim()) {
@@ -107,7 +141,16 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
     setError('')
     setResult(undefined)
     try {
-      setResult(await generateAiOutreach(createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting)))
+      const input = createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting)
+      if (generator === 'openbot') {
+        if (!selectedOpenBotAgentId) {
+          setError('Ative Local scripts no DigiProspector ou selecione um agente disponível no OpenBot.')
+          return
+        }
+        setResult(await generateOpenBotOutreach(input, selectedOpenBotAgentId))
+      } else {
+        setResult(await generateAiOutreach(input))
+      }
     } catch (generationError) {
       setError(
         generationError instanceof Error
@@ -143,7 +186,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
   return (
     <>
       <button ref={triggerRef} className="secondary-button ai-outreach-trigger" type="button" onClick={() => { setStage(conversationStages.find((item) => item === (currentStage ?? lead.conversationStage)) ?? 'Abertura'); setResult(undefined); setIsOpen(true) }}>
-        <Sparkles size={17} /> Gerar abordagem com IA
+        <Sparkles size={17} /> Gerar abordagem
       </button>
 
       {isOpen && (
@@ -158,7 +201,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
           >
             <header className="ai-outreach-header">
               <div>
-                <span className="eyebrow">ASSISTENTE COM IA</span>
+                <span className="eyebrow">ABORDAGEM COM IA</span>
                 <h2 id="ai-outreach-title">Continuar conversa com {lead.name}</h2>
               </div>
               <button className="ai-outreach-close" type="button" onClick={() => setIsOpen(false)} aria-label="Fechar">
@@ -172,6 +215,18 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
 
             <p className="ai-outreach-note">Comece com um cumprimento e espere a resposta. Avance uma etapa por vez, conforme a conversa.</p>
             <div className="ai-outreach-form">
+              <label><span>Gerar com</span><select value={generator} disabled={isGenerating} onChange={(event) => { generatorChosenByUser.current = true; setGenerator(event.target.value as OutreachGenerator); setResult(undefined); setError('') }}>
+                <option value="gemini">Gemini</option>
+                <option value="openbot">Agente do OpenBot</option>
+              </select></label>
+              {generator === 'openbot' && <>
+                {openBotAgents.length > 0 ? <label><span>Agente</span><select value={selectedOpenBotAgentId} disabled={isGenerating || isLoadingOpenBotAgents} onChange={(event) => { setSelectedOpenBotAgentId(event.target.value); setResult(undefined) }}>
+                  <option value="" disabled>Selecione um agente</option>
+                  {openBotAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name}</option>)}
+                </select></label> : <p className="ai-outreach-openbot-status" role={openBotAgentsError ? 'alert' : 'status'}>
+                  {isLoadingOpenBotAgents ? 'Conectando ao OpenBot…' : openBotAgentsError || 'Nenhum agente com Local scripts ativo foi encontrado.'}
+                </p>}
+              </>}
               <label><span>Etapa da conversa</span><select value={stage} disabled={isGenerating} onChange={(event) => { setStage(event.target.value as ConversationStage); setResult(undefined) }}>
                 {conversationStages.map((item) => <option key={item}>{item}</option>)}
               </select></label>
@@ -215,9 +270,9 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
             </div>
 
             <div className="ai-outreach-actions">
-              <button className="primary-button" type="button" onClick={() => void handleGenerate()} disabled={isGenerating}>
+              <button className="primary-button" type="button" onClick={() => void handleGenerate()} disabled={isGenerating || (generator === 'openbot' && (isLoadingOpenBotAgents || openBotAgents.length === 0 || !selectedOpenBotAgentId))}>
                 {isGenerating ? <RefreshCw className="ai-spinning" size={17} /> : <Sparkles size={17} />}
-                {isGenerating ? 'Criando...' : 'Gerar com IA'}
+                {isGenerating ? 'Criando...' : generator === 'openbot' ? 'Gerar com agente' : 'Gerar com IA'}
               </button>
               <button className="secondary-button" type="button" onClick={handleReadyTemplate} disabled={isGenerating}>
                 Usar modelo sem IA
@@ -237,7 +292,9 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
                         ? 'Resultado em cache'
                         : result.generationSource === 'ai'
                           ? 'Gerada com IA'
-                          : 'Modelo seguro'}
+                          : result.generationSource === 'openbot'
+                            ? 'Gerada pelo agente OpenBot'
+                            : 'Modelo seguro'}
                     </span>
                   </div>
                   <p>{result.analysis.evidence[0]}</p>
