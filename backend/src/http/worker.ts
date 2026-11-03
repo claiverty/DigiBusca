@@ -19,6 +19,7 @@ import { isUuid, parseWhatsAppEmbeddedSignupInput, parseWhatsAppPageOptions } fr
 import { parseWhatsAppAutomationProfileInput } from '../contracts/whatsappAutomation.js'
 import { WhatsAppConnectionConflictError, WhatsAppStore } from '../data/whatsappStore.js'
 import { exchangeWhatsAppEmbeddedSignupCode, findCoexistencePhoneNumber, WhatsAppEmbeddedSignupError } from '../integrations/whatsappEmbeddedSignup.js'
+import { parseWhatsAppCoexistenceSyncInput, startWhatsAppCoexistenceSync, WhatsAppCoexistenceSyncError } from '../application/startWhatsAppCoexistenceSync.js'
 
 type WorkerEnvironment = RuntimeEnvironment & {
   ASSETS?: { fetch(request: Request): Promise<Response> }
@@ -247,6 +248,30 @@ async function handleApiRequest(request: Request, scheduleBackgroundTask?: (task
         return jsonResponse(request, 409, { error: error.message }, { 'Cache-Control': 'no-store' })
       }
       throw error
+    }
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/whatsapp/connections/coexistence-sync') {
+    const input = parseWhatsAppCoexistenceSyncInput(await parseBody(request))
+    if (!input) {
+      return jsonResponse(request, 400, { error: 'Confirme separadamente a sincronização de contatos ou do histórico para continuar.' })
+    }
+    const whatsappStore = new WhatsAppStore()
+    if (!(await whatsappStore.isCoexistenceStorageReady())) {
+      return jsonResponse(request, 503, { error: 'O armazenamento seguro da coexistência ainda não está disponível.' })
+    }
+    try {
+      const data = await startWhatsAppCoexistenceSync(whatsappStore, user.id, input)
+      return jsonResponse(request, 202, { data }, { 'Cache-Control': 'no-store' })
+    } catch (error) {
+      if (error instanceof WhatsAppCoexistenceSyncError) {
+        return jsonResponse(request, error.status, { error: error.message }, { 'Cache-Control': 'no-store' })
+      }
+      return jsonResponse(request, error instanceof Error && 'status' in error && typeof error.status === 'number' ? error.status : 500, {
+        error: error instanceof Error && 'status' in error && typeof error.status === 'number'
+          ? error.message
+          : 'Não foi possível iniciar a sincronização do WhatsApp.',
+      }, { 'Cache-Control': 'no-store' })
     }
   }
 

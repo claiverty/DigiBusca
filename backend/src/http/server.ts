@@ -24,6 +24,7 @@ import { isUuid, parseWhatsAppEmbeddedSignupInput, parseWhatsAppPageOptions } fr
 import { parseWhatsAppAutomationProfileInput } from '../contracts/whatsappAutomation.js'
 import { WhatsAppConnectionConflictError, WhatsAppStore } from '../data/whatsappStore.js'
 import { exchangeWhatsAppEmbeddedSignupCode, findCoexistencePhoneNumber, WhatsAppEmbeddedSignupError } from '../integrations/whatsappEmbeddedSignup.js'
+import { parseWhatsAppCoexistenceSyncInput, startWhatsAppCoexistenceSync, WhatsAppCoexistenceSyncError } from '../application/startWhatsAppCoexistenceSync.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -386,6 +387,43 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         return
       }
       throw error
+    }
+    return
+  }
+
+  if (request.method === 'POST' && requestUrl.pathname === '/api/whatsapp/connections/coexistence-sync') {
+    let body: unknown
+    try {
+      body = await readJsonBody(request)
+    } catch {
+      sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+      return
+    }
+    const input = parseWhatsAppCoexistenceSyncInput(body)
+    if (!input) {
+      sendJson(response, 400, { error: 'Confirme separadamente a sincronização de contatos ou do histórico para continuar.' })
+      return
+    }
+    const whatsappStore = new WhatsAppStore()
+    if (!(await whatsappStore.isCoexistenceStorageReady())) {
+      sendJson(response, 503, { error: 'O armazenamento seguro da coexistência ainda não está disponível.' })
+      return
+    }
+    try {
+      const data = await startWhatsAppCoexistenceSync(whatsappStore, user.id, input)
+      response.setHeader('Cache-Control', 'no-store')
+      sendJson(response, 202, { data })
+    } catch (error) {
+      response.setHeader('Cache-Control', 'no-store')
+      if (error instanceof WhatsAppCoexistenceSyncError) {
+        sendJson(response, error.status, { error: error.message })
+        return
+      }
+      if (error instanceof Error && 'status' in error && typeof error.status === 'number') {
+        sendJson(response, error.status, { error: error.message })
+        return
+      }
+      sendJson(response, 500, { error: 'Não foi possível iniciar a sincronização do WhatsApp.' })
     }
     return
   }

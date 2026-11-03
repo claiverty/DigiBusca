@@ -42,6 +42,15 @@ export type WhatsAppConnection = {
   connectedAt: string
 }
 
+export type WhatsAppCoexistenceSyncType = 'history' | 'smb_app_state_sync'
+
+export type WhatsAppCoexistenceSyncResult = {
+  status: 'accepted'
+  syncType: WhatsAppCoexistenceSyncType
+  requestedAt: string
+  requestId: string
+}
+
 export type WhatsAppConversation = {
   id: string
   phoneNumberId: string
@@ -154,6 +163,28 @@ export async function connectWhatsAppEmbeddedSignup(input: {
   const payload = (await response.json().catch(() => null)) as { data?: WhatsAppConnection; error?: string } | null
   if (!response.ok || !payload?.data) {
     throw new Error(payload?.error ?? 'Não foi possível concluir a conexão do WhatsApp.')
+  }
+  return payload.data
+}
+
+export async function requestWhatsAppCoexistenceSync(input: {
+  phoneNumberId: string
+  syncType: WhatsAppCoexistenceSyncType
+}): Promise<WhatsAppCoexistenceSyncResult> {
+  let response: Response
+  const consent = input.syncType === 'history' ? { historyConsent: true } : { contactsConsent: true }
+  try {
+    response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/connections/coexistence-sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...input, ...consent }),
+    })
+  } catch {
+    throw new Error('Não foi possível conectar ao backend para solicitar a sincronização.')
+  }
+  const payload = (await response.json().catch(() => null)) as { data?: WhatsAppCoexistenceSyncResult; error?: string } | null
+  if (!response.ok || !payload?.data) {
+    throw new Error(payload?.error ?? 'Não foi possível solicitar a sincronização à Meta.')
   }
   return payload.data
 }

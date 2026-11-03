@@ -7,6 +7,7 @@ import {
   getWhatsAppConversationMessages,
   getWhatsAppConversations,
   getWhatsAppAutomationProfile,
+  requestWhatsAppCoexistenceSync,
   saveWhatsAppAutomationProfile,
   setWhatsAppConversationAutomationPaused,
   type WhatsAppCloudSetupStatus,
@@ -209,6 +210,44 @@ function getMessageFallback(message: WhatsAppMessage) {
   return `Mensagem ${message.messageType || 'sem texto'} recebida.`
 }
 
+function isCoexistenceSyncWindowOpen(connection: WhatsAppConnection) {
+  const connectedAt = Date.parse(connection.connectedAt)
+  return Number.isFinite(connectedAt) && Date.now() >= connectedAt && Date.now() - connectedAt <= 24 * 60 * 60 * 1_000
+}
+
+function hasCoexistenceSyncRequest(state: Record<string, unknown> | null) {
+  return Boolean(state && (
+    typeof state.requestStatus === 'string' ||
+    typeof state.requestId === 'string' ||
+    typeof state.requestedAt === 'string' ||
+    typeof state.consentedAt === 'string'
+  ))
+}
+
+function coexistenceSyncStatusLabel(state: Record<string, unknown> | null, syncType: 'history' | 'smb_app_state_sync') {
+  if (!state) return 'Ainda não solicitada'
+  const status = state.requestStatus ?? state.status
+  if (status === 'requesting') return 'Solicitando à Meta…'
+  if (status === 'accepted') return 'Solicitação aceita pela Meta'
+  if (status === 'in_progress') {
+    const providerState = typeof state.providerState === 'object' && state.providerState !== null
+      ? state.providerState as Record<string, unknown>
+      : undefined
+    const progress = providerState?.progress
+    if (syncType === 'history' && progress !== undefined) return `Histórico: ${String(progress).replace(/%$/, '')}% recebido`
+    return syncType === 'history' ? 'Recebendo histórico' : 'Recebendo dados de contatos'
+  }
+  if (status === 'complete') return 'Concluída'
+  if (status === 'failed') return 'A Meta reportou falha'
+  if (status === 'rejected') {
+    return typeof state.graphErrorCode === 'number'
+      ? `A Meta recusou o pedido (código ${state.graphErrorCode})`
+      : 'A Meta recusou o pedido'
+  }
+  if (status === 'unknown') return 'Resultado não confirmado; sem nova tentativa'
+  return 'Evento de sincronização recebido'
+}
+
 export function WhatsAppPage() {
   const [activeTab, setActiveTab] = useState<PageTab>('inbox')
   const [status, setStatus] = useState<WhatsAppCloudSetupStatus | null>(null)
@@ -227,6 +266,9 @@ export function WhatsAppPage() {
   const [connectBusy, setConnectBusy] = useState(false)
   const [connectError, setConnectError] = useState('')
   const [connectNotice, setConnectNotice] = useState('')
+  const [syncBusy, setSyncBusy] = useState<Record<string, boolean>>({})
+  const [syncError, setSyncError] = useState('')
+  const [syncNotice, setSyncNotice] = useState('')
   const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
   const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(blankAutomationProfile(''))
   const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
@@ -441,6 +483,29 @@ export function WhatsAppPage() {
     }
   }
 
+  async function requestConnectionSync(connection: WhatsAppConnection, syncType: 'history' | 'smb_app_state_sync') {
+    const label = syncType === 'history' ? 'histórico de conversas' : 'contatos e estado do app'
+    const disclosure = syncType === 'history'
+      ? 'A Meta poderá transferir ao DigiBusca o histórico de conversas deste número, incluindo o conteúdo de mensagens e dados pessoais. O pedido é opcional e só pode ser feito uma vez dentro da janela inicial de 24 horas.'
+      : 'A Meta poderá transferir ao DigiBusca os contatos deste WhatsApp Business, incluindo nomes e números, e atualizações de estado desses contatos. O pedido é opcional e só pode ser feito uma vez dentro da janela inicial de 24 horas.'
+    if (!window.confirm(`${disclosure}\n\nSolicitar sincronização de ${label}?`)) return
+
+    const key = `${connection.phoneNumberId}:${syncType}`
+    setSyncBusy((current) => ({ ...current, [key]: true }))
+    setSyncError('')
+    setSyncNotice('')
+    try {
+      await requestWhatsAppCoexistenceSync({ phoneNumberId: connection.phoneNumberId, syncType })
+      setSyncNotice(`Pedido de sincronização de ${label} enviado à Meta.`)
+      setRefreshKey((value) => value + 1)
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Não foi possível solicitar a sincronização.')
+      setRefreshKey((value) => value + 1)
+    } finally {
+      setSyncBusy((current) => ({ ...current, [key]: false }))
+    }
+  }
+
   return (
     <section className="whatsapp-page">
       <header className="whatsapp-page-header">
@@ -623,11 +688,46 @@ export function WhatsAppPage() {
                   {connections.map((connection) => (
                     <li key={connection.phoneNumberId}>
                       <span><strong>{connection.displayPhoneNumber || connection.phoneNumberId}</strong><small>{connection.isOnBizApp ? 'WhatsApp Business App + Cloud API' : 'Cloud API'}</small></span>
-                      <span className="whatsapp-connected-badge">Conectado</span>
+                      <div className="whatsapp-connected-actions">
+                        <span className="whatsapp-connected-badge">Conectado</span>
+                        {connection.isOnBizApp && (
+                          <details className="whatsapp-sync-details">
+                            <summary>Sincronização inicial</summary>
+                            <p>Contatos e histórico são opcionais, enviados pela Meta e solicitados separadamente. Cada pedido pode ser feito uma única vez dentro de 24 horas da conexão.</p>
+                            <div className="whatsapp-sync-row">
+                              <span>
+                                <strong>Contatos</strong>
+                                <small>{coexistenceSyncStatusLabel(connection.appStateSyncState, 'smb_app_state_sync')}</small>
+                                {typeof connection.appStateSyncState?.requestId === 'string' && <small>ID Meta: {connection.appStateSyncState.requestId}</small>}
+                              </span>
+                              {!hasCoexistenceSyncRequest(connection.appStateSyncState) && isCoexistenceSyncWindowOpen(connection) && (
+                                <button type="button" className="secondary-button" disabled={Boolean(syncBusy[`${connection.phoneNumberId}:smb_app_state_sync`])} onClick={() => void requestConnectionSync(connection, 'smb_app_state_sync')}>
+                                  {syncBusy[`${connection.phoneNumberId}:smb_app_state_sync`] ? 'Solicitando…' : 'Sincronizar contatos'}
+                                </button>
+                              )}
+                            </div>
+                            <div className="whatsapp-sync-row">
+                              <span>
+                                <strong>Histórico</strong>
+                                <small>{coexistenceSyncStatusLabel(connection.historySyncState, 'history')}</small>
+                                {typeof connection.historySyncState?.requestId === 'string' && <small>ID Meta: {connection.historySyncState.requestId}</small>}
+                              </span>
+                              {!hasCoexistenceSyncRequest(connection.historySyncState) && isCoexistenceSyncWindowOpen(connection) && (
+                                <button type="button" className="secondary-button" disabled={Boolean(syncBusy[`${connection.phoneNumberId}:history`])} onClick={() => void requestConnectionSync(connection, 'history')}>
+                                  {syncBusy[`${connection.phoneNumberId}:history`] ? 'Solicitando…' : 'Solicitar histórico'}
+                                </button>
+                              )}
+                            </div>
+                            {!isCoexistenceSyncWindowOpen(connection) && (!hasCoexistenceSyncRequest(connection.appStateSyncState) || !hasCoexistenceSyncRequest(connection.historySyncState)) && <small className="whatsapp-sync-expired">A janela inicial de sincronização encerrou.</small>}
+                          </details>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>
               )}
+              {syncError && <p className="whatsapp-connect-state is-error" role="alert">{syncError}</p>}
+              {syncNotice && <p className="whatsapp-connect-state is-ready" role="status">{syncNotice}</p>}
             </section>
 
             <section className="whatsapp-automation-panel" aria-labelledby="whatsapp-automation-title">
