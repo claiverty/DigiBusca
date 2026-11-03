@@ -6,7 +6,7 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { opportunityTypes, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig, isWhatsAppAutomationRuntimeEnabled } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
@@ -21,6 +21,7 @@ import { getOpenBotDelivery, listOpenBotAgents, OpenBotAutomationError, sendOpen
 import { handleWhatsAppWebhook, WhatsAppWebhookBodyTooLargeError } from '../application/handleWhatsAppWebhook.js'
 import { whatsappWebhookMaxBodyBytes } from '../application/whatsappWebhook.js'
 import { isUuid, parseWhatsAppEmbeddedSignupInput, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
+import { parseWhatsAppAutomationProfileInput } from '../contracts/whatsappAutomation.js'
 import { WhatsAppConnectionConflictError, WhatsAppStore } from '../data/whatsappStore.js'
 import { exchangeWhatsAppEmbeddedSignupCode, findCoexistencePhoneNumber, WhatsAppEmbeddedSignupError } from '../integrations/whatsappEmbeddedSignup.js'
 
@@ -318,6 +319,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       requestUrl,
       typeof signatureHeader === 'string' ? signatureHeader : undefined,
       () => readRawWebhookBody(request),
+      (task) => { void task },
     )
     sendWhatsAppWebhookResult(request, response, result)
     return
@@ -398,6 +400,65 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
 
+  if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/automation') {
+    const phoneNumberId = requestUrl.searchParams.get('phoneNumberId') ?? ''
+    if (!/^\d{1,128}$/.test(phoneNumberId)) {
+      sendJson(response, 400, { error: 'Selecione um número WhatsApp válido.' })
+      return
+    }
+    const profile = await new WhatsAppStore().getAutomationProfile(user.id, phoneNumberId)
+    response.setHeader('Cache-Control', 'no-store')
+    sendJson(response, 200, { data: profile ?? null })
+    return
+  }
+
+  if (request.method === 'POST' && requestUrl.pathname === '/api/whatsapp/automation') {
+    let body: unknown
+    try {
+      body = await readJsonBody(request)
+    } catch {
+      sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+      return
+    }
+    const input = parseWhatsAppAutomationProfileInput(body)
+    if (!input) {
+      sendJson(response, 400, { error: 'Revise os campos e as aprovações antes de salvar.' })
+      return
+    }
+    if (input.automationEnabled && !isWhatsAppAutomationRuntimeEnabled()) {
+      sendJson(response, 503, { error: 'A automação está bloqueada pelo interruptor global do servidor.' })
+      return
+    }
+    const profile = await new WhatsAppStore().saveAutomationProfile(user.id, input)
+    response.setHeader('Cache-Control', 'no-store')
+    sendJson(response, 200, { data: profile })
+    return
+  }
+
+  const automationPauseMatch = requestUrl.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/automation$/)
+  if (request.method === 'PATCH' && automationPauseMatch) {
+    const conversationId = automationPauseMatch[1]
+    let body: unknown
+    try {
+      body = await readJsonBody(request)
+    } catch {
+      sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+      return
+    }
+    if (!isUuid(conversationId) || typeof body !== 'object' || body === null || typeof (body as Record<string, unknown>).paused !== 'boolean') {
+      sendJson(response, 400, { error: 'A ação da conversa é inválida.' })
+      return
+    }
+    const paused = (body as { paused: boolean }).paused
+    const updated = await new WhatsAppStore().setConversationAutomationPaused(user.id, conversationId, paused, paused ? 'manual' : 'manual_resume')
+    if (!updated) {
+      sendJson(response, 404, { error: 'Conversa não encontrada.' })
+      return
+    }
+    sendJson(response, 200, { data: { paused } })
+    return
+  }
+
   const whatsappMessagesMatch = requestUrl.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/messages$/)
   if (request.method === 'GET' && whatsappMessagesMatch) {
     const conversationId = whatsappMessagesMatch[1]
@@ -417,7 +478,8 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
 
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/status') {
     const connectionStorageReady = await new WhatsAppStore().isCoexistenceStorageReady()
-    sendJson(response, 200, { data: { ...getWhatsAppCloudSetupStatus(), connectionStorageReady } })
+    const automationStorageReady = await new WhatsAppStore().isAutomationStorageReady()
+    sendJson(response, 200, { data: { ...getWhatsAppCloudSetupStatus(), connectionStorageReady, automationStorageReady } })
     return
   }
 

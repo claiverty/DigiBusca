@@ -3,6 +3,8 @@ import {
   isWhatsAppWebhookPersistenceConfigured,
 } from '../config/supabase.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
+import { processWhatsAppAutomation } from './processWhatsAppAutomation.js'
+import { logWarning } from '../observability/logger.js'
 import {
   parseWhatsAppWebhookEvents,
   verifyWhatsAppWebhookSignature,
@@ -37,6 +39,7 @@ export async function handleWhatsAppWebhook(
   url: URL,
   signatureHeader: string | null | undefined,
   readRawBody: () => Promise<Uint8Array>,
+  scheduleBackgroundTask?: (task: Promise<void>) => void,
 ): Promise<WhatsAppWebhookHttpResult> {
   const secrets = getWhatsAppWebhookSecrets()
 
@@ -95,6 +98,12 @@ export async function handleWhatsAppWebhook(
   } catch {
     // Return a retryable response without logging provider payloads or database details.
     return jsonResult(500, { error: 'Não foi possível persistir o evento do webhook WhatsApp.' })
+  }
+
+  if (scheduleBackgroundTask) {
+    scheduleBackgroundTask(processWhatsAppAutomation(events).catch(() => {
+      logWarning('whatsapp_automation_background_failed', { reason: 'unhandled_processor_error' })
+    }))
   }
 
   return jsonResult(200, { status: 'accepted' })

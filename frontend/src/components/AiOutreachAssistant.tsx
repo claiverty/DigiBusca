@@ -12,7 +12,7 @@ import {
   type OutreachTone,
 } from '../services/leadsService'
 import { conversationStages, greetingOptions, type ConversationStage, type OutreachGreeting } from '../../../backend/src/contracts/aiOutreach'
-import { buildOutreachContext, createSafeOutreachTemplate } from '../../../backend/src/domain/outreachPipeline'
+import { buildOutreachContext, createSafeOutreachTemplate, hasExplicitRefusal } from '../../../backend/src/domain/outreachPipeline'
 import type { Lead } from '../types'
 import './AiOutreachAssistant.css'
 
@@ -38,8 +38,8 @@ const confidenceLabels: Record<LeadAnalysis['confidence'], string> = {
   low: 'Confiança baixa',
 }
 
-function createGenerationInput(lead: Lead, service: string, tone: OutreachTone, stage: ConversationStage, lastReply: string, senderName: string, greeting: OutreachGreeting): GenerateOutreachInput {
-  return { businessName: lead.name, category: lead.category, websiteStatus: lead.website ? 'listed' : 'not_listed', googleProfileStatus: lead.opportunity === 'Perfil incompleto' ? 'incomplete' : 'complete', service: service.trim() || 'sites e presença digital', tone, stage, lastReply, senderName, greeting }
+function createGenerationInput(lead: Lead, service: string, tone: OutreachTone, stage: ConversationStage, lastReply: string, senderName: string, greeting: OutreachGreeting, offerDetails: string): GenerateOutreachInput {
+  return { businessName: lead.name, category: lead.category, websiteStatus: lead.website ? 'listed' : 'not_listed', googleProfileStatus: lead.opportunity === 'Perfil incompleto' ? 'incomplete' : 'complete', service: service.trim() || 'sites e presença digital', tone, stage, lastReply, senderName, greeting, offerDetails }
 }
 
 export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutreachAssistantProps) {
@@ -55,6 +55,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
   })
   const [isOpen, setIsOpen] = useState(false)
   const [service, setService] = useState('Site institucional')
+  const [offerDetails, setOfferDetails] = useState('')
   const [tone, setTone] = useState<OutreachTone>('Profissional')
   const [generator, setGenerator] = useState<OutreachGenerator>('gemini')
   const [openBotAgents, setOpenBotAgents] = useState<OpenBotAgent[]>([])
@@ -113,13 +114,14 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
     setIsOpen(false)
     setResult(undefined)
     setError('')
+    setOfferDetails('')
   }, [lead.id])
 
   useEffect(() => {
     if (!isOpen || generator !== 'gemini' || !service.trim()) return
     let isCurrent = true
 
-    void getCachedAiOutreach(createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting)).then((cached) => {
+    void getCachedAiOutreach(createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting, offerDetails)).then((cached) => {
       if (isCurrent && cached) {
         setResult(cached)
         setError('')
@@ -129,10 +131,36 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
     return () => {
       isCurrent = false
     }
-  }, [isOpen, generator, lead, service, tone, stage, lastReply, senderName, greeting])
+  }, [isOpen, generator, lead, service, tone, stage, lastReply, senderName, greeting, offerDetails])
+
+  function commercialStageNeedsDetails() {
+    return !hasExplicitRefusal(lastReply) && (stage === 'Apresentar condições' || stage === 'Confirmar decisão')
+  }
+
+  function shouldShowCommercialDetails() {
+    return commercialStageNeedsDetails() || stage === 'Responder dúvida'
+  }
+
+  function stageNeedsService() {
+    return stage === 'Pedir permissão' || stage === 'Apresentar ideia' || stage === 'Qualificar interesse'
+  }
+
+  function hasRequiredSenderIdentity() {
+    if (stage !== 'Identificar responsável' || senderName.trim() || hasExplicitRefusal(lastReply)) return true
+    setError('Informe como você se apresenta antes de perguntar quem cuida da presença digital.')
+    return false
+  }
+
+  function hasRequiredCommercialDetails() {
+    if (!commercialStageNeedsDetails() || offerDetails.trim()) return true
+    setError('Informe o escopo e as condições comerciais já definidos para não inventarmos preço ou prazo.')
+    return false
+  }
 
   async function handleGenerate() {
-    if ((stage === 'Pedir permissão' || stage === 'Apresentar ideia') && !service.trim()) {
+    if (!hasRequiredCommercialDetails()) return
+    if (!hasRequiredSenderIdentity()) return
+    if (stageNeedsService() && !service.trim()) {
       setError('Informe qual serviço você quer oferecer.')
       return
     }
@@ -141,7 +169,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
     setError('')
     setResult(undefined)
     try {
-      const input = createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting)
+      const input = createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting, offerDetails)
       if (generator === 'openbot') {
         if (!selectedOpenBotAgentId) {
           setError('Ative Local scripts no DigiProspector ou selecione um agente disponível no OpenBot.')
@@ -163,12 +191,14 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
   }
 
   function handleReadyTemplate() {
-    if ((stage === 'Pedir permissão' || stage === 'Apresentar ideia') && !service.trim()) {
+    if (!hasRequiredCommercialDetails()) return
+    if (!hasRequiredSenderIdentity()) return
+    if (stageNeedsService() && !service.trim()) {
       setError('Informe qual serviço você quer oferecer.')
       return
     }
     setError('')
-    const context = buildOutreachContext(createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting))
+    const context = buildOutreachContext(createGenerationInput(lead, service, tone, stage, lastReply, senderName, greeting, offerDetails))
     setResult({ ...createSafeOutreachTemplate(context), stage: context.conversation.stage, analysis: context.leadAnalysis, generationSource: 'safe_template' })
   }
 
@@ -213,7 +243,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
               A resposta informada entra no contexto da IA junto com os dados comerciais e a etapa. Inclua apenas o necessário.
             </p>
 
-            <p className="ai-outreach-note">Comece com um cumprimento e espere a resposta. Avance uma etapa por vez, conforme a conversa.</p>
+            <p className="ai-outreach-note">Comece com um cumprimento breve e espere a resposta. Depois, conduza a conversa com uma pergunta por vez. Informe escopo e condições antes de apresentar ou confirmar uma oferta; o DigiBusca só cria rascunhos.</p>
             <div className="ai-outreach-form">
               <label><span>Gerar com</span><select value={generator} disabled={isGenerating} onChange={(event) => { generatorChosenByUser.current = true; setGenerator(event.target.value as OutreachGenerator); setResult(undefined); setError('') }}>
                 <option value="gemini">Gemini</option>
@@ -227,14 +257,14 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
                   {isLoadingOpenBotAgents ? 'Conectando ao OpenBot…' : openBotAgentsError || 'Nenhum agente com Local scripts ativo foi encontrado.'}
                 </p>}
               </>}
-              <label><span>Etapa da conversa</span><select value={stage} disabled={isGenerating} onChange={(event) => { setStage(event.target.value as ConversationStage); setResult(undefined) }}>
+              <label><span>Etapa da conversa</span><select value={stage} disabled={isGenerating} onChange={(event) => { setStage(event.target.value as ConversationStage); setResult(undefined); setError('') }}>
                 {conversationStages.map((item) => <option key={item}>{item}</option>)}
               </select></label>
-              {(stage === 'Abertura' || stage === 'Pedir permissão') && <label><span>Seu nome (opcional)</span><input value={senderName} maxLength={80} disabled={isGenerating} onChange={(event) => { setSenderName(event.target.value); setResult(undefined) }} placeholder="Como você quer se apresentar" /></label>}
+              {(stage === 'Identificar responsável' || stage === 'Pedir permissão') && <label><span>Como você se apresenta{stage === 'Identificar responsável' ? '' : ' (opcional)'}</span><input value={senderName} required={stage === 'Identificar responsável'} maxLength={80} disabled={isGenerating} onChange={(event) => { setSenderName(event.target.value); setResult(undefined) }} placeholder="Ex.: Seu nome, da sua empresa" /></label>}
               {stage === 'Abertura' ? <label><span>Saudação</span><select value={greeting} disabled={isGenerating} onChange={(event) => { setGreeting(event.target.value as OutreachGreeting); setResult(undefined) }}>
                 {greetingOptions.map((item) => <option key={item}>{item}</option>)}
               </select></label> : <label><span>O que a pessoa respondeu?</span><textarea value={lastReply} disabled={isGenerating} maxLength={2000} onChange={(event) => { setLastReply(event.target.value); setResult(undefined) }} placeholder="Cole ou resuma a resposta para contextualizar a próxima mensagem" /></label>}
-              {(stage === 'Pedir permissão' || stage === 'Apresentar ideia') && <label>
+              {(stage === 'Pedir permissão' || stage === 'Apresentar ideia' || stage === 'Qualificar interesse') && <label>
                 <span>Serviço que você oferece</span>
                 <input
                   value={service}
@@ -246,6 +276,10 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
                   }}
                   placeholder="Ex.: Site institucional"
                 />
+              </label>}
+              {shouldShowCommercialDetails() && <label className="ai-outreach-commercial-details">
+                <span>Escopo e condições já definidos</span>
+                <textarea value={offerDetails} disabled={isGenerating} maxLength={400} onChange={(event) => { setOfferDetails(event.target.value); setResult(undefined) }} placeholder="Informe somente o que já foi combinado: escopo, valor, prazo e forma de pagamento. Não inclua links ou dados de pagamento." />
               </label>}
               <fieldset>
                 <legend>Tom da mensagem</legend>

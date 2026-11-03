@@ -1,6 +1,6 @@
 # WhatsApp Cloud API
 
-O DigiBusca envia um template pela Cloud API somente após uma ação manual na tela do lead. O lead precisa estar salvo e a autorização explícita para receber mensagens precisa estar registrada, com a origem informada. Leads marcados como “Pediu para não receber” ficam bloqueados. A integração não faz disparos em lote nem envia mensagens automaticamente.
+O DigiBusca mantém dois fluxos separados. A prospecção continua manual: o envio pela tela do lead exige lead salvo, autorização explícita registrada e template aprovado. A caixa de entrada também pode responder a mensagens novas recebidas, mas a automação começa desativada e exige configuração e aprovações explícitas por número. Ela nunca inicia a conversa nem dispara a saudação de abertura.
 
 Um telefone publicado no Google não comprova autorização. Registre “Autorizou receber mensagens” apenas quando a pessoa tiver concordado em receber mensagens pelo WhatsApp naquele número. A política do WhatsApp exige essa autorização e um template aprovado para iniciar uma conversa pela API.
 
@@ -26,6 +26,18 @@ O frontend usa `VITE_META_APP_ID`, `VITE_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID` e `
 
 O backend troca o código temporário retornado pelo SDK da Meta, valida que o WABA informado contém um número marcado por Meta como ativo no WhatsApp Business App, cifra o token com AES-GCM e associa número, WABA e token ao usuário autenticado. Respostas para o navegador contêm somente os metadados públicos da conexão. A migration `010_whatsapp_coexistence.sql` remove o SELECT de `authenticated` da tabela de conexões e cria a tabela privada de contatos sincronizados. **Não aplique migrations sem a autorização para alterar o Supabase.**
 
+## Respostas automáticas
+
+O recurso é limitado ao atendimento de uma mensagem de texto **recebida em tempo real**. Mensagens importadas do histórico, ecos de saída, mídia, mensagens duplicadas e conversas pausadas não disparam resposta. O webhook responde primeiro; o processamento da IA roda em segundo plano. A chave global `WHATSAPP_AUTOMATION_RUNTIME_ENABLED` vem como `false` no exemplo de ambiente.
+
+Na página WhatsApp, selecione o número e informe nome do negócio, identidade do atendente, oferta, fatos/condições aprovados e rota de atendimento humano. O usuário precisa confirmar separadamente a autorização do canal e a aprovação do conteúdo; ao salvar uma edição do conteúdo, a automação é desligada e exige nova aprovação. Cada resposta inclui a rota humana. Uma dúvida fora dos fatos aprovados é encaminhada e pausa o bot naquela conversa. O inbox permite assumir a conversa e pausar; pedidos claros para parar registram opt-out e não podem ser revertidos pelo botão.
+
+O Gemini recebe as últimas mensagens de texto da conversa para preparar somente a etapa atual: identificar a pessoa responsável, pedir permissão, entender cenário, explorar necessidade, apresentar uma ideia, qualificar interesse, apresentar condições ou confirmar decisão. O bot não inventa preços e condições; quando não consegue responder com os fatos aprovados, encaminha para uma pessoa. A primeira abordagem e qualquer retomada continuam fora da automação.
+
+A resposta automática só é enviada dentro de 24 horas da mensagem recebida que a acionou. Fora dessa janela, o bot não envia mensagem nem inicia template. A API revalida a janela, a aprovação, o estado da conversa e a mensagem mais recente imediatamente antes do envio. A política da Meta também exige encaminhamento humano claro nas automações e respeito às solicitações de parada: [WhatsApp Business Messaging Policy](https://business.whatsapp.com/policy/preview?lang=pt_BR).
+
+`supabase/migrations/011_whatsapp_reply_automation.sql` cria o perfil de atendimento e o registro idempotente de execuções; a migration altera somente o repositório até que seja aplicada ao banco pelo processo autorizado.
+
 ## Uso
 
 No detalhe do lead, salve o lead, registre a origem do consentimento, ajuste a mensagem ao template aprovado e clique em **Enviar pela API oficial**. O envio é individual e autenticado; há um limitador básico contra cliques repetidos. A resposta confirma que a API aceitou a mensagem, mas não garante entrega. O DigiBusca tenta salvar o ID da mensagem no histórico de interações.
@@ -44,8 +56,8 @@ As rotas autenticadas `GET /api/whatsapp/conversations?limit=50&before=<cursor>`
 
 ### Preparar o ambiente
 
-1. Aplique `supabase/migrations/009_whatsapp_webhook.sql` e depois `supabase/migrations/010_whatsapp_coexistence.sql` no projeto Supabase escolhido. A migration 010 não foi aplicada nesta alteração.
-2. Configure o runtime backend com `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `META_APP_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_GRAPH_API_VERSION` e `WHATSAPP_TOKEN_ENCRYPTION_KEY`. A chave service role e os segredos ficam exclusivamente no servidor.
+1. Aplique `supabase/migrations/009_whatsapp_webhook.sql`, `010_whatsapp_coexistence.sql` e `011_whatsapp_reply_automation.sql` no projeto Supabase escolhido, seguindo o fluxo autorizado. Nenhuma dessas migrations foi aplicada nesta alteração.
+2. Configure o runtime backend com `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `META_APP_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_GRAPH_API_VERSION` e `WHATSAPP_TOKEN_ENCRYPTION_KEY`. A chave service role e os segredos ficam exclusivamente no servidor. Mantenha `WHATSAPP_AUTOMATION_RUNTIME_ENABLED=false` até aprovar e revisar o canal e as respostas.
 3. Em `frontend/.env`, configure os três valores públicos `VITE_META_APP_ID`, `VITE_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID` e `VITE_WHATSAPP_GRAPH_API_VERSION`; reinicie o Vite após alterações.
 4. Na configuração Meta do app, finalize a verificação da empresa, o acesso de Tech Provider, a configuração do Facebook Login for Business e o Embedded Signup com o recurso **WhatsApp Business App onboarding**. Cadastre o domínio HTTPS real do DigiBusca como domínio permitido. Para produção, conclua App Review, Advanced Access/Access Verification e a liberação de integridade exigida pela Meta.
 5. Após uma implantação HTTPS autorizada, configure o callback `/api/webhooks/whatsapp`, verifique-o com `WHATSAPP_WEBHOOK_VERIFY_TOKEN` e assine os campos `messages`, `smb_message_echoes`, `history` e `smb_app_state_sync`. O backend local escuta em `127.0.0.1` e não recebe callbacks da Meta pela Internet.

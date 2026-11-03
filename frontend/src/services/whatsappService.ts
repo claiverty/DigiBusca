@@ -9,6 +9,26 @@ export type WhatsAppCloudSetupStatus = {
   templateConfigured: boolean
   embeddedSignupServerReady: boolean
   connectionStorageReady: boolean
+  automationStorageReady: boolean
+  automationRuntimeEnabled: boolean
+}
+
+export type WhatsAppAutomationProfile = {
+  phoneNumberId: string
+  businessName: string
+  senderIdentity: string
+  serviceSummary: string
+  approvedFacts: string
+  escalationContact: string
+  automationEnabled: boolean
+  channelApprovedAt: string | null
+  contentApprovedAt: string | null
+  updatedAt: string
+}
+
+export type WhatsAppAutomationProfileInput = Omit<WhatsAppAutomationProfile, 'channelApprovedAt' | 'contentApprovedAt' | 'updatedAt'> & {
+  channelApproved: boolean
+  contentApproved: boolean
 }
 
 export type WhatsAppConnection = {
@@ -30,6 +50,9 @@ export type WhatsAppConversation = {
   lastMessageAt?: string
   lastMessagePreview?: string
   lastMessageDirection?: 'inbound' | 'outbound'
+  automationPaused?: boolean
+  automationOptedOut?: boolean
+  automationPauseReason?: string
   createdAt: string
   updatedAt: string
 }
@@ -76,6 +99,41 @@ export async function getWhatsAppCloudSetupStatus(): Promise<WhatsAppCloudSetupS
 
 export async function getWhatsAppConnections(): Promise<WhatsAppConnection[]> {
   return getWhatsAppData<WhatsAppConnection[]>('/whatsapp/connections')
+}
+
+export async function getWhatsAppAutomationProfile(phoneNumberId: string): Promise<WhatsAppAutomationProfile | null> {
+  return getWhatsAppData<WhatsAppAutomationProfile | null>(`/whatsapp/automation?phoneNumberId=${encodeURIComponent(phoneNumberId)}`)
+}
+
+export async function saveWhatsAppAutomationProfile(input: WhatsAppAutomationProfileInput): Promise<WhatsAppAutomationProfile> {
+  let response: Response
+  try {
+    response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/automation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+  } catch {
+    throw new Error('Não foi possível conectar ao backend para salvar as regras de atendimento.')
+  }
+  const payload = (await response.json().catch(() => null)) as { data?: WhatsAppAutomationProfile; error?: string } | null
+  if (!response.ok || !payload?.data) throw new Error(payload?.error ?? 'Não foi possível salvar as regras de atendimento.')
+  return payload.data
+}
+
+export async function setWhatsAppConversationAutomationPaused(conversationId: string, paused: boolean): Promise<void> {
+  let response: Response
+  try {
+    response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/conversations/${encodeURIComponent(conversationId)}/automation`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paused }),
+    })
+  } catch {
+    throw new Error('Não foi possível atualizar a automação desta conversa.')
+  }
+  const payload = (await response.json().catch(() => null)) as { error?: string } | null
+  if (!response.ok) throw new Error(payload?.error ?? 'Não foi possível atualizar a automação desta conversa.')
 }
 
 export async function connectWhatsAppEmbeddedSignup(input: {

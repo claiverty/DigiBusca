@@ -17,6 +17,7 @@ export type WhatsAppWebhookMessage = {
   contactName?: string
   occurredAt: string
   direction: 'inbound' | 'outbound'
+  source: 'live' | 'history'
   messageType: string
   body?: string
 }
@@ -142,6 +143,7 @@ function parseMessage(
   contactWaId: string | undefined,
   contactName: string | undefined,
   direction: 'inbound' | 'outbound',
+  source: 'live' | 'history',
 ): WhatsAppWebhookMessage | undefined {
   if (!isRecord(message)) return undefined
   const providerMessageId = boundedString(message.id, 256)
@@ -159,6 +161,7 @@ function parseMessage(
     ...(contactName ? { contactName } : {}),
     occurredAt,
     direction,
+    source,
     messageType,
     ...(text ? { body: text } : {}),
   }
@@ -261,7 +264,7 @@ export function parseWhatsAppWebhookEvents(rawBody: Uint8Array): WhatsAppWebhook
           for (const message of value.messages) {
             if (!isRecord(message)) continue
             const contactWaId = normalizeWaId(message.from)
-            const parsed = parseMessage(message, phoneNumberId, wabaId, contactWaId, contactWaId ? contactNames.get(contactWaId) : undefined, 'inbound')
+            const parsed = parseMessage(message, phoneNumberId, wabaId, contactWaId, contactWaId ? contactNames.get(contactWaId) : undefined, 'inbound', 'live')
             if (parsed) events.messages.push(parsed)
           }
         }
@@ -291,7 +294,7 @@ export function parseWhatsAppWebhookEvents(rawBody: Uint8Array): WhatsAppWebhook
         for (const message of echoes) {
           if (!isRecord(message)) continue
           const contactWaId = normalizeWaId(message.to ?? message.recipient_id)
-          const parsed = parseMessage(message, phoneNumberId, wabaId, contactWaId, contactWaId ? contactNames.get(contactWaId) : undefined, 'outbound')
+          const parsed = parseMessage(message, phoneNumberId, wabaId, contactWaId, contactWaId ? contactNames.get(contactWaId) : undefined, 'outbound', 'live')
           if (parsed) events.messages.push(parsed)
         }
       }
@@ -312,7 +315,7 @@ export function parseWhatsAppWebhookEvents(rawBody: Uint8Array): WhatsAppWebhook
                 normalizeWaId(message.to) === contactWaId
                 ? 'outbound'
                 : 'inbound'
-              const parsed = parseMessage(message, phoneNumberId, wabaId, contactWaId, contactNames.get(contactWaId), direction)
+              const parsed = parseMessage(message, phoneNumberId, wabaId, contactWaId, contactNames.get(contactWaId), direction, 'history')
               if (!parsed) continue
               events.messages.push(parsed)
               const historyStatus = isRecord(message.history_context) ? normalizeStatus(message.history_context.status) : undefined

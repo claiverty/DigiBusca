@@ -73,7 +73,7 @@ export type OpenBotAgent = { id: string; name: string }
 
 const apiBaseUrl = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_URL ?? '/api')
 const openBotApiBaseUrl = 'http://127.0.0.1:3001/api'
-const outreachCacheVersion = 'v2-conversation'
+const outreachCacheVersion = 'v3-conversation-closing'
 const outreachCacheTtlMs = 60 * 60 * 1_000
 const maxCachedOutreaches = 50
 
@@ -96,6 +96,7 @@ function buildOutreachCacheKey(input: GenerateOutreachInput) {
     lastReply: input.lastReply ?? '',
     senderName: input.senderName ?? '',
     greeting: input.greeting ?? 'Oi',
+    offerDetails: input.offerDetails ?? '',
   })
 }
 

@@ -23,7 +23,7 @@ O Supabase Auth gerencia as contas. O backend valida cada sessão e acessa os da
 
 - Google Places: pesquisa de empresas e dados públicos de localização.
 - Gemini: geração de rascunhos de abordagem comercial.
-- WhatsApp Business Cloud API: envio individual de templates aprovados para contatos com autorização explícita registrada.
+- WhatsApp Business Cloud API: envio individual autorizado e respostas automáticas de atendimento, inativas por padrão.
 - Supabase: autenticação e persistência de leads, interações e vendas.
 
 ## Desenvolvimento
@@ -44,10 +44,12 @@ As chaves e credenciais devem ser configuradas no ambiente de execução e nunca
 
 ## Prospecção por conversa
 
-A mensagem padrão abre com um cumprimento curto. O assistente gera somente a mensagem da etapa escolhida: abertura, identificação do responsável, permissão, entendimento do cenário, necessidade, ideia, retorno ou encerramento. O contexto da resposta é informado pelo usuário; o aplicativo não lê respostas do WhatsApp. A IA e os modelos locais usam a mesma regra de etapas. Recusas explícitas detectadas geram um encerramento respeitoso.
+A primeira mensagem tem somente uma saudação curta; aguarde a resposta. Depois, apresente-se quando o nome ou a forma de apresentação estiver informada e identifique quem cuida da presença digital. Conduza a conversa com uma pergunta por vez, passando por permissão, cenário, necessidade, ideia, qualificação de interesse e dúvidas. Para apresentar condições ou confirmar uma decisão, informe antes o escopo e as condições já acordadas; a IA não deve inventar preço, parcelas, prazo, desconto ou forma de pagamento. Recusas explícitas geram um encerramento respeitoso.
+
+O assistente de prospecção gera somente a mensagem da etapa escolhida, e a primeira saudação continua manual. A nova resposta automática atua apenas depois que uma mensagem de texto chega pelo WhatsApp; permanece desativada por padrão, precisa de configuração e aprovação por número e não inicia conversas. Ela usa fatos aprovados, respeita opt-out e a janela de atendimento de 24 horas, e encaminha dúvidas fora do escopo para uma pessoa. Registre necessidade, prazo, decisor e condições confirmadas em Observações, e use Próximo passo e Próximo contato para organizar a continuidade.
 
 A carteira registra etapa da conversa, pessoa de contato e próximo passo. Permite pesquisar, ordenar por contato/nome/atualização, filtrar os contatos de hoje e exportar apenas a seleção atual com os dados de acompanhamento. Os filtros de telefone e leads salvos na busca são aplicados aos resultados de cada página; a ordenação também é por página.
 
-Antes de executar esta versão contra um banco existente, aplique `supabase/migrations/007_conversation_tracking.sql` e `supabase/migrations/008_whatsapp_cloud_consent.sql` pelo fluxo de migrations do ambiente. Elas acrescentam campos de acompanhamento e consentimento, preservando as políticas RLS existentes. Faça isso antes de publicar a API, pois as consultas passam a selecionar essas colunas. A configuração da Cloud API está em [docs/whatsapp-cloud-api.md](docs/whatsapp-cloud-api.md).
+Antes de executar esta versão contra um banco existente, aplique as migrations necessárias pelo fluxo autorizado. A resposta automática requer `009_whatsapp_webhook.sql`, `010_whatsapp_coexistence.sql` e `011_whatsapp_reply_automation.sql`; elas não foram aplicadas durante esta alteração. A configuração da Cloud API e os controles estão em [docs/whatsapp-cloud-api.md](docs/whatsapp-cloud-api.md).
 
 `npm run test:e2e -- tests/e2e/lead-upgrade.spec.ts` verifica os novos fluxos em desktop e celular com componentes reais e serviços isolados, sem conta nem chamadas externas. A geração real com Gemini e a persistência real no Supabase exigem validação no ambiente configurado.

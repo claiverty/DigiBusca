@@ -4,6 +4,7 @@ import type { WhatsAppPageOptions } from '../contracts/whatsapp.js'
 import type { WhatsAppWebhookEvents } from '../application/whatsappWebhook.js'
 import { encryptWhatsAppAccessToken } from '../integrations/whatsappTokenVault.js'
 import type { WhatsAppCoexistencePhone } from '../integrations/whatsappEmbeddedSignup.js'
+import type { WhatsAppAutomationProfile, WhatsAppAutomationProfileInput, WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 
 type ConnectionRow = { phone_number_id: string; user_id: string }
 type BusinessContactRow = { contact_wa_id: string; contact_name: string | null; is_removed: boolean }
@@ -16,8 +17,50 @@ type ConversationRow = {
   last_message_at: string | null
   last_message_preview: string | null
   last_message_direction: 'inbound' | 'outbound' | null
+  automation_paused?: boolean
+  automation_opted_out?: boolean
+  automation_pause_reason?: string | null
+  automation_stage?: WhatsAppAutomationStage
   created_at: string
   updated_at: string
+}
+
+export type WhatsAppAutomationRuntimeContext = {
+  userId: string
+  phoneNumberId: string
+  contactWaId: string
+  conversationId: string
+  accessTokenCiphertext: string | null
+  accessTokenIv: string | null
+  accessTokenExpiresAt: string | null
+  automationPaused: boolean
+  automationOptedOut: boolean
+  automationStage: WhatsAppAutomationStage
+  lastMessageAt: string | null
+  lastMessageDirection: 'inbound' | 'outbound' | null
+  latestProviderMessageId: string | null
+  profile: WhatsAppAutomationProfile | null
+  messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null; occurredAt: string }>
+}
+
+const validAutomationStages: WhatsAppAutomationStage[] = [
+  'identify_responsible', 'request_permission', 'understand_scenario', 'explore_need',
+  'present_idea', 'qualify_interest', 'present_conditions', 'confirm_decision', 'closed',
+]
+
+function mapAutomationProfile(row: Record<string, unknown>): WhatsAppAutomationProfile {
+  return {
+    phoneNumberId: row.phone_number_id as string,
+    businessName: row.business_name as string,
+    senderIdentity: row.sender_identity as string,
+    serviceSummary: row.service_summary as string,
+    approvedFacts: row.approved_facts as string,
+    escalationContact: row.escalation_contact as string,
+    automationEnabled: row.automation_enabled === true,
+    channelApprovedAt: row.channel_approved_at as string | null,
+    contentApprovedAt: row.content_approved_at as string | null,
+    updatedAt: row.updated_at as string,
+  }
 }
 type MessageRow = {
   id: string
@@ -85,6 +128,189 @@ export class WhatsAppStore {
     } catch {
       return false
     }
+  }
+
+  async isAutomationStorageReady() {
+    try {
+      const admin = createWhatsAppWebhookSupabaseClient()
+      const result = await admin.from('whatsapp_automation_profiles').select('phone_number_id').limit(0)
+      if (result.error) return false
+      const runs = await admin.from('whatsapp_automation_runs').select('id').limit(0)
+      return !runs.error
+    } catch {
+      return false
+    }
+  }
+
+  async getAutomationProfile(userId: string, phoneNumberId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const ownership = await admin.from('whatsapp_phone_number_connections')
+      .select('phone_number_id').eq('user_id', userId).eq('phone_number_id', phoneNumberId).maybeSingle()
+    throwIfError(ownership.error, 'Não foi possível validar o número WhatsApp selecionado.')
+    if (!ownership.data) return undefined
+
+    const result = await admin.from('whatsapp_automation_profiles')
+      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, automation_enabled, channel_approved_at, content_approved_at, updated_at')
+      .eq('user_id', userId).eq('phone_number_id', phoneNumberId).maybeSingle()
+    throwIfError(result.error, 'Não foi possível carregar as regras de atendimento automático.')
+    return result.data ? mapAutomationProfile(result.data as Record<string, unknown>) : undefined
+  }
+
+  async saveAutomationProfile(userId: string, input: WhatsAppAutomationProfileInput) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const ownership = await admin.from('whatsapp_phone_number_connections')
+      .select('phone_number_id').eq('user_id', userId).eq('phone_number_id', input.phoneNumberId).maybeSingle()
+    throwIfError(ownership.error, 'Não foi possível validar o número WhatsApp selecionado.')
+    if (!ownership.data) throw new Error('O número WhatsApp não está conectado a esta conta.')
+
+    const approvedAt = new Date().toISOString()
+    const values = {
+      user_id: userId,
+      phone_number_id: input.phoneNumberId,
+      business_name: input.businessName,
+      sender_identity: input.senderIdentity,
+      service_summary: input.serviceSummary,
+      approved_facts: input.approvedFacts,
+      escalation_contact: input.escalationContact,
+      automation_enabled: input.automationEnabled,
+      channel_approved_at: input.channelApproved ? approvedAt : null,
+      content_approved_at: input.contentApproved ? approvedAt : null,
+      updated_at: approvedAt,
+    }
+    const result = await admin.from('whatsapp_automation_profiles')
+      .upsert(values, { onConflict: 'phone_number_id,user_id' })
+      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, automation_enabled, channel_approved_at, content_approved_at, updated_at')
+      .single()
+    throwIfError(result.error, 'Não foi possível salvar as regras de atendimento automático.')
+    return mapAutomationProfile(result.data as Record<string, unknown>)
+  }
+
+  async setConversationAutomationPaused(userId: string, conversationId: string, paused: boolean, reason = 'manual') {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    let query = admin.from('whatsapp_conversations')
+      .update({ automation_paused: paused, automation_pause_reason: paused ? reason : null })
+      .eq('id', conversationId).eq('user_id', userId)
+    if (!paused) query = query.eq('automation_opted_out', false)
+    const result = await query
+      .select('id').maybeSingle()
+    throwIfError(result.error, 'Não foi possível atualizar a automação desta conversa.')
+    return Boolean(result.data)
+  }
+
+  async markConversationOptedOut(userId: string, conversationId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_conversations')
+      .update({ automation_paused: true, automation_opted_out: true, automation_pause_reason: 'opt_out' })
+      .eq('id', conversationId).eq('user_id', userId)
+    throwIfError(result.error, 'Não foi possível registrar o pedido de parada desta conversa.')
+  }
+
+  async getAutomationRuntimeContext(phoneNumberId: string, contactWaId: string): Promise<WhatsAppAutomationRuntimeContext | undefined> {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const connectionResult = await admin.from('whatsapp_phone_number_connections')
+      .select('user_id, phone_number_id, access_token_ciphertext, access_token_iv, access_token_expires_at')
+      .eq('phone_number_id', phoneNumberId).maybeSingle()
+    throwIfError(connectionResult.error, 'Não foi possível carregar a conexão WhatsApp para responder.')
+    if (!connectionResult.data) return undefined
+    const connection = connectionResult.data as {
+      user_id: string; phone_number_id: string; access_token_ciphertext: string | null;
+      access_token_iv: string | null; access_token_expires_at: string | null
+    }
+
+    const [conversationResult, profileResult] = await Promise.all([
+      admin.from('whatsapp_conversations')
+        .select('id, automation_paused, automation_opted_out, automation_stage, last_message_at, last_message_direction')
+        .eq('user_id', connection.user_id).eq('phone_number_id', phoneNumberId)
+        .eq('contact_wa_id', contactWaId).maybeSingle(),
+      admin.from('whatsapp_automation_profiles')
+        .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, automation_enabled, channel_approved_at, content_approved_at, updated_at')
+        .eq('user_id', connection.user_id).eq('phone_number_id', phoneNumberId).maybeSingle(),
+    ])
+    throwIfError(conversationResult.error, 'Não foi possível carregar a conversa para responder.')
+    throwIfError(profileResult.error, 'Não foi possível carregar as regras de atendimento automático.')
+    if (!conversationResult.data) return undefined
+    const conversation = conversationResult.data as {
+      id: string; automation_paused: boolean | null; automation_opted_out: boolean | null; automation_stage: string | null;
+      last_message_at: string | null; last_message_direction: 'inbound' | 'outbound' | null
+    }
+    const stage = validAutomationStages.includes(conversation.automation_stage as WhatsAppAutomationStage)
+      ? conversation.automation_stage as WhatsAppAutomationStage
+      : 'identify_responsible'
+    const messagesResult = await admin.from('whatsapp_messages')
+      .select('provider_message_id, direction, body, occurred_at').eq('user_id', connection.user_id)
+      .eq('phone_number_id', phoneNumberId).eq('conversation_id', conversation.id)
+      .order('occurred_at', { ascending: false }).order('created_at', { ascending: false }).limit(12)
+    throwIfError(messagesResult.error, 'Não foi possível carregar o contexto recente da conversa.')
+
+    return {
+      userId: connection.user_id,
+      phoneNumberId,
+      contactWaId,
+      conversationId: conversation.id,
+      accessTokenCiphertext: connection.access_token_ciphertext,
+      accessTokenIv: connection.access_token_iv,
+      accessTokenExpiresAt: connection.access_token_expires_at,
+      automationPaused: conversation.automation_paused === true,
+      automationOptedOut: conversation.automation_opted_out === true,
+      automationStage: stage,
+      lastMessageAt: conversation.last_message_at,
+      lastMessageDirection: conversation.last_message_direction,
+      latestProviderMessageId: ((messagesResult.data ?? []) as Array<{ provider_message_id: string }>)[0]?.provider_message_id ?? null,
+      profile: profileResult.data ? mapAutomationProfile(profileResult.data as Record<string, unknown>) : null,
+      messages: ((messagesResult.data ?? []) as Array<{ direction: 'inbound' | 'outbound'; body: string | null; occurred_at: string }>)
+        .reverse().map(({ direction, body, occurred_at }) => ({ direction, body, occurredAt: occurred_at })),
+    }
+  }
+
+  async claimAutomationRun(userId: string, phoneNumberId: string, conversationId: string, inboundProviderMessageId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_automation_runs').upsert({
+      user_id: userId,
+      phone_number_id: phoneNumberId,
+      conversation_id: conversationId,
+      inbound_provider_message_id: inboundProviderMessageId,
+      status: 'processing',
+    }, { onConflict: 'phone_number_id,inbound_provider_message_id', ignoreDuplicates: true })
+      .select('id').maybeSingle()
+    throwIfError(result.error, 'Não foi possível reservar a resposta automática.')
+    return result.data?.id as string | undefined
+  }
+
+  async completeAutomationRun(runId: string, status: 'sent' | 'skipped' | 'needs_human' | 'failed', reason?: string, replyMessageId?: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_automation_runs').update({
+      status,
+      reason: reason ?? null,
+      reply_provider_message_id: replyMessageId ?? null,
+      completed_at: new Date().toISOString(),
+    }).eq('id', runId)
+    throwIfError(result.error, 'Não foi possível registrar o resultado da resposta automática.')
+  }
+
+  async persistAutomatedReply(input: {
+    userId: string; phoneNumberId: string; conversationId: string; contactWaId: string;
+    providerMessageId: string; body: string; occurredAt: string
+  }) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_messages').upsert({
+      user_id: input.userId,
+      phone_number_id: input.phoneNumberId,
+      conversation_id: input.conversationId,
+      provider_message_id: input.providerMessageId,
+      contact_wa_id: input.contactWaId,
+      direction: 'outbound',
+      message_type: 'text',
+      body: input.body,
+      is_placeholder: false,
+      occurred_at: input.occurredAt,
+    }, { onConflict: 'phone_number_id,provider_message_id', ignoreDuplicates: true })
+    throwIfError(result.error, 'Não foi possível salvar a resposta automática enviada.')
+  }
+
+  async updateAutomationStage(conversationId: string, stage: WhatsAppAutomationStage) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_conversations').update({ automation_stage: stage }).eq('id', conversationId)
+    throwIfError(result.error, 'Não foi possível atualizar a etapa do atendimento automático.')
   }
 
   async connectCoexistencePhone(
@@ -365,7 +591,7 @@ export class WhatsAppStore {
   async listConversations(accessToken: string, userId: string, options: WhatsAppPageOptions) {
     let query = this.userClient(accessToken)
       .from('whatsapp_conversations')
-      .select('id, user_id, phone_number_id, contact_wa_id, contact_name, last_message_at, last_message_preview, last_message_direction, created_at, updated_at')
+      .select('id, user_id, phone_number_id, contact_wa_id, contact_name, last_message_at, last_message_preview, last_message_direction, automation_paused, automation_opted_out, automation_pause_reason, created_at, updated_at')
       .eq('user_id', userId)
       .not('last_message_at', 'is', null)
       .order('last_message_at', { ascending: false, nullsFirst: false })
@@ -385,6 +611,9 @@ export class WhatsAppStore {
         lastMessageAt: row.last_message_at ?? undefined,
         lastMessagePreview: row.last_message_preview ?? undefined,
         lastMessageDirection: row.last_message_direction ?? undefined,
+        automationPaused: row.automation_paused === true,
+        automationOptedOut: row.automation_opted_out === true,
+        automationPauseReason: row.automation_pause_reason ?? undefined,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       })),

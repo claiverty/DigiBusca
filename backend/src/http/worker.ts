@@ -1,5 +1,5 @@
 import { executeSearchLeads } from '../application/searchLeads.js'
-import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig, type RuntimeEnvironment } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig, isWhatsAppAutomationRuntimeEnabled, type RuntimeEnvironment } from '../config/supabase.js'
 import { parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
@@ -16,6 +16,7 @@ import { parseWhatsAppTemplateSendInput, sendWhatsAppTemplateForLead, WhatsAppSe
 import { handleWhatsAppWebhook, WhatsAppWebhookBodyTooLargeError } from '../application/handleWhatsAppWebhook.js'
 import { whatsappWebhookMaxBodyBytes } from '../application/whatsappWebhook.js'
 import { isUuid, parseWhatsAppEmbeddedSignupInput, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
+import { parseWhatsAppAutomationProfileInput } from '../contracts/whatsappAutomation.js'
 import { WhatsAppConnectionConflictError, WhatsAppStore } from '../data/whatsappStore.js'
 import { exchangeWhatsAppEmbeddedSignupCode, findCoexistencePhoneNumber, WhatsAppEmbeddedSignupError } from '../integrations/whatsappEmbeddedSignup.js'
 
@@ -178,7 +179,7 @@ function webhookResponse(result: Awaited<ReturnType<typeof handleWhatsAppWebhook
   })
 }
 
-async function handleApiRequest(request: Request) {
+async function handleApiRequest(request: Request, scheduleBackgroundTask?: (task: Promise<void>) => void) {
   if (request.method === 'OPTIONS') return jsonResponse(request, 204, null)
 
   const url = new URL(request.url)
@@ -199,6 +200,7 @@ async function handleApiRequest(request: Request) {
       url,
       request.headers.get('X-Hub-Signature-256'),
       () => readRawWebhookBody(request),
+      scheduleBackgroundTask,
     )
     return webhookResponse(result, request)
   }
@@ -254,6 +256,36 @@ async function handleApiRequest(request: Request) {
     return jsonResponse(request, 200, await new WhatsAppStore().listConversations(accessToken, user.id, options))
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/whatsapp/automation') {
+    const phoneNumberId = url.searchParams.get('phoneNumberId') ?? ''
+    if (!/^\d{1,128}$/.test(phoneNumberId)) return jsonResponse(request, 400, { error: 'Selecione um número WhatsApp válido.' })
+    const profile = await new WhatsAppStore().getAutomationProfile(user.id, phoneNumberId)
+    return jsonResponse(request, 200, { data: profile ?? null }, { 'Cache-Control': 'no-store' })
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/whatsapp/automation') {
+    const input = parseWhatsAppAutomationProfileInput(await parseBody(request))
+    if (!input) return jsonResponse(request, 400, { error: 'Revise os campos e as aprovações antes de salvar.' })
+    if (input.automationEnabled && !isWhatsAppAutomationRuntimeEnabled()) {
+      return jsonResponse(request, 503, { error: 'A automação está bloqueada pelo interruptor global do servidor.' })
+    }
+    const profile = await new WhatsAppStore().saveAutomationProfile(user.id, input)
+    return jsonResponse(request, 200, { data: profile }, { 'Cache-Control': 'no-store' })
+  }
+
+  const automationPauseMatch = url.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/automation$/)
+  if (request.method === 'PATCH' && automationPauseMatch) {
+    const conversationId = automationPauseMatch[1]
+    const body = await parseBody(request)
+    if (!isUuid(conversationId) || typeof body !== 'object' || body === null || typeof (body as Record<string, unknown>).paused !== 'boolean') {
+      return jsonResponse(request, 400, { error: 'A ação da conversa é inválida.' })
+    }
+    const paused = (body as { paused: boolean }).paused
+    const updated = await new WhatsAppStore().setConversationAutomationPaused(user.id, conversationId, paused, paused ? 'manual' : 'manual_resume')
+    if (!updated) return jsonResponse(request, 404, { error: 'Conversa não encontrada.' })
+    return jsonResponse(request, 200, { data: { paused } })
+  }
+
   const whatsappMessagesMatch = url.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/messages$/)
   if (request.method === 'GET' && whatsappMessagesMatch) {
     const conversationId = whatsappMessagesMatch[1]
@@ -268,7 +300,8 @@ async function handleApiRequest(request: Request) {
 
   if (request.method === 'GET' && url.pathname === '/api/whatsapp/status') {
     const connectionStorageReady = await new WhatsAppStore().isCoexistenceStorageReady()
-    return jsonResponse(request, 200, { data: { ...getWhatsAppCloudSetupStatus(), connectionStorageReady } })
+    const automationStorageReady = await new WhatsAppStore().isAutomationStorageReady()
+    return jsonResponse(request, 200, { data: { ...getWhatsAppCloudSetupStatus(), connectionStorageReady, automationStorageReady } })
   }
 
   const trackedLeadProvider = new GooglePlacesProvider(
@@ -564,11 +597,13 @@ async function handleApiRequest(request: Request) {
 }
 
 export default {
-  async fetch(request: Request, environment: WorkerEnvironment) {
+  async fetch(request: Request, environment: WorkerEnvironment, context: { waitUntil(task: Promise<unknown>): void }) {
     configureRuntimeEnvironment(environment)
 
     try {
-      if (new URL(request.url).pathname.startsWith('/api/')) return await handleApiRequest(request)
+      if (new URL(request.url).pathname.startsWith('/api/')) {
+        return await handleApiRequest(request, (task) => context.waitUntil(task))
+      }
       if (environment.ASSETS) return environment.ASSETS.fetch(request)
       return new Response('DigiBusca', { status: 404 })
     } catch (error) {

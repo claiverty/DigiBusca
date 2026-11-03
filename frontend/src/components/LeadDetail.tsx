@@ -377,7 +377,7 @@ export function LeadDetail({
               <label className="detail-field"><span>Etapa da conversa</span><select value={conversationStage} onChange={(event) => setConversationStage(event.target.value)}>{conversationStages.map((item) => <option key={item}>{item}</option>)}</select></label>
               <label className="detail-field"><span>Pessoa de contato</span><input value={contactName} maxLength={120} onChange={(event) => setContactName(event.target.value)} placeholder="Nome e função, se informados" /></label>
             </div>
-            <label className="detail-field"><span>Próximo passo</span><input value={nextAction} maxLength={500} onChange={(event) => setNextAction(event.target.value)} placeholder="Ex.: descobrir quem cuida da divulgação" /></label>
+            <label className="detail-field"><span>Próximo passo</span><input value={nextAction} maxLength={500} onChange={(event) => setNextAction(event.target.value)} placeholder="Ex.: confirmar escopo e prazo; enviar proposta após validar as condições" /></label>
             <div className="whatsapp-consent-fields">
               <label className="detail-field">
                 <span>Autorização para WhatsApp</span>
@@ -417,7 +417,7 @@ export function LeadDetail({
               <textarea
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                placeholder="Registre o contexto da conversa"
+                placeholder="Registre necessidade, prazo, decisor e condições que a pessoa informou. Separe fatos de hipóteses."
                 aria-label="Observações do lead"
               />
             </label>

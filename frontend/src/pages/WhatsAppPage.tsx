@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, RefreshCw, ShieldCheck } from 'lucide-react'
+import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, RefreshCw, ShieldCheck } from 'lucide-react'
 import {
   connectWhatsAppEmbeddedSignup,
   getWhatsAppCloudSetupStatus,
   getWhatsAppConnections,
   getWhatsAppConversationMessages,
   getWhatsAppConversations,
+  getWhatsAppAutomationProfile,
+  saveWhatsAppAutomationProfile,
+  setWhatsAppConversationAutomationPaused,
   type WhatsAppCloudSetupStatus,
+  type WhatsAppAutomationProfileInput,
   type WhatsAppConnection,
   type WhatsAppConversation,
   type WhatsAppMessage,
@@ -17,6 +21,20 @@ type PageTab = 'inbox' | 'settings'
 type LoadState = 'loading' | 'ready' | 'error'
 
 const metaAppUrl = 'https://developers.facebook.com/apps/1787786145843784/use_cases/customize/api-testing-v2/?product_route=whatsapp-business&business_id=2117758865105224&use_case_enum=WHATSAPP_BUSINESS_MESSAGING&selected_tab=api-testing-v2'
+
+function blankAutomationProfile(phoneNumberId: string): WhatsAppAutomationProfileInput {
+  return {
+    phoneNumberId,
+    businessName: '',
+    senderIdentity: '',
+    serviceSummary: '',
+    approvedFacts: '',
+    escalationContact: '',
+    automationEnabled: false,
+    channelApproved: false,
+    contentApproved: false,
+  }
+}
 
 type FacebookLoginResponse = { authResponse?: { code?: string } }
 type FacebookSignupSession = { wabaId: string; phoneNumberId?: string }
@@ -209,6 +227,15 @@ export function WhatsAppPage() {
   const [connectBusy, setConnectBusy] = useState(false)
   const [connectError, setConnectError] = useState('')
   const [connectNotice, setConnectNotice] = useState('')
+  const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
+  const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(blankAutomationProfile(''))
+  const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
+  const [automationState, setAutomationState] = useState<LoadState>('ready')
+  const [automationBusy, setAutomationBusy] = useState(false)
+  const [automationError, setAutomationError] = useState('')
+  const [automationNotice, setAutomationNotice] = useState('')
+  const [pauseBusy, setPauseBusy] = useState(false)
+  const [pauseError, setPauseError] = useState('')
 
   const metaAppId = import.meta.env.VITE_META_APP_ID?.trim() ?? ''
   const loginConfigurationId = import.meta.env.VITE_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID?.trim() ?? ''
@@ -239,6 +266,11 @@ export function WhatsAppPage() {
       .then((items) => {
         if (!active) return
         setConnections(items)
+        setAutomationPhoneNumberId((current) => (
+          current && items.some((connection) => connection.phoneNumberId === current)
+            ? current
+            : items[0]?.phoneNumberId ?? ''
+        ))
         setConnectionsState('ready')
       })
       .catch((error: unknown) => {
@@ -248,6 +280,49 @@ export function WhatsAppPage() {
       })
     return () => { active = false }
   }, [refreshKey])
+
+  useEffect(() => {
+    let active = true
+    if (!automationPhoneNumberId) {
+      setAutomationForm(blankAutomationProfile(''))
+      setAutomationPersistedEnabled(false)
+      setAutomationState('ready')
+      return () => { active = false }
+    }
+    if (status?.automationStorageReady !== true) {
+      setAutomationForm(blankAutomationProfile(automationPhoneNumberId))
+      setAutomationPersistedEnabled(false)
+      setAutomationState('ready')
+      return () => { active = false }
+    }
+    setAutomationState('loading')
+    setAutomationError('')
+    setAutomationNotice('')
+    void getWhatsAppAutomationProfile(automationPhoneNumberId)
+      .then((profile) => {
+        if (!active) return
+        setAutomationPersistedEnabled(profile?.automationEnabled === true)
+        setAutomationForm(profile ? {
+          phoneNumberId: profile.phoneNumberId,
+          businessName: profile.businessName,
+          senderIdentity: profile.senderIdentity,
+          serviceSummary: profile.serviceSummary,
+          approvedFacts: profile.approvedFacts,
+          escalationContact: profile.escalationContact,
+          automationEnabled: profile.automationEnabled,
+          channelApproved: Boolean(profile.channelApprovedAt),
+          contentApproved: Boolean(profile.contentApprovedAt),
+        } : blankAutomationProfile(automationPhoneNumberId))
+        setAutomationState('ready')
+      })
+      .catch((error: unknown) => {
+        if (!active) return
+        setAutomationPersistedEnabled(false)
+        setAutomationError(error instanceof Error ? error.message : 'Não foi possível carregar as regras da automação.')
+        setAutomationState('error')
+      })
+    return () => { active = false }
+  }, [automationPhoneNumberId, status?.automationStorageReady])
 
   useEffect(() => {
     let active = true
@@ -303,6 +378,50 @@ export function WhatsAppPage() {
   const sendReady = loadState === 'ready' && status?.sendReady === true
   const connectionReady = connections.some((connection) => connection.isOnBizApp)
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId)
+
+  function updateAutomationContent(key: 'businessName' | 'senderIdentity' | 'serviceSummary' | 'approvedFacts' | 'escalationContact', value: string) {
+    setAutomationForm((current) => ({ ...current, [key]: value, contentApproved: false, automationEnabled: false }))
+  }
+
+  async function saveAutomationSettings() {
+    setAutomationBusy(true)
+    setAutomationError('')
+    setAutomationNotice('')
+    try {
+      const saved = await saveWhatsAppAutomationProfile(automationForm)
+      setAutomationForm({
+        ...automationForm,
+        automationEnabled: saved.automationEnabled,
+        channelApproved: Boolean(saved.channelApprovedAt),
+        contentApproved: Boolean(saved.contentApprovedAt),
+      })
+      setAutomationPersistedEnabled(saved.automationEnabled)
+      setAutomationNotice(saved.automationEnabled
+        ? 'Regras salvas. A automação só responderá a novas mensagens recebidas dentro da janela permitida.'
+        : 'Rascunho salvo. A automação continua desativada.')
+    } catch (error) {
+      setAutomationError(error instanceof Error ? error.message : 'Não foi possível salvar as regras da automação.')
+    } finally {
+      setAutomationBusy(false)
+    }
+  }
+
+  async function toggleConversationAutomation() {
+    if (!selectedConversation) return
+    const nextPaused = !selectedConversation.automationPaused
+    setPauseBusy(true)
+    setPauseError('')
+    try {
+      await setWhatsAppConversationAutomationPaused(selectedConversation.id, nextPaused)
+      setConversations((current) => current.map((conversation) => conversation.id === selectedConversation.id
+        ? { ...conversation, automationPaused: nextPaused }
+        : conversation))
+    } catch (error) {
+      setPauseError(error instanceof Error ? error.message : 'Não foi possível alterar a automação desta conversa.')
+    } finally {
+      setPauseBusy(false)
+    }
+  }
 
   async function connectWhatsAppAccount() {
     if (!publicSignupConfigReady) return
@@ -411,6 +530,16 @@ export function WhatsAppPage() {
                     <span>{selectedConversation.contactWaId}</span>
                   </div>
                 </header>
+                <div className="whatsapp-thread-automation">
+                  <span className={selectedConversation.automationPaused ? 'is-paused' : 'is-running'}>
+                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
+                  </span>
+                  <button className="secondary-button" type="button" onClick={() => void toggleConversationAutomation()} disabled={pauseBusy || selectedConversation.automationOptedOut === true}>
+                    {selectedConversation.automationPaused ? <Play size={14} /> : <Pause size={14} />}
+                    {pauseBusy ? 'Atualizando…' : selectedConversation.automationOptedOut ? 'Parada respeitada' : selectedConversation.automationPaused ? 'Retomar automação' : 'Assumir no WhatsApp'}
+                  </button>
+                </div>
+                {pauseError && <p className="whatsapp-connect-state is-error" role="alert">{pauseError}</p>}
                 <div className="whatsapp-thread-messages" aria-live="polite">
                   {messagesState === 'loading' && <p className="whatsapp-inline-state">Carregando mensagens…</p>}
                   {messagesState === 'error' && <p className="whatsapp-inline-state is-error" role="alert">{messagesError}</p>}
@@ -430,7 +559,7 @@ export function WhatsAppPage() {
                     )
                   })}
                 </div>
-                <p className="whatsapp-thread-note">Respostas automáticas e envio pelo inbox serão ativados após configurar o número e as regras de atendimento.</p>
+                <p className="whatsapp-thread-note">A automação só responde a novas mensagens de texto recebidas; “Assumir no WhatsApp” pausa o bot nesta conversa.</p>
               </>
             ) : (
               <div className="whatsapp-conversation-placeholder">
@@ -499,6 +628,88 @@ export function WhatsAppPage() {
                   ))}
                 </ul>
               )}
+            </section>
+
+            <section className="whatsapp-automation-panel" aria-labelledby="whatsapp-automation-title">
+              <div className="whatsapp-automation-heading">
+                <div>
+                  <span className="eyebrow">ATENDIMENTO POR ETAPAS</span>
+                  <h3 id="whatsapp-automation-title">Respostas automáticas</h3>
+                  <p>O bot só responde depois de uma mensagem recebida. Ele não inicia prospecção nem dispara a saudação de abertura.</p>
+                </div>
+                <span className={`whatsapp-automation-pill${automationPersistedEnabled ? ' is-on' : ''}`}>
+                  {automationPersistedEnabled ? (automationForm.automationEnabled ? 'Ativada' : 'Ativa até salvar') : automationForm.automationEnabled ? 'Ativação pendente' : 'Desativada'}
+                </span>
+              </div>
+
+              {connections.length > 1 && (
+                <label className="whatsapp-form-field">
+                  <span>Número WhatsApp</span>
+                  <select value={automationPhoneNumberId} onChange={(event) => setAutomationPhoneNumberId(event.target.value)}>
+                    {connections.map((connection) => <option key={connection.phoneNumberId} value={connection.phoneNumberId}>{connection.displayPhoneNumber || connection.phoneNumberId}</option>)}
+                  </select>
+                </label>
+              )}
+              {connections.length === 0 && <p className="whatsapp-connect-state is-pending">Conecte um número WhatsApp antes de configurar as respostas automáticas.</p>}
+              {status?.automationStorageReady === false && (
+                <p className="whatsapp-connect-state is-pending">A estrutura ainda não está no Supabase. Revise e aplique a migration <code>011_whatsapp_reply_automation.sql</code> antes de salvar.</p>
+              )}
+              {status?.automationRuntimeEnabled === false && (
+                <p className="whatsapp-connect-state is-pending">O interruptor global do servidor está desligado. Para disponibilizar ativação, configure <code>WHATSAPP_AUTOMATION_RUNTIME_ENABLED=true</code> após aprovar canal e conteúdo.</p>
+              )}
+              {automationState === 'loading' && <p className="whatsapp-connect-state">Carregando configuração…</p>}
+
+              <div className="whatsapp-automation-fields">
+                <label className="whatsapp-form-field">
+                  <span>Nome do negócio</span>
+                  <input value={automationForm.businessName} maxLength={120} onChange={(event) => updateAutomationContent('businessName', event.target.value)} placeholder="Nome que a pessoa reconhece" />
+                </label>
+                <label className="whatsapp-form-field">
+                  <span>Como o atendente se apresenta</span>
+                  <input value={automationForm.senderIdentity} maxLength={120} onChange={(event) => updateAutomationContent('senderIdentity', event.target.value)} placeholder="Ex.: Seu nome, da sua empresa" />
+                </label>
+                <label className="whatsapp-form-field is-wide">
+                  <span>Serviço e problema que resolve</span>
+                  <textarea value={automationForm.serviceSummary} maxLength={1500} rows={3} onChange={(event) => updateAutomationContent('serviceSummary', event.target.value)} placeholder="Descreva a oferta em termos que podem ser repetidos ao lead." />
+                </label>
+                <label className="whatsapp-form-field is-wide">
+                  <span>Fatos e condições comerciais aprovados</span>
+                  <textarea value={automationForm.approvedFacts} maxLength={2000} rows={3} onChange={(event) => updateAutomationContent('approvedFacts', event.target.value)} placeholder="Inclua somente escopo, preço, prazo e condições que o bot pode afirmar." />
+                </label>
+                <label className="whatsapp-form-field is-wide">
+                  <span>Contato ou rota de atendimento humano</span>
+                  <input value={automationForm.escalationContact} maxLength={180} onChange={(event) => updateAutomationContent('escalationContact', event.target.value)} placeholder="Telefone, e-mail ou instrução de transferência" />
+                </label>
+              </div>
+
+              <div className="whatsapp-automation-approvals">
+                <label className="whatsapp-check-row">
+                  <input type="checkbox" checked={automationForm.channelApproved} onChange={(event) => setAutomationForm((current) => ({ ...current, channelApproved: event.target.checked, automationEnabled: event.target.checked && current.contentApproved ? current.automationEnabled : false }))} />
+                  <span>Autorizo respostas automáticas neste número, somente após a pessoa nos escrever.</span>
+                </label>
+                <label className="whatsapp-check-row">
+                  <input type="checkbox" checked={automationForm.contentApproved} onChange={(event) => setAutomationForm((current) => ({ ...current, contentApproved: event.target.checked, automationEnabled: event.target.checked && current.channelApproved ? current.automationEnabled : false }))} />
+                  <span>Aprovo o conteúdo acima para o bot usar nesta conversa comercial.</span>
+                </label>
+                <label className="whatsapp-check-row is-enable">
+                  <input
+                    type="checkbox"
+                    checked={automationForm.automationEnabled}
+                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved}
+                    onChange={(event) => setAutomationForm((current) => ({ ...current, automationEnabled: event.target.checked }))}
+                  />
+                  <span>Ativar respostas automáticas após salvar as aprovações.</span>
+                </label>
+              </div>
+              <p className="whatsapp-automation-privacy">O texto recente da conversa será enviado ao Gemini para preparar cada resposta. Fora da janela de 24 horas, com recusa, pausa ou falta de dados aprovados, o bot não envia resposta automática; dúvidas fora do escopo são encaminhadas ao contato humano indicado.</p>
+              {automationError && <p className="whatsapp-connect-state is-error" role="alert">{automationError}</p>}
+              {automationNotice && <p className="whatsapp-connect-state is-ready" role="status">{automationNotice}</p>}
+              <div className="whatsapp-automation-actions">
+                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.automationEnabled && (!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim()))}>
+                  <ShieldCheck size={15} />
+                  {automationBusy ? 'Salvando…' : 'Salvar regras'}
+                </button>
+              </div>
             </section>
 
             <div className="whatsapp-settings-note">

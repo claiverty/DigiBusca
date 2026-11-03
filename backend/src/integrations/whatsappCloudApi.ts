@@ -63,3 +63,39 @@ export async function sendApprovedTemplateMessage(
   if (!messageId) throw new WhatsAppCloudApiError('A API não confirmou o envio da mensagem.', 502)
   return messageId
 }
+
+export async function sendWhatsAppTextMessage(
+  config: { accessToken: string; phoneNumberId: string; graphApiVersion: string },
+  phone: string,
+  message: string,
+): Promise<string> {
+  let response: Response
+  try {
+    response = await fetch(
+      `https://graph.facebook.com/${config.graphApiVersion}/${config.phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: phone,
+          type: 'text',
+          text: { preview_url: false, body: message },
+        }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    )
+  } catch {
+    throw new Error('whatsapp_send_unavailable')
+  }
+
+  if (!response.ok) throw new Error('whatsapp_send_rejected')
+  const payload = await response.json().catch(() => undefined) as { messages?: Array<{ id?: string }> } | undefined
+  const messageId = payload?.messages?.[0]?.id
+  if (!messageId) throw new Error('whatsapp_send_unconfirmed')
+  return messageId
+}

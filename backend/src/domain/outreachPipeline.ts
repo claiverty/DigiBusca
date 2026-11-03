@@ -107,7 +107,13 @@ export function buildOutreachContext(input: GenerateOutreachInput): OutreachCont
     leadAnalysis,
     campaignConfig: buildCampaignConfig(input),
     approachStrategy: chooseApproachStrategy(leadAnalysis),
-    conversation: { stage: hasExplicitRefusal(input.lastReply ?? '') ? 'Encerrar' : input.stage ?? 'Abertura', lastReply: input.lastReply ?? '', senderName: input.senderName ?? '', greeting: input.greeting ?? 'Oi' },
+    conversation: {
+      stage: hasExplicitRefusal(input.lastReply ?? '') ? 'Encerrar' : input.stage ?? 'Abertura',
+      lastReply: input.lastReply ?? '',
+      senderName: input.senderName ?? '',
+      greeting: input.greeting ?? 'Oi',
+      offerDetails: input.offerDetails?.trim() ?? '',
+    },
   }
 }
 
@@ -122,20 +128,21 @@ export function validateGeneratedOutreach(
   const issues: string[] = []
   const initial = normalizedText(copy.whatsappMessage)
   const allText = normalizedText(`${copy.whatsappMessage} ${copy.followUpMessage} ${copy.salesArgument}`)
+  const customerFacingText = normalizedText(`${copy.whatsappMessage} ${copy.followUpMessage}`)
 
   if (copy.whatsappMessage.length > 500) issues.push('A mensagem inicial ultrapassa 500 caracteres.')
   if (copy.followUpMessage.length > 320) issues.push('O follow-up ultrapassa 320 caracteres.')
   if (copy.salesArgument.length > 350) issues.push('O argumento ultrapassa 350 caracteres.')
-  const identity = normalizedText(context.conversation.senderName)
-  const opening = identity ? initial.replace(`sou ${identity}. `, '') : initial
+  const opening = initial
   const isSimpleGreeting = /^(?:(?:oi|ola)(?:, (?:bom dia|boa tarde|boa noite))?|bom dia|boa tarde|boa noite)[!, .]+tudo (?:bem|certo)\?$/.test(opening)
   if (context.conversation.stage === 'Abertura' && (!isSimpleGreeting || copy.whatsappMessage.length > 140)) {
-    issues.push('A abertura deve conter apenas uma saudação curta e identificação opcional.')
+    issues.push('A abertura deve conter somente uma saudação curta, sem identificação.')
   }
   if (context.conversation.stage === 'Abertura' && /\b(site|google|proposta|servico|clientes|vendas|trabalho|oportunidade)\b/.test(initial)) {
     issues.push('A abertura antecipa uma oferta comercial.')
   }
   if (context.conversation.stage !== 'Encerrar' && !hasExplicitRefusal(context.conversation.lastReply) && !copy.whatsappMessage.trim().endsWith('?')) issues.push('A mensagem inicial não termina com uma pergunta.')
+  if ((copy.whatsappMessage.match(/\?/g)?.length ?? 0) > 1) issues.push('A mensagem deve fazer no máximo uma pergunta por vez.')
   if (/https?:\/\/|www\./i.test(allText)) issues.push('A resposta contém uma URL.')
   if (/\b(vimos|encontramos|trabalhamos|nossa equipe)\b/.test(allText)) {
     issues.push('A resposta usa voz de equipe.')
@@ -163,27 +170,44 @@ export function validateGeneratedOutreach(
   }
 
   if (context.conversation.stage === 'Identificar responsável' && /\b(proposta|ofereco|oferecer|trabalho com|vender|compra)\b/.test(initial)) issues.push('A identificação do responsável antecipa uma oferta.')
+  if (
+    !context.conversation.offerDetails &&
+    /\br\$\s*\d|\b\d+(?:[.,]\d+)?\s*(?:reais|parcelas|x)\b|\b(?:a vista|parcel\w*|desconto|entrada|cartao|taxa)\b/.test(customerFacingText)
+  ) issues.push('A resposta apresenta condições comerciais que não foram informadas.')
   if (hasExplicitRefusal(context.conversation.lastReply) && /\?|\b(mas|porem|insistir|oferta|proposta)\b/.test(initial)) issues.push('A resposta não respeita a recusa.')
   return issues
 }
 
 export function createSafeOutreachTemplate(context: OutreachContext): GeneratedOutreachCopy {
   const { service } = context.campaignConfig
-  const { stage, senderName, greeting } = context.conversation
+  const { stage, senderName, greeting, offerDetails } = context.conversation
   const introduction = senderName ? `Sou ${senderName}. ` : ''
   const messages: Record<typeof stage, string> = {
-    'Abertura': `${greeting === 'Oi' ? 'Oi' : `Oi, ${greeting.toLocaleLowerCase('pt-BR')}`}! ${senderName ? `Sou ${senderName}. ` : ''}Tudo bem?`,
-    'Identificar responsável': 'Por esse contato eu falo com quem cuida da divulgação e da presença digital da empresa ou seria outra pessoa?',
+    'Abertura': `${greeting === 'Oi' ? 'Oi' : `Oi, ${greeting.toLocaleLowerCase('pt-BR')}`}! Tudo bem?`,
+    'Identificar responsável': `${introduction}Queria falar com quem cuida da divulgação e da presença digital da empresa. É você?`,
     'Pedir permissão': `${introduction}Trabalho com ${service}. Queria entender como vocês cuidam dessa parte hoje. Posso te fazer uma pergunta rápida?`,
     'Entender cenário': 'Hoje vocês usam mais o Instagram e o WhatsApp para apresentar os serviços e receber contatos ou também usam um site?',
     'Explorar necessidade': 'Entendi. Esse formato atende bem vocês hoje ou tem alguma coisa nessa parte que gostariam de facilitar?',
     'Apresentar ideia': `Se fizer sentido para vocês, posso mostrar um exemplo de ${service} para avaliarmos juntos se ajuda no que precisam. Quer ver?`,
+    'Qualificar interesse': 'Para eu pensar em algo que faça sentido para vocês, o que seria mais importante nesse projeto?',
+    'Responder dúvida': 'Posso esclarecer. Qual ponto você gostaria de entender melhor?',
+    'Apresentar condições': offerDetails
+      ? `A opção que tenho definida é: ${offerDetails}. Isso funciona para vocês?`
+      : 'Para te passar as condições corretas, preciso confirmar o escopo. O que deve entrar nesta opção?',
+    'Confirmar decisão': offerDetails
+      ? `As condições combinadas são: ${offerDetails}. Quer seguir com essa opção?`
+      : 'Antes de avançarmos, falta definir as condições da opção. Qual ponto ainda precisa de confirmação?',
     'Retomar contato': 'Oi, tudo bem? Queria saber se podemos continuar a conversa por aqui. Se não for um bom momento, tudo bem também?',
     'Encerrar': 'Tudo bem, obrigado por me responder. Bom trabalho por aí!',
   }
+  const salesArgument = stage === 'Apresentar condições'
+    ? 'Apresente somente o escopo e as condições informadas. Não invente preço, prazo, desconto ou forma de pagamento.'
+    : stage === 'Confirmar decisão'
+      ? 'Confirme a intenção sem presumir aceite. Registre o próximo passo e só marque a venda depois de um acordo explícito.'
+      : `Entenda o cenário e a necessidade antes de apresentar ${service}. Os dados públicos não comprovam problemas nem resultados futuros.`
   return {
     whatsappMessage: hasExplicitRefusal(context.conversation.lastReply) ? messages['Encerrar'] : messages[stage],
     followUpMessage: stage === 'Encerrar' || hasExplicitRefusal(context.conversation.lastReply) ? messages['Encerrar'] : messages['Retomar contato'],
-    salesArgument: `Entenda o cenário e a necessidade antes de apresentar ${service}. Os dados públicos não comprovam problemas nem resultados futuros.`,
+    salesArgument,
   }
 }

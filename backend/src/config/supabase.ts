@@ -18,6 +18,7 @@ export type RuntimeEnvironment = {
   WHATSAPP_WEBHOOK_VERIFY_TOKEN?: string
   META_APP_ID?: string
   WHATSAPP_TOKEN_ENCRYPTION_KEY?: string
+  WHATSAPP_AUTOMATION_RUNTIME_ENABLED?: string
 }
 
 let runtimeEnvironment: RuntimeEnvironment | undefined
@@ -80,6 +81,7 @@ export function getWhatsAppCloudSetupStatus() {
     graphApiVersionConfigured &&
     webhookPersistenceConfigured,
   )
+  const automationRuntimeEnabled = values.WHATSAPP_AUTOMATION_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
 
   return {
     sendReady: accessTokenConfigured && phoneNumberConfigured && graphApiVersionConfigured && templateConfigured,
@@ -89,7 +91,12 @@ export function getWhatsAppCloudSetupStatus() {
     graphApiVersionConfigured,
     templateConfigured,
     embeddedSignupServerReady,
+    automationRuntimeEnabled,
   }
+}
+
+export function isWhatsAppAutomationRuntimeEnabled() {
+  return environment().WHATSAPP_AUTOMATION_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
 }
 
 export function getWhatsAppEmbeddedSignupServerConfig() {

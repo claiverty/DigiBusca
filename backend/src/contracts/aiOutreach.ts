@@ -7,7 +7,20 @@ export type WebsiteStatus = (typeof websiteStatuses)[number]
 export const googleProfileStatuses = ['complete', 'incomplete'] as const
 export type GoogleProfileStatus = (typeof googleProfileStatuses)[number]
 
-export const conversationStages = ['Abertura', 'Identificar responsável', 'Pedir permissão', 'Entender cenário', 'Explorar necessidade', 'Apresentar ideia', 'Retomar contato', 'Encerrar'] as const
+export const conversationStages = [
+  'Abertura',
+  'Identificar responsável',
+  'Pedir permissão',
+  'Entender cenário',
+  'Explorar necessidade',
+  'Apresentar ideia',
+  'Qualificar interesse',
+  'Responder dúvida',
+  'Apresentar condições',
+  'Confirmar decisão',
+  'Retomar contato',
+  'Encerrar',
+] as const
 export type ConversationStage = (typeof conversationStages)[number]
 export const greetingOptions = ['Oi', 'Bom dia', 'Boa tarde', 'Boa noite'] as const
 export type OutreachGreeting = (typeof greetingOptions)[number]
@@ -23,6 +36,7 @@ export type GenerateOutreachInput = {
   lastReply?: string
   senderName?: string
   greeting?: OutreachGreeting
+  offerDetails?: string
 }
 
 export type LeadType =
@@ -73,7 +87,7 @@ export type OutreachContext = {
   leadAnalysis: LeadAnalysis
   campaignConfig: CampaignConfig
   approachStrategy: ApproachStrategy
-  conversation: { stage: ConversationStage; lastReply: string; senderName: string; greeting: OutreachGreeting }
+  conversation: { stage: ConversationStage; lastReply: string; senderName: string; greeting: OutreachGreeting; offerDetails: string }
 }
 
 export type GeneratedOutreachCopy = {
@@ -115,10 +129,15 @@ export function parseGenerateOutreachInput(value: unknown): GenerateOutreachInpu
     (value.stage !== undefined && !conversationStages.includes(value.stage as ConversationStage)) ||
     (value.greeting !== undefined && !greetingOptions.includes(value.greeting as OutreachGreeting)) ||
     (value.lastReply !== undefined && (typeof value.lastReply !== 'string' || value.lastReply.length > 2000)) ||
-    (value.senderName !== undefined && (typeof value.senderName !== 'string' || value.senderName.length > 80))
+    (value.senderName !== undefined && (typeof value.senderName !== 'string' || value.senderName.length > 80)) ||
+    (value.offerDetails !== undefined && (typeof value.offerDetails !== 'string' || value.offerDetails.length > 400))
   ) {
     return undefined
   }
+
+  const stage = (value.stage as ConversationStage | undefined) ?? 'Abertura'
+  const senderName = typeof value.senderName === 'string' ? value.senderName.trim() : ''
+  const offerDetails = typeof value.offerDetails === 'string' ? value.offerDetails.trim() : ''
 
   return {
     businessName,
@@ -127,10 +146,11 @@ export function parseGenerateOutreachInput(value: unknown): GenerateOutreachInpu
     websiteStatus: value.websiteStatus as WebsiteStatus,
     googleProfileStatus: value.googleProfileStatus as GoogleProfileStatus,
     tone: value.tone as OutreachTone,
-    stage: (value.stage as ConversationStage | undefined) ?? 'Abertura',
+    stage,
     greeting: (value.greeting as OutreachGreeting | undefined) ?? 'Oi',
     lastReply: typeof value.lastReply === 'string' ? value.lastReply.trim() : '',
-    senderName: typeof value.senderName === 'string' ? value.senderName.trim() : '',
+    senderName,
+    offerDetails,
   }
 }
 
