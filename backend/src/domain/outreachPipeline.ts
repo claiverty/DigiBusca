@@ -197,7 +197,7 @@ export function createSafeOutreachTemplate(context: OutreachContext): GeneratedO
     'Confirmar decisão': offerDetails
       ? `As condições combinadas são: ${offerDetails}. Quer seguir com essa opção?`
       : 'Antes de avançarmos, falta definir as condições da opção. Qual ponto ainda precisa de confirmação?',
-    'Retomar contato': 'Oi, tudo bem? Queria saber se podemos continuar a conversa por aqui. Se não for um bom momento, tudo bem também?',
+    'Retomar contato': 'Oi! Podemos continuar a conversa por aqui?',
     'Encerrar': 'Tudo bem, obrigado por me responder. Bom trabalho por aí!',
   }
   const salesArgument = stage === 'Apresentar condições'

@@ -59,7 +59,7 @@ test('modelo seguro passa pelas mesmas validações da resposta da IA', () => {
 test('aceita variações factuais sem afirmar que a empresa não possui site', () => {
   const context = buildOutreachContext({ ...baseInput, stage: 'Apresentar ideia' })
   const copy: GeneratedOutreachCopy = {
-    whatsappMessage: 'Oi, tudo bem? Encontrei a empresa de vocês no Google e não localizei um site vinculado ao perfil. Trabalho com sites institucionais. Já consideraram ter esse canal próprio?',
+    whatsappMessage: 'Encontrei a empresa de vocês no Google e não localizei um site vinculado ao perfil. Trabalho com sites institucionais. Posso enviar uma ideia para esse canal próprio?',
     followUpMessage: 'Oi! Posso enviar uma ideia simples por aqui?',
     salesArgument: 'Um site é um canal próprio para apresentar informações e facilitar o contato.',
   }
@@ -70,9 +70,9 @@ test('aceita variações factuais sem afirmar que a empresa não possui site', (
 test('aceita observações naturais que continuam vinculadas ao perfil público', () => {
   const context = buildOutreachContext({ ...baseInput, stage: 'Apresentar ideia' })
   const variations = [
-    'Oi, tudo bem? Notei que a empresa não tem um site informado no perfil do Google. Posso enviar uma ideia rápida?',
-    'Oi, tudo bem? No perfil do Google não consta um site cadastrado. Posso compartilhar uma sugestão?',
-    'Oi, tudo bem? Não identifiquei um site vinculado ao perfil da empresa no Google. Posso mostrar uma possibilidade?',
+    'Notei que a empresa não tem um site informado no perfil do Google. Posso enviar uma ideia rápida?',
+    'No perfil do Google não consta um site cadastrado. Posso compartilhar uma sugestão?',
+    'Não identifiquei um site vinculado ao perfil da empresa no Google. Posso mostrar uma possibilidade?',
   ]
 
   for (const whatsappMessage of variations) {

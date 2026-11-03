@@ -62,6 +62,7 @@ test('cold chat começa curto, identifica responsável e usa resposta na IA', as
   await page.getByRole('button', { name: 'Usar modelo sem IA' }).click()
   await expect(page.getByText('Oi, boa tarde! Tudo bem?', { exact: true })).toBeVisible()
   await page.getByLabel('Etapa da conversa').selectOption('Identificar responsável')
+  await page.getByLabel('Como você se apresenta').fill('Guilherme, da DigiUP')
   await page.getByLabel('O que a pessoa respondeu?').fill('Boa tarde, tudo sim!')
   await page.getByRole('button', { name: 'Gerar com IA', exact: true }).click()
   await expect(page.getByText('Gerada com IA', { exact: true })).toBeVisible()
