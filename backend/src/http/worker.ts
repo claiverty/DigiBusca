@@ -1,5 +1,5 @@
 import { executeSearchLeads } from '../application/searchLeads.js'
-import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig, isWhatsAppAutomationRuntimeEnabled, type RuntimeEnvironment } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppIntegrationEnabled, type RuntimeEnvironment } from '../config/supabase.js'
 import { parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
@@ -29,6 +29,10 @@ const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function isWhatsAppIntegrationPath(pathname: string) {
+  return pathname === '/api/whatsapp' || pathname.startsWith('/api/whatsapp/') || pathname === '/api/webhooks/whatsapp'
 }
 
 function mergeSavedLeadState(lead: Lead, state: Awaited<ReturnType<SupabaseStore['getSavedLeadState']>>) {
@@ -193,6 +197,10 @@ async function handleApiRequest(request: Request, scheduleBackgroundTask?: (task
       service: 'digibusca-backend',
       searchProvider: leadProvider.isConfigured ? 'google-places' : 'google-places-not-configured',
     })
+  }
+
+  if (isWhatsAppIntegrationPath(url.pathname) && !isWhatsAppIntegrationEnabled()) {
+    return jsonResponse(request, 410, { error: 'A integração do WhatsApp está desativada.' }, { 'Cache-Control': 'no-store' })
   }
 
   if (url.pathname === '/api/webhooks/whatsapp') {

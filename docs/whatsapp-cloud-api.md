@@ -1,6 +1,8 @@
 # WhatsApp Cloud API
 
-O DigiBusca mantém dois fluxos separados. A prospecção continua manual: o envio pela tela do lead exige lead salvo, autorização explícita registrada e template aprovado. A caixa de entrada também pode responder a mensagens novas recebidas, mas a automação começa desativada e exige configuração e aprovações explícitas por número. Ela nunca inicia a conversa nem dispara a saudação de abertura.
+**Status atual: integração desativada.** O DigiBusca não conecta contas, não recebe webhooks, não exibe a caixa de entrada e não envia mensagens pela API. A página de integração foi removida da navegação, e as rotas `/api/whatsapp/*` e `/api/webhooks/whatsapp` respondem `410 Gone`. O Worker mantém `WHATSAPP_INTEGRATION_ENABLED=false`; o único atalho mantido é abrir manualmente o WhatsApp pelo detalhe do lead. Nenhuma migration ou dado foi removido.
+
+O restante deste documento é referência técnica histórica. Não configure nem reative a integração até que isso seja solicitado novamente.
 
 Um telefone publicado no Google não comprova autorização. Registre “Autorizou receber mensagens” apenas quando a pessoa tiver concordado em receber mensagens pelo WhatsApp naquele número. A política do WhatsApp exige essa autorização e um template aprovado para iniciar uma conversa pela API.
 
@@ -20,7 +22,7 @@ META_APP_ID=
 WHATSAPP_TOKEN_ENCRYPTION_KEY=
 ```
 
-Para o Embedded Signup, o `META_APP_ID` precisa corresponder ao `VITE_META_APP_ID`. `WHATSAPP_TOKEN_ENCRYPTION_KEY` é uma chave AES-256 em Base64 que decodifica para 32 bytes; ela fica apenas no servidor e cifra o token antes de gravá-lo no Supabase. No ambiente local, os nomes com prefixo `VITE_` ficam em `frontend/.env` e os valores privados ficam em `backend/.env` (ambos ignorados pelo Git). Esta alteração só adiciona exemplos vazios; não cria nem lê credenciais.
+Para o Embedded Signup, o `META_APP_ID` precisa corresponder ao `VITE_META_APP_ID`. `WHATSAPP_TOKEN_ENCRYPTION_KEY` é uma chave AES-256 em Base64 que decodifica para 32 bytes; ela fica apenas no servidor e cifra o token antes de gravá-lo no Supabase. No ambiente local, os nomes com prefixo `VITE_` ficam em `frontend/.env` e os valores privados ficam em `backend/.env` (ambos ignorados pelo Git). Este arquivo não cria, lê nem altera credenciais.
 
 O frontend usa `VITE_META_APP_ID`, `VITE_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID` e `VITE_WHATSAPP_GRAPH_API_VERSION`. O App ID e o ID da configuração de login são identificadores públicos. Sem `VITE_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID`, a página mostra que a configuração está pendente e mantém o botão desativado.
 
@@ -40,13 +42,11 @@ A resposta automática só é enviada dentro de 24 horas da mensagem recebida qu
 
 ## Uso
 
-No detalhe do lead, salve o lead, registre a origem do consentimento, ajuste a mensagem ao template aprovado e clique em **Enviar pela API oficial**. O envio é individual e autenticado; há um limitador básico contra cliques repetidos. A resposta confirma que a API aceitou a mensagem, mas não garante entrega. O DigiBusca tenta salvar o ID da mensagem no histórico de interações.
-
-Para parar contatos futuros, marque **Pediu para não receber** e salve as alterações. Isso bloqueia envios pela Cloud API no DigiBusca.
+No detalhe do lead, revise o rascunho e use **Abrir no WhatsApp** para continuar manualmente. O DigiBusca não envia nem responde mensagens.
 
 ## Webhook de mensagens e status
 
-O backend recebe eventos em `GET` e `POST /api/webhooks/whatsapp`. O `GET` responde ao desafio da Meta somente quando `hub.mode=subscribe` e `hub.verify_token` coincide com `WHATSAPP_WEBHOOK_VERIFY_TOKEN`. No `POST`, o backend valida `X-Hub-Signature-256` com HMAC SHA-256 sobre os bytes originais do corpo e `WHATSAPP_APP_SECRET`, antes de interpretar o JSON. Corpos maiores que 1 MB são recusados.
+Enquanto o kill switch está desligado, `GET` e `POST /api/webhooks/whatsapp` respondem `410 Gone` e nenhum evento é processado. Os detalhes abaixo documentam a implementação mantida no repositório, mas não estão ativos.
 
 Mensagens recebidas, ecos enviados pelo app (`smb_message_echoes`), mensagens incluídas nos chunks de histórico (`history`) e eventos `sent`, `delivered`, `read` e `failed` são gravados de forma idempotente pelo ID do provedor. Mensagens do app e do histórico mantêm a direção de saída; mensagens recebidas e status continuam usando as chaves únicas atuais. Mensagens de texto guardam o corpo; outros tipos guardam o tipo e os identificadores, sem baixar mídia. Um status pode criar um registro de mensagem de saída sem conteúdo até que o texto esteja disponível por outra integração. Contatos e ações `add`/`remove` de `smb_app_state_sync` são guardados no backend e usados para nomear conversas. Eventos de um `phone_number_id` sem vínculo configurado são aceitos sem persistência para evitar retries e associação automática a uma conta.
 
@@ -69,7 +69,7 @@ Sem a chave service role, o segredo do app e o token de verificação no runtime
 
 ## Rascunhos com agentes do OpenBot
 
-O DigiBusca pode pedir ao agente `DigiProspector` do OpenBot um rascunho de abordagem e importar o resultado para o campo de mensagem do lead. O agente não envia mensagens ao WhatsApp. Revise o rascunho e use **Enviar pela API oficial** separadamente; o envio ainda exige consentimento registrado e template aprovado.
+O DigiBusca pode pedir ao agente `DigiProspector` do OpenBot um rascunho de abordagem e importar o resultado para o campo de mensagem do lead. O agente não envia mensagens ao WhatsApp; revise o rascunho e, se decidir contatar a empresa, continue manualmente pelo botão **Abrir no WhatsApp**.
 
 ### Ativar a conexão local
 

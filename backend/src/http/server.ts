@@ -6,7 +6,7 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { opportunityTypes, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig, isWhatsAppAutomationRuntimeEnabled } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment, getGeminiApiKey, getWhatsAppCloudSetupStatus, getWhatsAppEmbeddedSignupServerConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppIntegrationEnabled } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
@@ -125,6 +125,10 @@ function sendRequestError(response: ServerResponse, error: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function isWhatsAppIntegrationPath(pathname: string) {
+  return pathname === '/api/whatsapp' || pathname.startsWith('/api/whatsapp/') || pathname === '/api/webhooks/whatsapp'
 }
 
 function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -310,6 +314,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       service: 'digibusca-backend',
       searchProvider: leadProvider.isConfigured ? 'google-places' : 'google-places-not-configured',
     })
+    return
+  }
+
+  if (isWhatsAppIntegrationPath(requestUrl.pathname) && !isWhatsAppIntegrationEnabled()) {
+    sendJson(response, 410, { error: 'A integração do WhatsApp está desativada.' })
     return
   }
 

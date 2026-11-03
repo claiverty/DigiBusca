@@ -18,6 +18,7 @@ export type RuntimeEnvironment = {
   WHATSAPP_WEBHOOK_VERIFY_TOKEN?: string
   META_APP_ID?: string
   WHATSAPP_TOKEN_ENCRYPTION_KEY?: string
+  WHATSAPP_INTEGRATION_ENABLED?: string
   WHATSAPP_AUTOMATION_RUNTIME_ENABLED?: string
 }
 
@@ -63,6 +64,7 @@ export function getWhatsAppCloudConfig() {
 
 export function getWhatsAppCloudSetupStatus() {
   const values = environment()
+  const integrationEnabled = isWhatsAppIntegrationEnabled()
   const accessTokenConfigured = Boolean(values.WHATSAPP_ACCESS_TOKEN?.trim())
   const phoneNumberConfigured = Boolean(values.WHATSAPP_PHONE_NUMBER_ID?.trim())
   const graphApiVersionConfigured = /^v\d+\.\d+$/.test(values.WHATSAPP_GRAPH_API_VERSION?.trim() ?? '')
@@ -84,19 +86,24 @@ export function getWhatsAppCloudSetupStatus() {
   const automationRuntimeEnabled = values.WHATSAPP_AUTOMATION_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
 
   return {
-    sendReady: accessTokenConfigured && phoneNumberConfigured && graphApiVersionConfigured && templateConfigured,
-    webhookReady: webhookSecretsConfigured && webhookPersistenceConfigured,
+    integrationEnabled,
+    sendReady: integrationEnabled && accessTokenConfigured && phoneNumberConfigured && graphApiVersionConfigured && templateConfigured,
+    webhookReady: integrationEnabled && webhookSecretsConfigured && webhookPersistenceConfigured,
     accessTokenConfigured,
     phoneNumberConfigured,
     graphApiVersionConfigured,
     templateConfigured,
-    embeddedSignupServerReady,
-    automationRuntimeEnabled,
+    embeddedSignupServerReady: integrationEnabled && embeddedSignupServerReady,
+    automationRuntimeEnabled: integrationEnabled && automationRuntimeEnabled,
   }
 }
 
+export function isWhatsAppIntegrationEnabled() {
+  return environment().WHATSAPP_INTEGRATION_ENABLED?.trim().toLowerCase() === 'true'
+}
+
 export function isWhatsAppAutomationRuntimeEnabled() {
-  return environment().WHATSAPP_AUTOMATION_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
+  return isWhatsAppIntegrationEnabled() && environment().WHATSAPP_AUTOMATION_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
 }
 
 export function getWhatsAppEmbeddedSignupServerConfig() {

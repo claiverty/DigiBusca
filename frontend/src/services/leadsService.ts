@@ -375,24 +375,6 @@ export async function createLeadInteraction(
   return payload.data
 }
 
-export async function sendWhatsAppTemplateMessage(leadId: string, message: string): Promise<{ messageId: string; logSaved: boolean }> {
-  const response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/send-template`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ leadId, message }),
-  })
-
-  const payload = (await response.json().catch(() => null)) as {
-    data?: { messageId: string; logSaved: boolean }
-    error?: string
-  } | null
-  if (!response.ok || !payload?.data) {
-    throw new Error(payload?.error ?? 'Não foi possível enviar pela API do WhatsApp.')
-  }
-
-  return payload.data
-}
-
 export async function getSales(): Promise<Sale[]> {
   const response = await authenticatedFetch(`${apiBaseUrl}/sales`)
 
