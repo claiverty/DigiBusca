@@ -812,11 +812,6 @@ export function WhatsAppPage() {
               </div>
             </section>
 
-            <div className="whatsapp-settings-note">
-              <ShieldCheck size={17} />
-              <p>O envio individual continua condicionado a um modelo aprovado e à autorização explícita do contato. A caixa de entrada só será preenchida depois da configuração do webhook.</p>
-            </div>
-
             <div className="whatsapp-settings-actions">
               <button className="secondary-button" type="button" onClick={() => void loadStatus()}>
                 <RefreshCw size={15} /> Atualizar status
@@ -827,16 +822,6 @@ export function WhatsAppPage() {
             </div>
           </section>
 
-          <aside className="panel whatsapp-policy-card">
-            <span className="eyebrow">FLUXO DE CONTATO</span>
-            <h2>Abordagem aprovada</h2>
-            <ol>
-              <li>Começar com uma saudação curta e natural.</li>
-              <li>Esperar a resposta antes de perguntar sobre marketing.</li>
-              <li>Preparar o diagnóstico depois que a pessoa aceitar.</li>
-            </ol>
-            <p>As mensagens ficam sem envio automático para leads sem autorização registrada.</p>
-          </aside>
         </div>
       )}
     </section>

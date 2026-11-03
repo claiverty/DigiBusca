@@ -7,7 +7,7 @@ O DigiBusca é uma plataforma de prospecção digital para freelancers e agênci
 1. O usuário pesquisa empresas por localização e segmento.
 2. A aplicação organiza os dados públicos e identifica oportunidades de presença digital.
 3. Leads podem ser salvos, classificados por status e acompanhados com observações, contatos e próximos passos.
-4. A IA gera uma sugestão de abordagem baseada nas informações encontradas. O usuário revisa o texto antes de abrir o canal de contato; o envio pela Cloud API exige autorização registrada e template aprovado.
+4. A IA gera uma sugestão de abordagem baseada nas informações encontradas. O usuário revisa o texto antes de abrir manualmente o canal de contato.
 5. Vendas podem ser registradas, editadas e acompanhadas em um resumo financeiro.
 
 ## Arquitetura
@@ -23,7 +23,7 @@ O Supabase Auth gerencia as contas. O backend valida cada sessão e acessa os da
 
 - Google Places: pesquisa de empresas e dados públicos de localização.
 - Gemini: geração de rascunhos de abordagem comercial.
-- WhatsApp Business Cloud API: envio individual autorizado e respostas automáticas de atendimento, inativas por padrão.
+- WhatsApp: abertura manual da conversa pelo detalhe do lead. A integração com a API está desativada.
 - Supabase: autenticação e persistência de leads, interações e vendas.
 
 ## Desenvolvimento
@@ -46,10 +46,12 @@ As chaves e credenciais devem ser configuradas no ambiente de execução e nunca
 
 A primeira mensagem tem somente uma saudação curta; aguarde a resposta. Depois, apresente-se quando o nome ou a forma de apresentação estiver informada e identifique quem cuida da presença digital. Conduza a conversa com uma pergunta por vez, passando por permissão, cenário, necessidade, ideia, qualificação de interesse e dúvidas. Para apresentar condições ou confirmar uma decisão, informe antes o escopo e as condições já acordadas; a IA não deve inventar preço, parcelas, prazo, desconto ou forma de pagamento. Recusas explícitas geram um encerramento respeitoso.
 
-O assistente de prospecção gera somente a mensagem da etapa escolhida, e a primeira saudação continua manual. A nova resposta automática atua apenas depois que uma mensagem de texto chega pelo WhatsApp; permanece desativada por padrão, precisa de configuração e aprovação por número e não inicia conversas. Ela usa fatos aprovados, respeita opt-out e a janela de atendimento de 24 horas, e encaminha dúvidas fora do escopo para uma pessoa. Registre necessidade, prazo, decisor e condições confirmadas em Observações, e use Próximo passo e Próximo contato para organizar a continuidade.
+O assistente de prospecção gera somente a mensagem da etapa escolhida; a primeira saudação e o restante do contato são conduzidos manualmente. Registre necessidade, prazo, decisor e condições confirmadas em Observações, e use Próximo passo e Próximo contato para organizar a continuidade.
+
+Para gerar rascunhos com o DigiProspector pelo OpenBot, consulte [docs/openbot-outreach.md](docs/openbot-outreach.md).
 
 A carteira registra etapa da conversa, pessoa de contato e próximo passo. Permite pesquisar, ordenar por contato/nome/atualização, filtrar os contatos de hoje e exportar apenas a seleção atual com os dados de acompanhamento. Os filtros de telefone e leads salvos na busca são aplicados aos resultados de cada página; a ordenação também é por página.
 
-Antes de executar esta versão contra um banco existente, aplique as migrations necessárias pelo fluxo autorizado. A resposta automática requer `009_whatsapp_webhook.sql`, `010_whatsapp_coexistence.sql` e `011_whatsapp_reply_automation.sql`; elas não foram aplicadas durante esta alteração. A configuração da Cloud API e os controles estão em [docs/whatsapp-cloud-api.md](docs/whatsapp-cloud-api.md).
+Antes de executar esta versão contra um banco existente, aplique as migrations necessárias pelo fluxo autorizado.
 
 `npm run test:e2e -- tests/e2e/lead-upgrade.spec.ts` verifica os novos fluxos em desktop e celular com componentes reais e serviços isolados, sem conta nem chamadas externas. A geração real com Gemini e a persistência real no Supabase exigem validação no ambiente configurado.

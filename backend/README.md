@@ -25,16 +25,14 @@ API TypeScript responsável pela autenticação, regras de negócio, integraçõ
 - `GET /api/openbot/agents`: lista os agentes do OpenBot com `Local scripts` ativo no computador local.
 - `POST /api/openbot/outreach`: solicita ao agente selecionado um rascunho de abordagem, sem enviar mensagens ao lead.
 - `POST /api/openbot/agents/:agentId/deliveries/:deliveryId`: consulta e valida o resultado de um rascunho em andamento.
-- `GET /api/whatsapp/connections`: lista metadados das conexões WhatsApp do usuário autenticado; não retorna tokens.
-- `POST /api/whatsapp/connections/embedded-signup`: troca o código temporário do Meta Embedded Signup no servidor e associa o token cifrado e o número à conta autenticada.
-- `GET /api/whatsapp/conversations` e `GET /api/whatsapp/conversations/:id/messages`: lista a caixa de entrada isolada por usuário.
-- `GET|POST /api/webhooks/whatsapp`: valida o desafio/HMAC e persiste mensagens, status e eventos de coexistência.
 - `GET /api/sales`: lista o histórico de vendas.
 - `POST /api/sales`: registra uma venda manual ou vinculada a um lead.
 - `PATCH /api/sales/:id`: corrige comércio, serviço, valor ou data de uma venda do usuário.
 - `DELETE /api/sales/:id`: exclui uma venda do usuário.
 
 Todas as rotas de negócio exigem um token Bearer do Supabase Auth. O backend valida o token e executa as consultas com o contexto do usuário; o PostgreSQL aplica RLS para impedir acesso cruzado entre contas.
+
+A integração WhatsApp está desativada. As rotas antigas da API e do webhook respondem `410 Gone`; o botão no detalhe do lead apenas abre manualmente a conversa.
 
 As integrações ficam isoladas em adaptadores. A chave do Google Places e a chave do Gemini são lidas apenas do ambiente do backend. As migrations versionadas em `supabase/migrations/` definem tabelas, índices, permissões e políticas de acesso.
 
