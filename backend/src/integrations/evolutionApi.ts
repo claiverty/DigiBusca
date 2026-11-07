@@ -34,16 +34,16 @@ async function evolutionRequest<T>(path: string, init: RequestInit = {}): Promis
   } catch {
     throw new EvolutionApiError('Não foi possível conectar à Evolution API. Confira se o serviço está ativo no Mac.', 502)
   }
-  const payload = await response.json().catch(() => ({})) as unknown
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined)
     throw new EvolutionApiError(
       response.status >= 500
-        ? 'A Evolution API não conseguiu concluir a operação agora.'
-        : 'A Evolution API recusou a operação. Confira a instância e a chave configurada.',
+        ? `A Evolution API não conseguiu concluir a operação agora (HTTP ${response.status}).`
+        : `A Evolution API recusou a operação (HTTP ${response.status}). Confira a instância e a chave configurada.`,
       response.status,
     )
   }
-  return payload as T
+  return await response.json() as T
 }
 
 function webhookUrlFor(config: NonNullable<ReturnType<typeof getEvolutionApiConfig>>) {
@@ -55,11 +55,13 @@ function webhookUrlFor(config: NonNullable<ReturnType<typeof getEvolutionApiConf
 function webhookConfig() {
   const config = configOrThrow()
   return {
-    enabled: true,
-    url: webhookUrlFor(config),
-    events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
-    headers: { 'x-digibot-webhook-secret': config.webhookSecret },
-    base64: false,
+    webhook: {
+      enabled: true,
+      url: webhookUrlFor(config),
+      events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+      headers: { 'x-digibot-webhook-secret': config.webhookSecret },
+      base64: false,
+    },
   }
 }
 
