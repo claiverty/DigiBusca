@@ -1,0 +1,412 @@
+.whatsapp-prospecting {
+  display: grid;
+  gap: 16px;
+}
+
+.prospecting-overview,
+.prospecting-candidates,
+.prospecting-queue {
+  min-width: 0;
+  padding: 21px;
+}
+
+.prospecting-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px 24px;
+}
+
+.prospecting-overview h2 {
+  margin-top: 7px;
+  font-size: 23px;
+  letter-spacing: -0.045em;
+}
+
+.prospecting-overview-copy p,
+.prospecting-policy-note {
+  max-width: 680px;
+  margin-top: 7px;
+  color: var(--color-text-subtle);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.prospecting-today-count {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  padding: 10px 13px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: #fafaf9;
+}
+
+.prospecting-today-count strong {
+  color: var(--color-text);
+  font-size: 23px;
+  letter-spacing: -0.05em;
+}
+
+.prospecting-today-count strong span,
+.prospecting-today-count small {
+  color: var(--color-text-muted);
+}
+
+.prospecting-today-count small {
+  font-size: 10px;
+}
+
+.prospecting-controls {
+  display: flex;
+  align-items: end;
+  gap: 9px;
+  grid-column: 1 / -1;
+}
+
+.prospecting-limit-field,
+.prospecting-phone-field {
+  display: grid;
+  min-width: 130px;
+  gap: 5px;
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.prospecting-limit-field select,
+.prospecting-phone-field select {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  color: var(--color-text);
+  background: #fff;
+  font: inherit;
+}
+
+.prospecting-toggle {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid #d7e7dc;
+  border-radius: 10px;
+  color: #2d6742;
+  background: #eff8f1;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.prospecting-toggle.is-on {
+  border-color: #ead8d8;
+  color: #873e3e;
+  background: #fff4f4;
+}
+
+.prospecting-toggle:disabled,
+.prospecting-controls button:disabled,
+.prospecting-lead-card button:disabled,
+.prospecting-cancel:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.prospecting-refresh {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--color-border);
+  background: #fff;
+}
+
+.prospecting-refresh .is-spinning {
+  animation: whatsapp-spin 1s linear infinite;
+}
+
+.prospecting-guidance {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #795d23;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.prospecting-guidance svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.prospecting-guidance code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #f8f0dd;
+}
+
+.prospecting-phone-field,
+.prospecting-policy-note {
+  grid-column: 1 / -1;
+}
+
+.prospecting-policy-note {
+  margin: -7px 0 0;
+}
+
+.prospecting-feedback {
+  padding: 11px 14px;
+  border: 1px solid #d6e8dc;
+  border-radius: 10px;
+  color: #326447;
+  background: #f1f8f2;
+  font-size: 12px;
+}
+
+.prospecting-feedback.is-error {
+  border-color: #eed2d2;
+  color: #8b3838;
+  background: #fff8f8;
+}
+
+.prospecting-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  align-items: start;
+  gap: 15px;
+}
+
+.prospecting-section-heading,
+.prospecting-lead-heading,
+.prospecting-queue-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.prospecting-section-heading h3 {
+  margin-top: 6px;
+  font-size: 18px;
+  letter-spacing: -0.035em;
+}
+
+.prospecting-count {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-text-subtle);
+  background: #f1f1f3;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.prospecting-lead-list,
+.prospecting-queue-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.prospecting-lead-card,
+.prospecting-queue-item {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+  background: #fff;
+}
+
+.prospecting-lead-heading > div,
+.prospecting-queue-item-top > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.prospecting-lead-heading strong,
+.prospecting-queue-item-top strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prospecting-lead-heading small,
+.prospecting-queue-item-top small {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prospecting-lead-heading > span {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #326447;
+  background: #eff8f1;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.prospecting-lead-card label {
+  display: grid;
+  gap: 6px;
+  color: var(--color-text-subtle);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.prospecting-lead-card textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  color: var(--color-text);
+  background: #fcfcfb;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.prospecting-lead-card .secondary-button {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 10px;
+}
+
+.prospecting-empty {
+  margin-top: 17px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.prospecting-empty.is-error {
+  color: #8b3838;
+}
+
+.prospecting-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 35px 16px 25px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.prospecting-empty-state svg {
+  color: #56916b;
+}
+
+.prospecting-empty-state strong {
+  color: var(--color-text-subtle);
+  font-size: 12px;
+}
+
+.prospecting-empty-state span {
+  max-width: 260px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.prospecting-queue-item p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: 10px;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.prospecting-status {
+  flex: 0 0 auto;
+  padding: 5px 7px;
+  border-radius: 999px;
+  color: #77602f;
+  background: #faf4e7;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.prospecting-status.is-sent {
+  color: #326447;
+  background: #eff8f1;
+}
+
+.prospecting-status.is-failed,
+.prospecting-status.is-unknown {
+  color: #8b3838;
+  background: #fff0f0;
+}
+
+.prospecting-status.is-cancelled {
+  color: var(--color-text-muted);
+  background: #f1f1f3;
+}
+
+.prospecting-queue-meta,
+.prospecting-cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.prospecting-cancel {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  color: #8b3838;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.prospecting-uncertain {
+  color: #8b3838;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .prospecting-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .prospecting-overview,
+  .prospecting-candidates,
+  .prospecting-queue {
+    padding: 16px;
+  }
+
+  .prospecting-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prospecting-today-count {
+    justify-items: start;
+  }
+
+  .prospecting-controls {
+    flex-wrap: wrap;
+  }
+
+  .prospecting-limit-field {
+    flex: 1 1 120px;
+  }
+}

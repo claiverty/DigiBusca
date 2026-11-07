@@ -1,14 +1,17 @@
-import { getGeminiApiKey, getWhatsAppEmbeddedSignupServerConfig, isWhatsAppAutomationRuntimeEnabled } from '../config/supabase.js'
+import { getEvolutionApiConfig, getGeminiApiKey, isWhatsAppAutomationRuntimeEnabled } from '../config/supabase.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
-import { decryptWhatsAppAccessToken } from '../integrations/whatsappTokenVault.js'
 import { generateWhatsAppAutoReply } from '../integrations/whatsappAutoReplyProvider.js'
-import { sendWhatsAppTextMessage } from '../integrations/whatsappCloudApi.js'
+import { getEvolutionConnectionState, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
 import { logWarning } from '../observability/logger.js'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWebhook.js'
 
 const customerServiceWindowMs = 24 * 60 * 60 * 1_000
-const optOutPattern = /^\s*(parar|pare|cancelar|cancele|sair|remover|stop|unsubscribe|não enviar|nao enviar|não quero receber|nao quero receber|não me contate|nao me contate)(?:[.!\s]|$)/i
-const refusalPattern = /^\s*(não tenho interesse|nao tenho interesse|não quero|nao quero|sem interesse)(?:[.!\s]|$)/i
+const optOutPattern = /^\s*(?:por favor[, ]+)?(parar|pare|cancelar|cancele|sair|remover|descadastrar|stop|unsubscribe|nao enviar(?: mais)?|nao envie(?: mais)?|nao mandar(?: mais)?|nao mande(?: mais)?|nao quero(?: mais)? receber|nao me (?:envie|mande|contate)(?: mais)?)(?:[.!?,\s]|$)/i
+const refusalPattern = /^\s*(nao tenho interesse|nao quero|sem interesse)(?:[.!?,\s]|$)/i
+
+function normalizeMessage(text: string) {
+  return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').trim()
+}
 
 function escalationLine(contact: string) {
   return `Atendimento humano: ${contact}.`
@@ -36,29 +39,69 @@ function newestInboundMessages(messages: WhatsAppWebhookMessage[]) {
 }
 
 export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
-  const messages = newestInboundMessages(events.messages)
+  const inboundMessages = events.messages.filter((message) => (
+    message.source === 'live' && message.direction === 'inbound' && message.messageType === 'text' && Boolean(message.body?.trim())
+  ))
+  const messages = newestInboundMessages(inboundMessages)
   if (messages.length === 0) return
   const store = new WhatsAppStore()
   if (!(await store.isAutomationStorageReady())) return
+
+  const newestByConversation = new Map(messages.map((message) => [
+    `${message.phoneNumberId}:${message.contactWaId}`,
+    message.providerMessageId,
+  ]))
+
+  for (const message of inboundMessages) {
+    const normalized = normalizeMessage(message.body ?? '')
+    if (!optOutPattern.test(normalized) && !refusalPattern.test(normalized)) continue
+    try {
+      const context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
+      if (!context) continue
+      if (optOutPattern.test(normalized)) {
+        await store.markConversationOptedOut(context.userId, context.conversationId)
+      } else {
+        await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'refusal')
+      }
+    } catch {
+      logWarning('whatsapp_automation_stop_request_failed', { reason: 'stop_request_state_unavailable' })
+    }
+  }
+
+  for (const message of inboundMessages) {
+    const key = `${message.phoneNumberId}:${message.contactWaId}`
+    if (newestByConversation.get(key) === message.providerMessageId) continue
+    try {
+      const context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
+      if (!context) continue
+      const skippedRunId = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
+      if (skippedRunId) await store.completeAutomationRun(skippedRunId, 'skipped', 'superseded_by_newer_inbound')
+    } catch {
+      logWarning('whatsapp_automation_superseded_message_failed', { reason: 'superseded_message_state_unavailable' })
+    }
+  }
+
   for (const message of messages) {
     let runId: string | undefined
     try {
       const context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
       if (!context) continue
 
-      if (optOutPattern.test(message.body ?? '')) {
-        await store.markConversationOptedOut(context.userId, context.conversationId)
+      const normalized = normalizeMessage(message.body ?? '')
+      if (optOutPattern.test(normalized) || refusalPattern.test(normalized)) {
         continue
       }
-      if (refusalPattern.test(message.body ?? '')) {
-        await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'refusal')
+
+      if (context.latestProviderMessageId !== message.providerMessageId || context.lastMessageDirection !== 'inbound') {
+        const skippedRunId = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
+        if (skippedRunId) await store.completeAutomationRun(skippedRunId, 'skipped', 'superseded_before_processing')
         continue
       }
 
       if (!isWhatsAppAutomationRuntimeEnabled()) continue
       const apiKey = getGeminiApiKey()
-      const serverConfig = getWhatsAppEmbeddedSignupServerConfig()
-      if (!apiKey || !serverConfig) continue
+      const evolutionConfig = getEvolutionApiConfig()
+      if (!apiKey || !evolutionConfig) continue
 
       const profile = context.profile
       if (
@@ -70,17 +113,12 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
 
       const ageMs = Date.now() - Date.parse(message.occurredAt)
       if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs >= customerServiceWindowMs) continue
-      if (!context.accessTokenCiphertext || !context.accessTokenIv) continue
-      if (context.accessTokenExpiresAt && Date.parse(context.accessTokenExpiresAt) <= Date.now() + 60_000) continue
+      const connectionState = await getEvolutionConnectionState(message.phoneNumberId)
+      if (connectionState.state.toLowerCase() !== 'open') continue
 
       runId = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
       if (!runId) continue
 
-      const accessToken = await decryptWhatsAppAccessToken(
-        context.accessTokenCiphertext,
-        context.accessTokenIv,
-        serverConfig.encryptionKey,
-      )
       const generated = await generateWhatsAppAutoReply(apiKey, {
         businessName: profile.businessName,
         senderIdentity: profile.senderIdentity,
@@ -118,11 +156,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
           continue
         }
         await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'handoff')
-        const replyId = await sendWhatsAppTextMessage({
-          accessToken,
-          phoneNumberId: message.phoneNumberId,
-          graphApiVersion: serverConfig.graphApiVersion,
-        }, message.contactWaId, body)
+        const replyId = await sendEvolutionTextMessage(message.phoneNumberId, message.contactWaId, body)
         const sentAt = new Date().toISOString()
         await store.persistAutomatedReply({
           userId: context.userId, phoneNumberId: message.phoneNumberId, conversationId: context.conversationId,
@@ -138,11 +172,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         await store.completeAutomationRun(runId, 'needs_human', 'reply_validation_failed')
         continue
       }
-      const replyId = await sendWhatsAppTextMessage({
-        accessToken,
-        phoneNumberId: message.phoneNumberId,
-        graphApiVersion: serverConfig.graphApiVersion,
-      }, message.contactWaId, body)
+      const replyId = await sendEvolutionTextMessage(message.phoneNumberId, message.contactWaId, body)
       const sentAt = new Date().toISOString()
       await store.persistAutomatedReply({
         userId: context.userId, phoneNumberId: message.phoneNumberId, conversationId: context.conversationId,

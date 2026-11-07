@@ -385,3 +385,40 @@ textarea:focus {
     flex-direction: column;
   }
 }
+.whatsapp-consent-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.whatsapp-consent-panel h2 {
+  margin: -5px 0 0;
+  font-size: 18px;
+  letter-spacing: -0.035em;
+}
+
+.whatsapp-consent-panel > p {
+  margin: -5px 0 0;
+  color: var(--color-text-subtle);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.consent-save-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e9dfc7;
+  border-radius: 10px;
+  color: #765d28;
+  background: #fbf7ed;
+  font-size: 11px;
+}
+
+.consent-save-prompt .secondary-button {
+  flex: 0 0 auto;
+  min-height: 33px;
+  padding: 0 10px;
+  font-size: 10px;
+}

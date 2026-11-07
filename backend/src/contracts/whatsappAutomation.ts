@@ -49,7 +49,7 @@ export function parseWhatsAppAutomationProfileInput(value: unknown): WhatsAppAut
   const escalationContact = boundedText('escalationContact', 180)
 
   if (
-    typeof phoneNumberId !== 'string' || !/^\d{1,128}$/.test(phoneNumberId) ||
+    typeof phoneNumberId !== 'string' || !/^[-_a-zA-Z0-9]{1,128}$/.test(phoneNumberId) ||
     businessName === undefined || senderIdentity === undefined || serviceSummary === undefined ||
     approvedFacts === undefined || escalationContact === undefined ||
     typeof automationEnabled !== 'boolean' || typeof channelApproved !== 'boolean' ||

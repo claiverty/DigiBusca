@@ -749,6 +749,31 @@
   font-weight: 650;
 }
 
+.whatsapp-connected-badge.is-pending {
+  color: #7b6432;
+}
+
+.whatsapp-evolution-qr {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: fit-content;
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.whatsapp-evolution-qr img {
+  display: block;
+  width: min(260px, 70vw);
+  height: auto;
+  image-rendering: pixelated;
+}
+
 .whatsapp-sync-details {
   width: min(100%, 420px);
   color: var(--color-text-muted);

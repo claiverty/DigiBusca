@@ -1,5 +1,4 @@
 import { createClient, type User } from '@supabase/supabase-js'
-import { isWhatsAppTokenEncryptionKeyValid } from '../integrations/whatsappTokenVault.js'
 
 export type RuntimeEnvironment = {
   SUPABASE_URL?: string
@@ -9,17 +8,15 @@ export type RuntimeEnvironment = {
   VITE_SUPABASE_ANON_KEY?: string
   GOOGLE_MAPS_API_KEY?: string
   GEMINI_API_KEY?: string
-  WHATSAPP_ACCESS_TOKEN?: string
-  WHATSAPP_PHONE_NUMBER_ID?: string
-  WHATSAPP_GRAPH_API_VERSION?: string
-  WHATSAPP_TEMPLATE_NAME?: string
-  WHATSAPP_TEMPLATE_LANGUAGE?: string
-  WHATSAPP_APP_SECRET?: string
-  WHATSAPP_WEBHOOK_VERIFY_TOKEN?: string
-  META_APP_ID?: string
-  WHATSAPP_TOKEN_ENCRYPTION_KEY?: string
   WHATSAPP_INTEGRATION_ENABLED?: string
   WHATSAPP_AUTOMATION_RUNTIME_ENABLED?: string
+  WHATSAPP_PROSPECTING_RUNTIME_ENABLED?: string
+  DIGIBUSCA_APP_ORIGINS?: string
+  EVOLUTION_API_URL?: string
+  EVOLUTION_API_KEY?: string
+  EVOLUTION_WEBHOOK_SECRET?: string
+  EVOLUTION_WEBHOOK_URL?: string
+  PORT?: string
 }
 
 let runtimeEnvironment: RuntimeEnvironment | undefined
@@ -48,53 +45,50 @@ export function getGeminiApiKey() {
   return environment().GEMINI_API_KEY
 }
 
-export function getWhatsAppCloudConfig() {
+export function getEvolutionApiConfig() {
   const values = environment()
-  const accessToken = values.WHATSAPP_ACCESS_TOKEN?.trim()
-  const phoneNumberId = values.WHATSAPP_PHONE_NUMBER_ID?.trim()
-  const graphApiVersion = values.WHATSAPP_GRAPH_API_VERSION?.trim()
-  const templateName = values.WHATSAPP_TEMPLATE_NAME?.trim()
-  const templateLanguage = values.WHATSAPP_TEMPLATE_LANGUAGE?.trim() || 'pt_BR'
+  const baseUrl = values.EVOLUTION_API_URL?.trim().replace(/\/+$/, '')
+  const apiKey = values.EVOLUTION_API_KEY?.trim()
+  const webhookSecret = values.EVOLUTION_WEBHOOK_SECRET?.trim()
+  const webhookUrl = values.EVOLUTION_WEBHOOK_URL?.trim()
+  if (!baseUrl || !apiKey || !webhookSecret || !webhookUrl) return undefined
+  try {
+    const url = new URL(baseUrl)
+    const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+    const isLoopbackHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(hostname)
+    if (url.protocol !== 'https:' && !isLoopbackHttp) return undefined
+    if (url.username || url.password || url.search || url.hash) return undefined
+    if (new TextEncoder().encode(webhookSecret).byteLength < 32) return undefined
 
-  if (!accessToken || !phoneNumberId || !graphApiVersion || !templateName) return undefined
-  if (!/^v\d+\.\d+$/.test(graphApiVersion)) return undefined
-
-  return { accessToken, phoneNumberId, graphApiVersion, templateName, templateLanguage }
+    const webhookTarget = new URL(webhookUrl)
+    const webhookHostname = webhookTarget.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+    const isLocalWebhook = ['localhost', '127.0.0.1', '::1', 'host.docker.internal'].includes(webhookHostname)
+    if (webhookTarget.protocol !== 'https:' && !(webhookTarget.protocol === 'http:' && isLocalWebhook)) return undefined
+    if (webhookTarget.username || webhookTarget.password || webhookTarget.search || webhookTarget.hash) return undefined
+  } catch {
+    return undefined
+  }
+  return { baseUrl, apiKey, webhookSecret, webhookUrl }
 }
 
-export function getWhatsAppCloudSetupStatus() {
-  const values = environment()
-  const integrationEnabled = isWhatsAppIntegrationEnabled()
-  const accessTokenConfigured = Boolean(values.WHATSAPP_ACCESS_TOKEN?.trim())
-  const phoneNumberConfigured = Boolean(values.WHATSAPP_PHONE_NUMBER_ID?.trim())
-  const graphApiVersionConfigured = /^v\d+\.\d+$/.test(values.WHATSAPP_GRAPH_API_VERSION?.trim() ?? '')
-  const templateConfigured = Boolean(values.WHATSAPP_TEMPLATE_NAME?.trim())
-  const webhookSecretsConfigured = Boolean(
-    values.WHATSAPP_APP_SECRET?.trim() && values.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim(),
+export function getAdditionalAllowedAppOrigins() {
+  return new Set(
+    (environment().DIGIBUSCA_APP_ORIGINS ?? '')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
   )
-  const webhookPersistenceConfigured = Boolean(
-    (values.SUPABASE_URL ?? values.VITE_SUPABASE_URL)?.trim() &&
-    values.SUPABASE_SERVICE_ROLE_KEY?.trim(),
-  )
-  const embeddedSignupServerReady = Boolean(
-    values.META_APP_ID?.trim() &&
-    values.WHATSAPP_APP_SECRET?.trim() &&
-    isWhatsAppTokenEncryptionKeyValid(values.WHATSAPP_TOKEN_ENCRYPTION_KEY) &&
-    graphApiVersionConfigured &&
-    webhookPersistenceConfigured,
-  )
-  const automationRuntimeEnabled = values.WHATSAPP_AUTOMATION_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
+}
 
+export function getWhatsAppEvolutionSetupStatus() {
+  const config = getEvolutionApiConfig()
   return {
-    integrationEnabled,
-    sendReady: integrationEnabled && accessTokenConfigured && phoneNumberConfigured && graphApiVersionConfigured && templateConfigured,
-    webhookReady: integrationEnabled && webhookSecretsConfigured && webhookPersistenceConfigured,
-    accessTokenConfigured,
-    phoneNumberConfigured,
-    graphApiVersionConfigured,
-    templateConfigured,
-    embeddedSignupServerReady: integrationEnabled && embeddedSignupServerReady,
-    automationRuntimeEnabled: integrationEnabled && automationRuntimeEnabled,
+    integrationEnabled: isWhatsAppIntegrationEnabled(),
+    evolutionConfigured: Boolean(config),
+    webhookConfigured: Boolean(config),
+    persistenceConfigured: isWhatsAppWebhookPersistenceConfigured(),
+    automationRuntimeEnabled: isWhatsAppAutomationRuntimeEnabled(),
+    prospectingRuntimeEnabled: isWhatsAppProspectingRuntimeEnabled(),
   }
 }
 
@@ -106,19 +100,8 @@ export function isWhatsAppAutomationRuntimeEnabled() {
   return isWhatsAppIntegrationEnabled() && environment().WHATSAPP_AUTOMATION_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
 }
 
-export function getWhatsAppEmbeddedSignupServerConfig() {
-  const values = environment()
-  const graphApiVersion = values.WHATSAPP_GRAPH_API_VERSION?.trim()
-  const appId = values.META_APP_ID?.trim()
-  const appSecret = values.WHATSAPP_APP_SECRET?.trim()
-  const encryptionKey = values.WHATSAPP_TOKEN_ENCRYPTION_KEY?.trim()
-
-  if (
-    !appId || !appSecret || !isWhatsAppTokenEncryptionKeyValid(encryptionKey) ||
-    !graphApiVersion || !/^v\d+\.\d+$/.test(graphApiVersion)
-  ) return undefined
-
-  return { appId, appSecret, encryptionKey: encryptionKey!, graphApiVersion }
+export function isWhatsAppProspectingRuntimeEnabled() {
+  return isWhatsAppIntegrationEnabled() && environment().WHATSAPP_PROSPECTING_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
 }
 
 function getSupabaseConfig() {
@@ -132,14 +115,6 @@ function getSupabaseConfig() {
 export function isSupabaseConfigured() {
   const { url, anonKey } = getSupabaseConfig()
   return Boolean(url && anonKey)
-}
-
-export function getWhatsAppWebhookSecrets() {
-  const values = environment()
-  return {
-    appSecret: values.WHATSAPP_APP_SECRET?.trim(),
-    verifyToken: values.WHATSAPP_WEBHOOK_VERIFY_TOKEN?.trim(),
-  }
 }
 
 export function isWhatsAppWebhookPersistenceConfigured() {

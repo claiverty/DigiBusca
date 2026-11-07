@@ -5,29 +5,6 @@ export type WhatsAppPageOptions = {
   before?: { timestamp: string; id: string }
 }
 
-export type WhatsAppEmbeddedSignupInput = {
-  code: string
-  wabaId: string
-  phoneNumberId?: string
-}
-
-export function parseWhatsAppEmbeddedSignupInput(value: unknown): WhatsAppEmbeddedSignupInput | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
-  const candidate = value as Record<string, unknown>
-  if (
-    typeof candidate.code !== 'string' || !candidate.code.trim() || candidate.code.length > 4_096 ||
-    typeof candidate.wabaId !== 'string' || !/^\d{1,128}$/.test(candidate.wabaId) ||
-    (candidate.phoneNumberId !== undefined &&
-      (typeof candidate.phoneNumberId !== 'string' || !/^\d{1,128}$/.test(candidate.phoneNumberId)))
-  ) return undefined
-
-  return {
-    code: candidate.code.trim(),
-    wabaId: candidate.wabaId,
-    ...(typeof candidate.phoneNumberId === 'string' ? { phoneNumberId: candidate.phoneNumberId } : {}),
-  }
-}
-
 export function isUuid(value: string) {
   return uuidPattern.test(value)
 }

@@ -1,0 +1,31 @@
+services:
+  evolution-api:
+    container_name: digibusca-evolution-api
+    image: evoapicloud/evolution-api:v2.1.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    env_file:
+      - ./evolution/.env
+    depends_on:
+      evolution-db:
+        condition: service_healthy
+    volumes:
+      - evolution_instances:/evolution/instances
+
+  evolution-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - ./evolution/.env
+    volumes:
+      - evolution_database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  evolution_instances:
+  evolution_database:

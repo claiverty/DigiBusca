@@ -6,6 +6,7 @@ import { FinancePage } from './pages/FinancePage'
 import { OverviewPage } from './pages/OverviewPage'
 import { SearchPage } from './pages/SearchPage'
 import { SavedLeadsPage } from './pages/SavedLeadsPage'
+import { WhatsAppPage } from './pages/WhatsAppPage'
 import {
   createSale,
   getSavedLead,
@@ -22,6 +23,7 @@ const viewPaths: Record<AppView, string> = {
   overview: '/sistema',
   search: '/sistema/buscar',
   saved: '/sistema/leads',
+  whatsapp: '/sistema/whatsapp',
   finance: '/sistema/financeiro',
 }
 
@@ -41,6 +43,7 @@ function App() {
   const [activeView, setActiveView] = useState<AppView>(getViewFromPathname)
   const [isNewSaleRequested, setIsNewSaleRequested] = useState(false)
   const [savedLeadIds, setSavedLeadIds] = useState<Set<string>>(new Set())
+  const [savedLeadIdsLoaded, setSavedLeadIdsLoaded] = useState(false)
   const savedLeads = useRef(new Map<string, Lead>())
 
   useLayoutEffect(() => {
@@ -55,6 +58,7 @@ function App() {
         setSavedLeadIds(new Set(leadIds))
       })
       .catch(() => undefined)
+      .finally(() => setSavedLeadIdsLoaded(true))
   }, [])
 
   useEffect(() => {
@@ -99,6 +103,27 @@ function App() {
     setSavedLeadIds((current) => new Set(current).add(updatedLead.id))
   }
 
+  async function openProspectingFromLead(draftMessage: string) {
+    if (!selectedLead) return
+
+    let savedLead: Lead
+    if (savedLeadIds.has(selectedLead.id)) {
+      savedLead = await updateLead(selectedLead, { status: selectedLead.status, draftMessage })
+    } else {
+      const createdLead = await saveLead(selectedLead)
+      savedLead = await updateLead(createdLead, { status: createdLead.status, draftMessage })
+    }
+    savedLeads.current.set(savedLead.id, savedLead)
+    setSavedLeadIds((current) => new Set(current).add(savedLead.id))
+
+    const nextPath = `${viewPaths.whatsapp}?tab=prospecting`
+    if (window.location.pathname + window.location.search !== nextPath) {
+      window.history.pushState({}, '', nextPath)
+    }
+    setSelectedLead(null)
+    setActiveView('whatsapp')
+  }
+
   async function registerSaleFromLead(input: Omit<CreateSaleInput, 'businessName' | 'leadId'>) {
     if (!selectedLead) {
       return
@@ -116,6 +141,21 @@ function App() {
 
     const lead = await getSavedLead(leadId)
     savedLeads.current.set(lead.id, lead)
+    setSelectedLead(lead)
+  }
+
+  async function openSearchLead(lead: Lead) {
+    let knownSavedLeadIds = savedLeadIds
+    if (!savedLeadIdsLoaded) {
+      const leadIds = await getSavedLeadIds()
+      knownSavedLeadIds = new Set(leadIds)
+      setSavedLeadIds(knownSavedLeadIds)
+      setSavedLeadIdsLoaded(true)
+    }
+    if (knownSavedLeadIds.has(lead.id)) {
+      await openSavedLead(lead.id)
+      return
+    }
     setSelectedLead(lead)
   }
 
@@ -155,12 +195,14 @@ function App() {
         />
         <main className="content">
           <LeadDetail
+            key={selectedLead.id}
             lead={selectedLead}
             isSaved={savedLeadIds.has(selectedLead.id)}
             onBack={() => setSelectedLead(null)}
             onToggleSave={() => toggleSavedLead(selectedLead)}
             onUpdateLead={updateSelectedLead}
             onRegisterSale={registerSaleFromLead}
+            onOpenProspecting={openProspectingFromLead}
           />
         </main>
       </div>
@@ -195,8 +237,11 @@ function App() {
             onNewSaleOpened={() => setIsNewSaleRequested(false)}
           />
         )}
+        {activeView === 'whatsapp' && (
+          <WhatsAppPage initialTab={new URLSearchParams(window.location.search).get('tab') === 'prospecting' ? 'prospecting' : 'inbox'} />
+        )}
         {activeView === 'search' && (
-          <SearchPage savedLeadIds={savedLeadIds} onSelectLead={(lead) => setSelectedLead(savedLeads.current.get(lead.id) ?? lead)} />
+          <SearchPage savedLeadIds={savedLeadIds} onSelectLead={(lead) => void openSearchLead(lead)} />
         )}
       </main>
     </div>

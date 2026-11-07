@@ -1,27 +1,25 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, RefreshCw, ShieldCheck } from 'lucide-react'
+import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, Send, ShieldCheck } from 'lucide-react'
 import {
-  connectWhatsAppEmbeddedSignup,
-  getWhatsAppCloudSetupStatus,
+  connectWhatsAppEvolution,
+  getWhatsAppEvolutionSetupStatus,
   getWhatsAppConnections,
   getWhatsAppConversationMessages,
   getWhatsAppConversations,
   getWhatsAppAutomationProfile,
-  requestWhatsAppCoexistenceSync,
   saveWhatsAppAutomationProfile,
   setWhatsAppConversationAutomationPaused,
-  type WhatsAppCloudSetupStatus,
+  type WhatsAppEvolutionSetupStatus,
   type WhatsAppAutomationProfileInput,
   type WhatsAppConnection,
   type WhatsAppConversation,
   type WhatsAppMessage,
 } from '../services/whatsappService'
+import { WhatsAppProspectingPanel } from './WhatsAppProspectingPanel'
 import './WhatsAppPage.css'
 
-type PageTab = 'inbox' | 'settings'
+type PageTab = 'inbox' | 'settings' | 'prospecting'
 type LoadState = 'loading' | 'ready' | 'error'
-
-const metaAppUrl = 'https://developers.facebook.com/apps/1787786145843784/use_cases/customize/api-testing-v2/?product_route=whatsapp-business&business_id=2117758865105224&use_case_enum=WHATSAPP_BUSINESS_MESSAGING&selected_tab=api-testing-v2'
 
 function blankAutomationProfile(phoneNumberId: string): WhatsAppAutomationProfileInput {
   return {
@@ -35,149 +33,6 @@ function blankAutomationProfile(phoneNumberId: string): WhatsAppAutomationProfil
     channelApproved: false,
     contentApproved: false,
   }
-}
-
-type FacebookLoginResponse = { authResponse?: { code?: string } }
-type FacebookSignupSession = { wabaId: string; phoneNumberId?: string }
-type FacebookSignupMessage = {
-  type?: unknown
-  event?: unknown
-  data?: unknown
-}
-type FacebookSdk = {
-  init(options: { appId: string; cookie: boolean; xfbml: boolean; version: string }): void
-  login(callback: (response: FacebookLoginResponse) => void, options: Record<string, unknown>): void
-}
-
-declare global {
-  interface Window {
-    FB?: FacebookSdk
-    fbAsyncInit?: () => void
-  }
-}
-
-const initializedMetaAppIds = new Set<string>()
-
-function loadFacebookSdk(appId: string, graphApiVersion: string): Promise<FacebookSdk> {
-  return new Promise((resolve, reject) => {
-    const initialize = () => {
-      if (!window.FB) {
-        reject(new Error('A Meta não carregou o SDK de login. Tente novamente.'))
-        return
-      }
-      try {
-        if (!initializedMetaAppIds.has(appId)) {
-          window.FB.init({ appId, cookie: true, xfbml: false, version: graphApiVersion })
-          initializedMetaAppIds.add(appId)
-        }
-        resolve(window.FB)
-      } catch {
-        reject(new Error('Não foi possível inicializar o login seguro da Meta.'))
-      }
-    }
-
-    if (window.FB) {
-      initialize()
-      return
-    }
-
-    const previousCallback = window.fbAsyncInit
-    window.fbAsyncInit = () => {
-      previousCallback?.()
-      initialize()
-    }
-    let script = document.getElementById('facebook-jssdk') as HTMLScriptElement | null
-    if (!script) {
-      script = document.createElement('script')
-      script.id = 'facebook-jssdk'
-      script.async = true
-      script.defer = true
-      script.crossOrigin = 'anonymous'
-      script.src = 'https://connect.facebook.net/pt_BR/sdk.js'
-      script.onerror = () => reject(new Error('Não foi possível carregar o login da Meta.'))
-      document.head.append(script)
-    }
-  })
-}
-
-function launchWhatsAppBusinessAppSignup(
-  sdk: FacebookSdk,
-  loginConfigurationId: string,
-): Promise<{ code: string } & FacebookSignupSession> {
-  return new Promise((resolve, reject) => {
-    let code: string | undefined
-    let session: FacebookSignupSession | undefined
-    let settled = false
-    const finish = () => {
-      if (!code || !session || settled) return
-      settled = true
-      cleanup()
-      resolve({ code, ...session })
-    }
-    const fail = (message: string) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      reject(new Error(message))
-    }
-    const onMessage = (event: MessageEvent<unknown>) => {
-      let origin: URL
-      try {
-        origin = new URL(event.origin)
-      } catch {
-        return
-      }
-      if (origin.protocol !== 'https:' || !(origin.hostname === 'facebook.com' || origin.hostname.endsWith('.facebook.com'))) return
-      let payload = event.data
-      if (typeof payload === 'string') {
-        try { payload = JSON.parse(payload) as unknown } catch { return }
-      }
-      if (typeof payload !== 'object' || payload === null) return
-      const message = payload as FacebookSignupMessage
-      if (message.type !== 'WA_EMBEDDED_SIGNUP') return
-      if (message.event === 'CANCEL' || message.event === 'ERROR') {
-        fail(message.event === 'CANCEL' ? 'A conexão foi cancelada na janela da Meta.' : 'A Meta não concluiu o Embedded Signup.')
-        return
-      }
-      if (message.event !== 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING' || typeof message.data !== 'object' || message.data === null) return
-      const data = message.data as Record<string, unknown>
-      if (typeof data.waba_id !== 'string' || !/^\d{1,128}$/.test(data.waba_id)) return
-      const phoneNumberId = typeof data.phone_number_id === 'string' && /^\d{1,128}$/.test(data.phone_number_id)
-        ? data.phone_number_id
-        : undefined
-      session = { wabaId: data.waba_id, ...(phoneNumberId ? { phoneNumberId } : {}) }
-      finish()
-    }
-    const cleanup = () => {
-      window.removeEventListener('message', onMessage)
-      window.clearTimeout(timeout)
-    }
-    const timeout = window.setTimeout(() => fail('A janela da Meta expirou antes de concluir a conexão.'), 10 * 60_000)
-    window.addEventListener('message', onMessage)
-
-    try {
-      sdk.login((response) => {
-        const authCode = response.authResponse?.code
-        if (!authCode) {
-          fail('A Meta não retornou o código temporário de autorização. Reinicie a conexão.')
-          return
-        }
-        code = authCode
-        finish()
-      }, {
-        config_id: loginConfigurationId,
-        response_type: 'code',
-        override_default_response_type: true,
-        extras: {
-          setup: {},
-          featureType: 'whatsapp_business_app_onboarding',
-          sessionInfoVersion: '3',
-        },
-      })
-    } catch {
-      fail('Não foi possível abrir o Embedded Signup da Meta.')
-    }
-  })
 }
 
 function SetupRow({ label, configured }: { label: string; configured: boolean }) {
@@ -206,51 +61,13 @@ function formatWhatsAppDate(value: string | undefined) {
 
 function getMessageFallback(message: WhatsAppMessage) {
   if (message.body?.trim()) return message.body
-  if (message.isPlaceholder) return 'Mensagem enviada. O conteúdo não está disponível no histórico recebido pela Meta.'
+  if (message.isPlaceholder) return 'Mensagem enviada. O conteúdo não está disponível no histórico recebido.'
   return `Mensagem ${message.messageType || 'sem texto'} recebida.`
 }
 
-function isCoexistenceSyncWindowOpen(connection: WhatsAppConnection) {
-  const connectedAt = Date.parse(connection.connectedAt)
-  return Number.isFinite(connectedAt) && Date.now() >= connectedAt && Date.now() - connectedAt <= 24 * 60 * 60 * 1_000
-}
-
-function hasCoexistenceSyncRequest(state: Record<string, unknown> | null) {
-  return Boolean(state && (
-    typeof state.requestStatus === 'string' ||
-    typeof state.requestId === 'string' ||
-    typeof state.requestedAt === 'string' ||
-    typeof state.consentedAt === 'string'
-  ))
-}
-
-function coexistenceSyncStatusLabel(state: Record<string, unknown> | null, syncType: 'history' | 'smb_app_state_sync') {
-  if (!state) return 'Ainda não solicitada'
-  const status = state.requestStatus ?? state.status
-  if (status === 'requesting') return 'Solicitando à Meta…'
-  if (status === 'accepted') return 'Solicitação aceita pela Meta'
-  if (status === 'in_progress') {
-    const providerState = typeof state.providerState === 'object' && state.providerState !== null
-      ? state.providerState as Record<string, unknown>
-      : undefined
-    const progress = providerState?.progress
-    if (syncType === 'history' && progress !== undefined) return `Histórico: ${String(progress).replace(/%$/, '')}% recebido`
-    return syncType === 'history' ? 'Recebendo histórico' : 'Recebendo dados de contatos'
-  }
-  if (status === 'complete') return 'Concluída'
-  if (status === 'failed') return 'A Meta reportou falha'
-  if (status === 'rejected') {
-    return typeof state.graphErrorCode === 'number'
-      ? `A Meta recusou o pedido (código ${state.graphErrorCode})`
-      : 'A Meta recusou o pedido'
-  }
-  if (status === 'unknown') return 'Resultado não confirmado; sem nova tentativa'
-  return 'Evento de sincronização recebido'
-}
-
-export function WhatsAppPage() {
-  const [activeTab, setActiveTab] = useState<PageTab>('inbox')
-  const [status, setStatus] = useState<WhatsAppCloudSetupStatus | null>(null)
+export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab }) {
+  const [activeTab, setActiveTab] = useState<PageTab>(initialTab)
+  const [status, setStatus] = useState<WhatsAppEvolutionSetupStatus | null>(null)
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [conversations, setConversations] = useState<WhatsAppConversation[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
@@ -266,9 +83,7 @@ export function WhatsAppPage() {
   const [connectBusy, setConnectBusy] = useState(false)
   const [connectError, setConnectError] = useState('')
   const [connectNotice, setConnectNotice] = useState('')
-  const [syncBusy, setSyncBusy] = useState<Record<string, boolean>>({})
-  const [syncError, setSyncError] = useState('')
-  const [syncNotice, setSyncNotice] = useState('')
+  const [connectQrCode, setConnectQrCode] = useState('')
   const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
   const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(blankAutomationProfile(''))
   const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
@@ -279,16 +94,11 @@ export function WhatsAppPage() {
   const [pauseBusy, setPauseBusy] = useState(false)
   const [pauseError, setPauseError] = useState('')
 
-  const metaAppId = import.meta.env.VITE_META_APP_ID?.trim() ?? ''
-  const loginConfigurationId = import.meta.env.VITE_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID?.trim() ?? ''
-  const graphApiVersion = import.meta.env.VITE_WHATSAPP_GRAPH_API_VERSION?.trim() ?? ''
-  const publicSignupConfigReady = Boolean(metaAppId && loginConfigurationId && /^v\d+\.\d+$/.test(graphApiVersion))
-
   const loadStatus = useCallback(async () => {
     setLoadState('loading')
 
     try {
-      setStatus(await getWhatsAppCloudSetupStatus())
+      setStatus(await getWhatsAppEvolutionSetupStatus())
       setLoadState('ready')
     } catch {
       setStatus(null)
@@ -308,6 +118,10 @@ export function WhatsAppPage() {
       .then((items) => {
         if (!active) return
         setConnections(items)
+        if (items.some((connection) => connection.connectionState?.toLowerCase() === 'open')) {
+          setConnectQrCode('')
+          setConnectNotice('WhatsApp conectado à Evolution API.')
+        }
         setAutomationPhoneNumberId((current) => (
           current && items.some((connection) => connection.phoneNumberId === current)
             ? current
@@ -322,6 +136,12 @@ export function WhatsAppPage() {
       })
     return () => { active = false }
   }, [refreshKey])
+
+  useEffect(() => {
+    if (!connectQrCode) return
+    const timer = window.setInterval(() => setRefreshKey((value) => value + 1), 5_000)
+    return () => window.clearInterval(timer)
+  }, [connectQrCode])
 
   useEffect(() => {
     let active = true
@@ -374,11 +194,12 @@ export function WhatsAppPage() {
     void getWhatsAppConversations()
       .then((page) => {
         if (!active) return
-        setConversations(page.data)
+        const items = Array.isArray(page?.data) ? page.data : []
+        setConversations(items)
         setSelectedConversationId((current) => (
-          current && page.data.some((conversation) => conversation.id === current)
+          current && items.some((conversation) => conversation.id === current)
             ? current
-            : page.data[0]?.id ?? null
+            : items[0]?.id ?? null
         ))
         setInboxState('ready')
       })
@@ -417,8 +238,8 @@ export function WhatsAppPage() {
     return () => { active = false }
   }, [selectedConversationId, refreshKey])
 
-  const sendReady = loadState === 'ready' && status?.sendReady === true
-  const connectionReady = connections.some((connection) => connection.isOnBizApp)
+  const sendReady = loadState === 'ready' && status?.evolutionConfigured === true
+  const connectionReady = connections.some((connection) => connection.connectionState?.toLowerCase() === 'open')
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId)
 
   function updateAutomationContent(key: 'businessName' | 'senderIdentity' | 'serviceSummary' | 'approvedFacts' | 'escalationContact', value: string) {
@@ -466,43 +287,20 @@ export function WhatsAppPage() {
   }
 
   async function connectWhatsAppAccount() {
-    if (!publicSignupConfigReady) return
     setConnectBusy(true)
     setConnectError('')
     setConnectNotice('')
     try {
-      const sdk = await loadFacebookSdk(metaAppId, graphApiVersion)
-      const signup = await launchWhatsAppBusinessAppSignup(sdk, loginConfigurationId)
-      await connectWhatsAppEmbeddedSignup(signup)
-      setConnectNotice('WhatsApp Business conectado. Os dados da conta foram associados ao seu usuário DigiBusca.')
+      const result = await connectWhatsAppEvolution()
+      setConnectQrCode(result.qrCode ?? '')
+      setConnectNotice(result.qrCode
+        ? 'Leia o QR Code no WhatsApp do celular: Aparelhos conectados → Conectar aparelho.'
+        : result.state.toLowerCase() === 'open' ? 'WhatsApp conectado à Evolution API.' : 'Instância Evolution iniciada. Atualize o estado em alguns segundos.')
       setRefreshKey((value) => value + 1)
     } catch (error) {
       setConnectError(error instanceof Error ? error.message : 'Não foi possível concluir a conexão do WhatsApp.')
     } finally {
       setConnectBusy(false)
-    }
-  }
-
-  async function requestConnectionSync(connection: WhatsAppConnection, syncType: 'history' | 'smb_app_state_sync') {
-    const label = syncType === 'history' ? 'histórico de conversas' : 'contatos e estado do app'
-    const disclosure = syncType === 'history'
-      ? 'A Meta poderá transferir ao DigiBusca o histórico de conversas deste número, incluindo o conteúdo de mensagens e dados pessoais. O pedido é opcional e só pode ser feito uma vez dentro da janela inicial de 24 horas.'
-      : 'A Meta poderá transferir ao DigiBusca os contatos deste WhatsApp Business, incluindo nomes e números, e atualizações de estado desses contatos. O pedido é opcional e só pode ser feito uma vez dentro da janela inicial de 24 horas.'
-    if (!window.confirm(`${disclosure}\n\nSolicitar sincronização de ${label}?`)) return
-
-    const key = `${connection.phoneNumberId}:${syncType}`
-    setSyncBusy((current) => ({ ...current, [key]: true }))
-    setSyncError('')
-    setSyncNotice('')
-    try {
-      await requestWhatsAppCoexistenceSync({ phoneNumberId: connection.phoneNumberId, syncType })
-      setSyncNotice(`Pedido de sincronização de ${label} enviado à Meta.`)
-      setRefreshKey((value) => value + 1)
-    } catch (error) {
-      setSyncError(error instanceof Error ? error.message : 'Não foi possível solicitar a sincronização.')
-      setRefreshKey((value) => value + 1)
-    } finally {
-      setSyncBusy((current) => ({ ...current, [key]: false }))
     }
   }
 
@@ -517,7 +315,7 @@ export function WhatsAppPage() {
         <div className="whatsapp-header-actions">
           <span className={`whatsapp-connection-pill${sendReady || connectionReady ? ' is-ready' : ''}`}>
             <span aria-hidden="true" />
-            {connectionsState === 'loading' ? 'Verificando conexão' : connectionReady ? 'App e Cloud API conectados' : sendReady ? 'Envio configurado' : 'Configuração pendente'}
+            {connectionsState === 'loading' ? 'Verificando conexão' : connectionReady ? 'Evolution conectada' : sendReady ? 'Evolution configurada' : 'Configuração pendente'}
           </span>
           <button className="icon-button whatsapp-refresh" type="button" onClick={() => { void loadStatus(); setRefreshKey((value) => value + 1) }} aria-label="Atualizar conexão e conversas" title="Atualizar conexão e conversas">
             <RefreshCw size={16} className={loadState === 'loading' ? 'is-spinning' : ''} />
@@ -537,6 +335,9 @@ export function WhatsAppPage() {
         </button>
         <button type="button" role="tab" aria-selected={activeTab === 'settings'} className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>
           <ShieldCheck size={16} /> Conexão
+        </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'prospecting'} className={activeTab === 'prospecting' ? 'active' : ''} onClick={() => setActiveTab('prospecting')}>
+          <Send size={16} /> Prospecção
         </button>
       </nav>
 
@@ -638,96 +439,58 @@ export function WhatsAppPage() {
             )}
           </section>
         </div>
-      ) : (
+      ) : activeTab === 'settings' ? (
         <div className="whatsapp-settings-layout" role="tabpanel">
           <section className="panel whatsapp-settings-card">
             <div className="whatsapp-settings-heading">
               <div className="whatsapp-settings-icon"><MessageCircle size={20} /></div>
               <div>
-                <span className="eyebrow">WHATSAPP CLOUD API</span>
-                <h2>{sendReady ? 'Pronto para envio individual' : 'Conexão em configuração'}</h2>
-                <p>Quando configurado, o token fica somente no servidor e não aparece nesta tela.</p>
+                <span className="eyebrow">EVOLUTION API · WHATSAPP WEB</span>
+                <h2>{connectionReady ? 'WhatsApp conectado' : 'Conectar pelo QR Code'}</h2>
+                <p>A sessão é mantida pela Evolution API no seu Mac e vinculada à sua conta DigiBusca.</p>
               </div>
             </div>
 
             <div className="whatsapp-setup-list" aria-live="polite">
-              <SetupRow label="Token de acesso" configured={loadState === 'ready' && status?.accessTokenConfigured === true} />
-              <SetupRow label="ID do número" configured={loadState === 'ready' && status?.phoneNumberConfigured === true} />
-              <SetupRow label="Versão da Graph API" configured={loadState === 'ready' && status?.graphApiVersionConfigured === true} />
-              <SetupRow label="Modelo de mensagem" configured={loadState === 'ready' && status?.templateConfigured === true} />
-              <SetupRow label="Webhook de respostas" configured={loadState === 'ready' && status?.webhookReady === true} />
-              <SetupRow label="Backend seguro para Embedded Signup" configured={loadState === 'ready' && status?.embeddedSignupServerReady === true} />
+              <SetupRow label="Evolution API configurada" configured={loadState === 'ready' && status?.evolutionConfigured === true} />
+              <SetupRow label="Webhook local protegido" configured={loadState === 'ready' && status?.webhookConfigured === true} />
+              <SetupRow label="Chave de serviço Supabase" configured={loadState === 'ready' && status?.persistenceConfigured === true} />
+              <SetupRow label="Armazenamento de conexões" configured={loadState === 'ready' && status?.connectionStorageReady === true} />
             </div>
 
-            <section className="whatsapp-embedded-signup" aria-labelledby="whatsapp-embedded-signup-title">
+            <section className="whatsapp-embedded-signup" aria-labelledby="whatsapp-evolution-title">
               <div>
-                <span className="eyebrow">MANTER O APP NO TELEFONE</span>
-                <h3 id="whatsapp-embedded-signup-title">Conectar WhatsApp Business</h3>
-                <p>O fluxo da Meta vincula o número do WhatsApp Business App à Cloud API em modo de coexistência.</p>
+                <span className="eyebrow">PAREAMENTO PELO CELULAR</span>
+                <h3 id="whatsapp-evolution-title">Conectar WhatsApp</h3>
+                <p>No celular, abra WhatsApp → Aparelhos conectados → Conectar aparelho e leia o QR Code.</p>
               </div>
               <button
                 className="secondary-button"
                 type="button"
                 onClick={() => void connectWhatsAppAccount()}
-                disabled={!publicSignupConfigReady || status?.embeddedSignupServerReady !== true || status?.connectionStorageReady !== true || connectBusy}
+                disabled={!status?.evolutionConfigured || status?.connectionStorageReady !== true || connectBusy}
               >
-                <ShieldCheck size={15} />
-                {connectBusy ? 'Conectando à Meta…' : 'Conectar com a Meta'}
+                <QrCode size={15} />
+                {connectBusy ? 'Preparando QR Code…' : connectionReady ? 'Atualizar conexão' : 'Gerar QR Code'}
               </button>
-              {!loginConfigurationId && <p className="whatsapp-connect-state is-pending">Configuração pendente: defina <code>VITE_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID</code> em <code>frontend/.env</code> e reinicie o frontend.</p>}
-              {loginConfigurationId && !metaAppId && <p className="whatsapp-connect-state is-pending">Configuração pendente: defina o App ID público em <code>VITE_META_APP_ID</code>.</p>}
-              {loginConfigurationId && metaAppId && !/^v\d+\.\d+$/.test(graphApiVersion) && <p className="whatsapp-connect-state is-pending">Configuração pendente: defina a versão em <code>VITE_WHATSAPP_GRAPH_API_VERSION</code> (por exemplo, a mesma versão configurada no backend).</p>}
-              {publicSignupConfigReady && status?.embeddedSignupServerReady === false && <p className="whatsapp-connect-state is-pending">O backend ainda precisa de <code>META_APP_ID</code>, <code>WHATSAPP_APP_SECRET</code>, <code>WHATSAPP_GRAPH_API_VERSION</code>, <code>WHATSAPP_TOKEN_ENCRYPTION_KEY</code> e acesso service role ao Supabase para concluir a conexão com segurança.</p>}
-              {publicSignupConfigReady && status?.embeddedSignupServerReady === true && status.connectionStorageReady === false && <p className="whatsapp-connect-state is-pending">Aplique as migrations <code>009_whatsapp_webhook.sql</code> e <code>010_whatsapp_coexistence.sql</code> ao projeto Supabase desta instalação antes de abrir o Embedded Signup.</p>}
+              {loadState === 'ready' && status?.evolutionConfigured === false && <p className="whatsapp-connect-state is-pending">Configure <code>EVOLUTION_API_URL</code>, <code>EVOLUTION_API_KEY</code> e <code>EVOLUTION_WEBHOOK_SECRET</code> em <code>backend/.env</code>.</p>}
+              {status?.persistenceConfigured === false && <p className="whatsapp-connect-state is-pending">Configure <code>SUPABASE_SERVICE_ROLE_KEY</code> em <code>backend/.env</code> para salvar a conexão e as mensagens recebidas.</p>}
+              {status?.persistenceConfigured === true && status.connectionStorageReady === false && <p className="whatsapp-connect-state is-pending">Aplique as migrations <code>009_whatsapp_webhook.sql</code> e <code>010_whatsapp_coexistence.sql</code> no Supabase antes do pareamento.</p>}
               {connectError && <p className="whatsapp-connect-state is-error" role="alert">{connectError}</p>}
               {connectNotice && <p className="whatsapp-connect-state is-ready" role="status">{connectNotice}</p>}
-              {connectionsState === 'loading' && <p className="whatsapp-connect-state">Carregando conexões salvas…</p>}
+              {connectQrCode && <div className="whatsapp-evolution-qr"><img src={connectQrCode} alt="QR Code para conectar o WhatsApp" /><span>Aguarde a confirmação do pareamento nesta tela.</span></div>}
+              {connectionsState === 'loading' && <p className="whatsapp-connect-state">Carregando estado da instância…</p>}
               {connectionsState === 'error' && <p className="whatsapp-connect-state is-error" role="alert">{connectionsError}</p>}
               {connectionsState === 'ready' && connections.length > 0 && (
-                <ul className="whatsapp-connected-numbers" aria-label="Números conectados">
+                <ul className="whatsapp-connected-numbers" aria-label="Instâncias Evolution">
                   {connections.map((connection) => (
                     <li key={connection.phoneNumberId}>
-                      <span><strong>{connection.displayPhoneNumber || connection.phoneNumberId}</strong><small>{connection.isOnBizApp ? 'WhatsApp Business App + Cloud API' : 'Cloud API'}</small></span>
-                      <div className="whatsapp-connected-actions">
-                        <span className="whatsapp-connected-badge">Conectado</span>
-                        {connection.isOnBizApp && (
-                          <details className="whatsapp-sync-details">
-                            <summary>Sincronização inicial</summary>
-                            <p>Contatos e histórico são opcionais, enviados pela Meta e solicitados separadamente. Cada pedido pode ser feito uma única vez dentro de 24 horas da conexão.</p>
-                            <div className="whatsapp-sync-row">
-                              <span>
-                                <strong>Contatos</strong>
-                                <small>{coexistenceSyncStatusLabel(connection.appStateSyncState, 'smb_app_state_sync')}</small>
-                                {typeof connection.appStateSyncState?.requestId === 'string' && <small>ID Meta: {connection.appStateSyncState.requestId}</small>}
-                              </span>
-                              {!hasCoexistenceSyncRequest(connection.appStateSyncState) && isCoexistenceSyncWindowOpen(connection) && (
-                                <button type="button" className="secondary-button" disabled={Boolean(syncBusy[`${connection.phoneNumberId}:smb_app_state_sync`])} onClick={() => void requestConnectionSync(connection, 'smb_app_state_sync')}>
-                                  {syncBusy[`${connection.phoneNumberId}:smb_app_state_sync`] ? 'Solicitando…' : 'Sincronizar contatos'}
-                                </button>
-                              )}
-                            </div>
-                            <div className="whatsapp-sync-row">
-                              <span>
-                                <strong>Histórico</strong>
-                                <small>{coexistenceSyncStatusLabel(connection.historySyncState, 'history')}</small>
-                                {typeof connection.historySyncState?.requestId === 'string' && <small>ID Meta: {connection.historySyncState.requestId}</small>}
-                              </span>
-                              {!hasCoexistenceSyncRequest(connection.historySyncState) && isCoexistenceSyncWindowOpen(connection) && (
-                                <button type="button" className="secondary-button" disabled={Boolean(syncBusy[`${connection.phoneNumberId}:history`])} onClick={() => void requestConnectionSync(connection, 'history')}>
-                                  {syncBusy[`${connection.phoneNumberId}:history`] ? 'Solicitando…' : 'Solicitar histórico'}
-                                </button>
-                              )}
-                            </div>
-                            {!isCoexistenceSyncWindowOpen(connection) && (!hasCoexistenceSyncRequest(connection.appStateSyncState) || !hasCoexistenceSyncRequest(connection.historySyncState)) && <small className="whatsapp-sync-expired">A janela inicial de sincronização encerrou.</small>}
-                          </details>
-                        )}
-                      </div>
+                      <span><strong>{connection.displayPhoneNumber || connection.phoneNumberId}</strong><small>Evolution API · {connection.connectionState || 'estado desconhecido'}</small></span>
+                      <span className={`whatsapp-connected-badge${connection.connectionState?.toLowerCase() === 'open' ? '' : ' is-pending'}`}>{connection.connectionState?.toLowerCase() === 'open' ? 'Conectado' : 'Aguardando conexão'}</span>
                     </li>
                   ))}
                 </ul>
               )}
-              {syncError && <p className="whatsapp-connect-state is-error" role="alert">{syncError}</p>}
-              {syncNotice && <p className="whatsapp-connect-state is-ready" role="status">{syncNotice}</p>}
             </section>
 
             <section className="whatsapp-automation-panel" aria-labelledby="whatsapp-automation-title">
@@ -813,16 +576,15 @@ export function WhatsAppPage() {
             </section>
 
             <div className="whatsapp-settings-actions">
-              <button className="secondary-button" type="button" onClick={() => void loadStatus()}>
+              <button className="secondary-button" type="button" onClick={() => { void loadStatus(); setRefreshKey((value) => value + 1) }}>
                 <RefreshCw size={15} /> Atualizar status
               </button>
-              <a className="text-button" href={metaAppUrl} target="_blank" rel="noreferrer">
-                Abrir Meta for Developers <ArrowUpRight size={15} />
-              </a>
             </div>
           </section>
 
         </div>
+      ) : (
+        <WhatsAppProspectingPanel connections={connections} />
       )}
     </section>
   )

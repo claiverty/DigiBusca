@@ -1,10 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createUserSupabaseClient, createWhatsAppWebhookSupabaseClient, getWhatsAppEmbeddedSignupServerConfig } from '../config/supabase.js'
+import { createUserSupabaseClient, createWhatsAppWebhookSupabaseClient } from '../config/supabase.js'
 import type { WhatsAppPageOptions } from '../contracts/whatsapp.js'
 import type { WhatsAppWebhookEvents } from '../application/whatsappWebhook.js'
-import { decryptWhatsAppAccessToken, encryptWhatsAppAccessToken } from '../integrations/whatsappTokenVault.js'
-import type { WhatsAppCoexistencePhone } from '../integrations/whatsappEmbeddedSignup.js'
-import type { WhatsAppCoexistenceSyncType } from '../integrations/whatsappCoexistenceSync.js'
 import type { WhatsAppAutomationProfile, WhatsAppAutomationProfileInput, WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 
 type ConnectionRow = { phone_number_id: string; user_id: string }
@@ -31,9 +28,6 @@ export type WhatsAppAutomationRuntimeContext = {
   phoneNumberId: string
   contactWaId: string
   conversationId: string
-  accessTokenCiphertext: string | null
-  accessTokenIv: string | null
-  accessTokenExpiresAt: string | null
   automationPaused: boolean
   automationOptedOut: boolean
   automationStage: WhatsAppAutomationStage
@@ -93,49 +87,17 @@ export class WhatsAppConnectionConflictError extends Error {
   }
 }
 
-export class WhatsAppCoexistenceSyncStoreError extends Error {
-  constructor(message: string, readonly status: 403 | 404 | 409 | 500) {
-    super(message)
-    this.name = 'WhatsAppCoexistenceSyncStoreError'
-  }
-}
-
-function syncStateColumn(syncType: WhatsAppCoexistenceSyncType) {
-  return syncType === 'history' ? 'history_sync_state' : 'app_state_sync_state'
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function hasCoexistenceSyncRequest(value: unknown) {
-  if (!isRecord(value)) return false
-  return typeof value.requestStatus === 'string' ||
-    typeof value.requestId === 'string' ||
-    typeof value.requestedAt === 'string' ||
-    typeof value.consentedAt === 'string'
-}
-
-function syncEventStatus(syncType: WhatsAppCoexistenceSyncType, state: Record<string, unknown>) {
-  if (syncType === 'smb_app_state_sync') return 'in_progress'
-  if (Array.isArray(state.errors) && state.errors.length > 0) return 'failed'
-  const progress = typeof state.progress === 'number' ? state.progress : Number(state.progress)
-  return Number.isFinite(progress) && progress >= 100 ? 'complete' : 'in_progress'
-}
-
-function mergeSyncStatus(previous: unknown, next: string) {
-  const priority: Record<string, number> = {
-    requesting: 0,
-    accepted: 1,
-    unknown: 2,
-    rejected: 2,
-    failed: 2,
-    in_progress: 3,
-    complete: 4,
-  }
-  return typeof previous === 'string' && (priority[previous] ?? -1) > (priority[next] ?? -1)
-    ? previous
-    : next
+function normalizeWhatsAppContactNumber(value: string) {
+  let digits = value.replace(/\D/g, '')
+  if (digits.startsWith('00')) digits = digits.slice(2)
+  if (digits.startsWith('0')) digits = digits.slice(1)
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`
+  return digits
 }
 
 function dedupeByKey<T>(items: T[], keyFor: (item: T) => string) {
@@ -166,14 +128,47 @@ export class WhatsAppStore {
     return createUserSupabaseClient(accessToken)
   }
 
-  async isCoexistenceStorageReady() {
+  async isEvolutionStorageReady() {
     try {
       const admin = createWhatsAppWebhookSupabaseClient()
-      const result = await admin.from('whatsapp_business_contacts').select('phone_number_id').limit(0)
+      const result = await admin.from('whatsapp_phone_number_connections')
+        .select('phone_number_id, platform_type').limit(0)
       return !result.error
     } catch {
       return false
     }
+  }
+
+  async saveEvolutionInstance(userId: string, instanceName: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const existing = await admin.from('whatsapp_phone_number_connections')
+      .select('user_id').eq('phone_number_id', instanceName).maybeSingle()
+    throwIfError(existing.error, 'Não foi possível verificar a instância Evolution vinculada.')
+    if (existing.data && (existing.data as { user_id: string }).user_id !== userId) {
+      throw new WhatsAppConnectionConflictError()
+    }
+    const saved = await admin.from('whatsapp_phone_number_connections').upsert({
+      user_id: userId,
+      phone_number_id: instanceName,
+      waba_id: null,
+      display_phone_number: null,
+      is_on_biz_app: true,
+      platform_type: 'EVOLUTION_API',
+      access_token_ciphertext: null,
+      access_token_iv: null,
+      access_token_expires_at: null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'phone_number_id' })
+    throwIfError(saved.error, 'Não foi possível associar a instância Evolution à conta DigiBusca.')
+  }
+
+  async getEvolutionInstanceName(userId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_phone_number_connections')
+      .select('phone_number_id').eq('user_id', userId).eq('platform_type', 'EVOLUTION_API')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+    throwIfError(result.error, 'Não foi possível carregar a instância Evolution desta conta.')
+    return (result.data as { phone_number_id: string } | null)?.phone_number_id
   }
 
   async isAutomationStorageReady() {
@@ -248,20 +243,42 @@ export class WhatsAppStore {
     const result = await admin.from('whatsapp_conversations')
       .update({ automation_paused: true, automation_opted_out: true, automation_pause_reason: 'opt_out' })
       .eq('id', conversationId).eq('user_id', userId)
+      .select('contact_wa_id')
+      .single()
     throwIfError(result.error, 'Não foi possível registrar o pedido de parada desta conversa.')
+
+    const contactWaId = (result.data as { contact_wa_id: string }).contact_wa_id
+    const leadsResult = await admin.from('saved_leads')
+      .select('lead_id, lead_data')
+      .eq('user_id', userId)
+    throwIfError(leadsResult.error, 'Não foi possível aplicar o descadastro ao lead salvo.')
+    const matchingLeadIds = ((leadsResult.data ?? []) as Array<{ lead_id: string; lead_data: unknown }>)
+      .filter((lead) => isRecord(lead.lead_data) && typeof lead.lead_data.phone === 'string'
+        && normalizeWhatsAppContactNumber(lead.lead_data.phone) === normalizeWhatsAppContactNumber(contactWaId))
+      .map((lead) => lead.lead_id)
+    if (matchingLeadIds.length === 0) return
+
+    const now = new Date().toISOString()
+    const leadUpdate = await admin.from('saved_leads')
+      .update({
+        whatsapp_consent_status: 'opted_out',
+        whatsapp_consent_source: 'Pedido de parada recebido no WhatsApp',
+        whatsapp_consent_at: now,
+        updated_at: now,
+      })
+      .eq('user_id', userId)
+      .in('lead_id', matchingLeadIds)
+    throwIfError(leadUpdate.error, 'Não foi possível atualizar o descadastro do lead salvo.')
   }
 
   async getAutomationRuntimeContext(phoneNumberId: string, contactWaId: string): Promise<WhatsAppAutomationRuntimeContext | undefined> {
     const admin = createWhatsAppWebhookSupabaseClient()
     const connectionResult = await admin.from('whatsapp_phone_number_connections')
-      .select('user_id, phone_number_id, access_token_ciphertext, access_token_iv, access_token_expires_at')
+      .select('user_id, phone_number_id')
       .eq('phone_number_id', phoneNumberId).maybeSingle()
     throwIfError(connectionResult.error, 'Não foi possível carregar a conexão WhatsApp para responder.')
     if (!connectionResult.data) return undefined
-    const connection = connectionResult.data as {
-      user_id: string; phone_number_id: string; access_token_ciphertext: string | null;
-      access_token_iv: string | null; access_token_expires_at: string | null
-    }
+    const connection = connectionResult.data as { user_id: string; phone_number_id: string }
 
     const [conversationResult, profileResult] = await Promise.all([
       admin.from('whatsapp_conversations')
@@ -293,9 +310,6 @@ export class WhatsAppStore {
       phoneNumberId,
       contactWaId,
       conversationId: conversation.id,
-      accessTokenCiphertext: connection.access_token_ciphertext,
-      accessTokenIv: connection.access_token_iv,
-      accessTokenExpiresAt: connection.access_token_expires_at,
       automationPaused: conversation.automation_paused === true,
       automationOptedOut: conversation.automation_opted_out === true,
       automationStage: stage,
@@ -347,9 +361,10 @@ export class WhatsAppStore {
       direction: 'outbound',
       message_type: 'text',
       body: input.body,
+      source: 'live',
       is_placeholder: false,
       occurred_at: input.occurredAt,
-    }, { onConflict: 'phone_number_id,provider_message_id', ignoreDuplicates: true })
+    }, { onConflict: 'phone_number_id,provider_message_id' })
     throwIfError(result.error, 'Não foi possível salvar a resposta automática enviada.')
   }
 
@@ -359,201 +374,21 @@ export class WhatsAppStore {
     throwIfError(result.error, 'Não foi possível atualizar a etapa do atendimento automático.')
   }
 
-  async connectCoexistencePhone(
-    userId: string,
-    wabaId: string,
-    phone: WhatsAppCoexistencePhone,
-    accessToken: string,
-    tokenExpiresAt?: string,
-  ) {
-    const config = getWhatsAppEmbeddedSignupServerConfig()
-    if (!config) throw new Error('A configuração segura do Embedded Signup está incompleta.')
-    const encrypted = await encryptWhatsAppAccessToken(accessToken, config.encryptionKey)
-    const admin = createWhatsAppWebhookSupabaseClient()
-    const existing = await admin
-      .from('whatsapp_phone_number_connections')
-      .select('user_id')
-      .eq('phone_number_id', phone.id)
-      .maybeSingle()
-    throwIfError(existing.error, 'Não foi possível validar a associação do número WhatsApp.')
-    if (existing.data && existing.data.user_id !== userId) {
-      throw new WhatsAppConnectionConflictError()
-    }
-
-    const values = {
-      user_id: userId,
-      phone_number_id: phone.id,
-      waba_id: wabaId,
-      display_phone_number: phone.display_phone_number ?? null,
-      access_token_ciphertext: encrypted.ciphertext,
-      access_token_iv: encrypted.iv,
-      access_token_expires_at: tokenExpiresAt ?? null,
-      is_on_biz_app: phone.is_on_biz_app === true,
-      platform_type: phone.platform_type ?? null,
-      updated_at: new Date().toISOString(),
-    }
-    const saved = existing.data
-      ? await admin.from('whatsapp_phone_number_connections').update(values)
-          .eq('phone_number_id', phone.id).eq('user_id', userId)
-      : await admin.from('whatsapp_phone_number_connections').insert(values)
-    throwIfError(saved.error, 'Não foi possível guardar a conexão WhatsApp desta conta.')
-    return {
-      phoneNumberId: phone.id,
-      wabaId,
-      displayPhoneNumber: phone.display_phone_number ?? null,
-      isOnBizApp: phone.is_on_biz_app === true,
-      platformType: phone.platform_type ?? null,
-      historySyncState: null,
-      appStateSyncState: null,
-      connectedAt: new Date().toISOString(),
-    }
-  }
-
   async listConnections(userId: string) {
     const admin = createWhatsAppWebhookSupabaseClient()
     const result = await admin
       .from('whatsapp_phone_number_connections')
-      .select('phone_number_id, waba_id, display_phone_number, is_on_biz_app, platform_type, history_sync_state, app_state_sync_state, created_at')
+      .select('phone_number_id, display_phone_number, platform_type, created_at')
       .eq('user_id', userId)
+      .eq('platform_type', 'EVOLUTION_API')
       .order('created_at', { ascending: false })
     throwIfError(result.error, 'Não foi possível carregar as conexões WhatsApp desta conta.')
     return (result.data ?? []).map((row) => ({
       phoneNumberId: row.phone_number_id as string,
-      wabaId: row.waba_id as string | null,
       displayPhoneNumber: row.display_phone_number as string | null,
-      isOnBizApp: row.is_on_biz_app === true,
       platformType: row.platform_type as string | null,
-      historySyncState: row.history_sync_state as Record<string, unknown> | null,
-      appStateSyncState: row.app_state_sync_state as Record<string, unknown> | null,
       connectedAt: row.created_at as string,
     }))
-  }
-
-  async getCoexistenceSyncCredentials(userId: string, phoneNumberId: string, syncType: WhatsAppCoexistenceSyncType) {
-    const admin = createWhatsAppWebhookSupabaseClient()
-    const stateColumn = syncStateColumn(syncType)
-    const result = await admin.from('whatsapp_phone_number_connections')
-      .select(`is_on_biz_app, access_token_ciphertext, access_token_iv, access_token_expires_at, created_at, ${stateColumn}`)
-      .eq('phone_number_id', phoneNumberId)
-      .eq('user_id', userId)
-      .maybeSingle()
-    throwIfError(result.error, 'Não foi possível validar a conexão WhatsApp para sincronização.')
-    if (!result.data) {
-      throw new WhatsAppCoexistenceSyncStoreError('O número não está conectado a esta conta DigiBusca.', 404)
-    }
-
-    const row = result.data as Record<string, unknown>
-    if (row.is_on_biz_app !== true) {
-      throw new WhatsAppCoexistenceSyncStoreError('A sincronização está disponível somente para números em coexistência com o app WhatsApp Business.', 409)
-    }
-    const connectedAt = typeof row.created_at === 'string' ? Date.parse(row.created_at) : Number.NaN
-    if (!Number.isFinite(connectedAt) || Date.now() - connectedAt > 24 * 60 * 60 * 1_000 || connectedAt > Date.now() + 5 * 60 * 1_000) {
-      throw new WhatsAppCoexistenceSyncStoreError('A janela da Meta para pedir esta sincronização (24 horas após a conexão) já expirou.', 409)
-    }
-    if (hasCoexistenceSyncRequest(row[stateColumn])) {
-      throw new WhatsAppCoexistenceSyncStoreError('Este pedido de sincronização já foi iniciado. A Meta permite uma tentativa por tipo.', 409)
-    }
-    if (typeof row.access_token_ciphertext !== 'string' || typeof row.access_token_iv !== 'string') {
-      throw new WhatsAppCoexistenceSyncStoreError('O token seguro desta conexão não está disponível.', 409)
-    }
-    const expiresAt = typeof row.access_token_expires_at === 'string' ? Date.parse(row.access_token_expires_at) : undefined
-    if (expiresAt !== undefined && (!Number.isFinite(expiresAt) || expiresAt <= Date.now() + 30_000)) {
-      throw new WhatsAppCoexistenceSyncStoreError('O token da conexão expirou. Refaça a autorização da Meta antes de sincronizar.', 409)
-    }
-    return {
-      ciphertext: row.access_token_ciphertext,
-      iv: row.access_token_iv,
-    }
-  }
-
-  async reserveCoexistenceSync(
-    userId: string,
-    phoneNumberId: string,
-    syncType: WhatsAppCoexistenceSyncType,
-    consentedAt: string,
-  ) {
-    // Re-read and compare-and-set the nullable sync state so concurrent clicks cannot
-    // trigger two one-time requests to Meta for the same phone and sync type.
-    const admin = createWhatsAppWebhookSupabaseClient()
-    const stateColumn = syncStateColumn(syncType)
-    const current = await admin.from('whatsapp_phone_number_connections')
-      .select(`is_on_biz_app, access_token_ciphertext, access_token_iv, access_token_expires_at, created_at, ${stateColumn}`)
-      .eq('phone_number_id', phoneNumberId)
-      .eq('user_id', userId)
-      .maybeSingle()
-    throwIfError(current.error, 'Não foi possível validar a conexão WhatsApp para sincronização.')
-    if (!current.data) throw new WhatsAppCoexistenceSyncStoreError('O número não está conectado a esta conta DigiBusca.', 404)
-    const row = current.data as Record<string, unknown>
-    if (row.is_on_biz_app !== true) {
-      throw new WhatsAppCoexistenceSyncStoreError('A sincronização está disponível somente para números em coexistência com o app WhatsApp Business.', 409)
-    }
-    const connectedAt = typeof row.created_at === 'string' ? Date.parse(row.created_at) : Number.NaN
-    if (!Number.isFinite(connectedAt) || Date.now() - connectedAt > 24 * 60 * 60 * 1_000 || connectedAt > Date.now() + 5 * 60 * 1_000) {
-      throw new WhatsAppCoexistenceSyncStoreError('A janela da Meta para pedir esta sincronização (24 horas após a conexão) já expirou.', 409)
-    }
-    if (hasCoexistenceSyncRequest(row[stateColumn])) {
-      throw new WhatsAppCoexistenceSyncStoreError('Este pedido de sincronização já foi iniciado. A Meta permite uma tentativa por tipo.', 409)
-    }
-    if (typeof row.access_token_ciphertext !== 'string' || typeof row.access_token_iv !== 'string') {
-      throw new WhatsAppCoexistenceSyncStoreError('O token seguro desta conexão não está disponível.', 409)
-    }
-    const expiresAt = typeof row.access_token_expires_at === 'string' ? Date.parse(row.access_token_expires_at) : undefined
-    if (expiresAt !== undefined && (!Number.isFinite(expiresAt) || expiresAt <= Date.now() + 30_000)) {
-      throw new WhatsAppCoexistenceSyncStoreError('O token da conexão expirou. Refaça a autorização da Meta antes de sincronizar.', 409)
-    }
-
-    const requestedAt = new Date().toISOString()
-    const currentState = isRecord(row[stateColumn]) ? row[stateColumn] as Record<string, unknown> : {}
-    const reservation = {
-      ...currentState,
-      status: 'requesting',
-      requestStatus: 'requesting',
-      syncType,
-      consentedAt,
-      requestedAt,
-    }
-    const reserved = await admin.from('whatsapp_phone_number_connections')
-      .update({ [stateColumn]: reservation, updated_at: requestedAt })
-      .eq('phone_number_id', phoneNumberId)
-      .eq('user_id', userId)
-      .is(`${stateColumn}->>requestStatus`, null)
-      .is(`${stateColumn}->>requestId`, null)
-      .is(`${stateColumn}->>requestedAt`, null)
-      .is(`${stateColumn}->>consentedAt`, null)
-      .select('phone_number_id')
-      .maybeSingle()
-    throwIfError(reserved.error, 'Não foi possível reservar o pedido de sincronização.')
-    if (!reserved.data) {
-      throw new WhatsAppCoexistenceSyncStoreError('Outro pedido de sincronização já foi iniciado para este número.', 409)
-    }
-    return { requestedAt }
-  }
-
-  async recordCoexistenceSyncState(
-    userId: string,
-    phoneNumberId: string,
-    syncType: WhatsAppCoexistenceSyncType,
-    patch: Record<string, unknown>,
-  ) {
-    const admin = createWhatsAppWebhookSupabaseClient()
-    const stateColumn = syncStateColumn(syncType)
-    const current = await admin.from('whatsapp_phone_number_connections')
-      .select(stateColumn)
-      .eq('phone_number_id', phoneNumberId)
-      .eq('user_id', userId)
-      .maybeSingle()
-    throwIfError(current.error, 'Não foi possível carregar o estado da sincronização.')
-    if (!current.data) throw new WhatsAppCoexistenceSyncStoreError('O número não está conectado a esta conta DigiBusca.', 404)
-    const currentRow = current.data as Record<string, unknown>
-    const previous = isRecord(currentRow[stateColumn]) ? currentRow[stateColumn] as Record<string, unknown> : {}
-    const merged = { ...previous, ...patch }
-    if (typeof patch.status === 'string') merged.status = mergeSyncStatus(previous.status, patch.status)
-    if (typeof patch.requestStatus === 'string') merged.requestStatus = mergeSyncStatus(previous.requestStatus, patch.requestStatus)
-    const updated = await admin.from('whatsapp_phone_number_connections')
-      .update({ [stateColumn]: merged, updated_at: new Date().toISOString() })
-      .eq('phone_number_id', phoneNumberId)
-      .eq('user_id', userId)
-    throwIfError(updated.error, 'Não foi possível salvar o estado da sincronização.')
   }
 
   async persistWebhookEvents(events: WhatsAppWebhookEvents): Promise<void> {
@@ -561,7 +396,6 @@ export class WhatsAppStore {
       ...events.messages.map((event) => event.phoneNumberId),
       ...events.statuses.map((event) => event.phoneNumberId),
       ...events.contacts.map((event) => event.phoneNumberId),
-      ...events.syncStates.map((event) => event.phoneNumberId),
     ])]
     if (phoneNumberIds.length === 0) return
 
@@ -579,7 +413,6 @@ export class WhatsAppStore {
       const messages = events.messages.filter((event) => event.phoneNumberId === phoneNumberId)
       const statuses = events.statuses.filter((event) => event.phoneNumberId === phoneNumberId)
       const contactEvents = events.contacts.flatMap((event) => event.phoneNumberId === phoneNumberId ? event.contacts : [])
-      const syncStates = events.syncStates.filter((event) => event.phoneNumberId === phoneNumberId)
       const contactNames = new Map<string, string>()
       const contacts = new Set<string>()
       for (const message of messages) {
@@ -618,37 +451,6 @@ export class WhatsAppStore {
             .in('contact_wa_id', removedIds)
           throwIfError(updateNames.error, 'Não foi possível atualizar os contatos da caixa de entrada.')
         }
-      }
-
-      for (const syncState of syncStates) {
-        const stateColumn = syncState.syncType === 'history' ? 'history_sync_state' : 'app_state_sync_state'
-        const previousResult = await admin.from('whatsapp_phone_number_connections')
-          .select(stateColumn)
-          .eq('phone_number_id', phoneNumberId)
-          .eq('user_id', connection.user_id)
-          .maybeSingle()
-        throwIfError(previousResult.error, 'Não foi possível carregar o estado da sincronização WhatsApp.')
-        const previousRow = previousResult.data as Record<string, unknown> | null
-        const previous = previousRow && isRecord(previousRow[stateColumn])
-          ? previousRow[stateColumn] as Record<string, unknown>
-          : {}
-        const status = syncEventStatus(syncState.syncType, syncState.state)
-        if (syncState.syncType === 'smb_app_state_sync' && !hasCoexistenceSyncRequest(previous)) continue
-        const stateResult = await admin.from('whatsapp_phone_number_connections')
-          .update({
-            [stateColumn]: {
-              ...previous,
-              status: mergeSyncStatus(previous.status, status),
-              requestStatus: mergeSyncStatus(previous.requestStatus, status),
-              syncType: syncState.syncType,
-              providerState: syncState.state,
-              lastWebhookAt: new Date().toISOString(),
-            },
-            updated_at: new Date().toISOString(),
-          })
-          .eq('phone_number_id', phoneNumberId)
-          .eq('user_id', connection.user_id)
-        throwIfError(stateResult.error, 'Não foi possível atualizar o estado da sincronização WhatsApp.')
       }
 
       const conversationInputs = [...contacts].map((contactWaId) => ({
@@ -717,6 +519,7 @@ export class WhatsAppStore {
           contact_wa_id: event.contactWaId,
           direction: event.direction,
           message_type: event.messageType,
+          source: event.source,
           body: event.body ?? null,
           is_placeholder: false,
           occurred_at: event.occurredAt,
@@ -733,6 +536,7 @@ export class WhatsAppStore {
           contact_wa_id: event.recipientWaId,
           direction: 'outbound' as const,
           message_type: 'unknown',
+          source: 'live' as const,
           body: null,
           is_placeholder: true,
           occurred_at: event.occurredAt,
@@ -779,6 +583,87 @@ export class WhatsAppStore {
           })
         throwIfError(statusResult.error, 'Não foi possível salvar os status do webhook.')
       }
+
+      const latestQueueStatuses = new Map<string, (typeof statuses)[number]>()
+      for (const event of statuses) {
+        const current = latestQueueStatuses.get(event.providerMessageId)
+        if (!current || Date.parse(event.occurredAt) >= Date.parse(current.occurredAt)) {
+          latestQueueStatuses.set(event.providerMessageId, event)
+        }
+      }
+      for (const event of latestQueueStatuses.values()) {
+        const failed = event.status === 'failed'
+        const queueUpdate = await admin.from('whatsapp_prospecting_queue')
+          .update({
+            status: failed ? 'failed' : 'sent',
+            ...(failed ? {} : { sent_at: event.occurredAt }),
+            error_code: failed ? 'provider_delivery_failed' : null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('provider_message_id', event.providerMessageId)
+          .in('status', ['sending', 'sent', 'unknown'])
+        throwIfError(queueUpdate.error, 'Não foi possível atualizar o resultado de entrega da fila.')
+      }
+    }
+  }
+
+  async listPendingLiveInboundTextEvents(limit = 50): Promise<WhatsAppWebhookEvents> {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const oldestAllowed = new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString()
+    const pendingRows: Array<{
+      phone_number_id: string
+      provider_message_id: string
+      contact_wa_id: string
+      occurred_at: string
+      message_type: string
+      body: string | null
+      source: 'live' | 'history'
+    }> = []
+    const pageSize = 100
+    let offset = 0
+    while (pendingRows.length < limit) {
+      const result = await admin.from('whatsapp_messages')
+        .select('phone_number_id, provider_message_id, contact_wa_id, occurred_at, message_type, body, source')
+        .eq('direction', 'inbound')
+        .eq('message_type', 'text')
+        .eq('source', 'live')
+        .eq('is_placeholder', false)
+        .not('body', 'is', null)
+        .gte('occurred_at', oldestAllowed)
+        .order('occurred_at', { ascending: true })
+        .order('created_at', { ascending: true })
+        .range(offset, offset + pageSize - 1)
+      throwIfError(result.error, 'Não foi possível consultar as respostas recebidas para automação local.')
+      const rows = (result.data ?? []) as typeof pendingRows
+      if (rows.length === 0) break
+
+      const ids = rows.map((row) => row.provider_message_id)
+      const runs = await admin.from('whatsapp_automation_runs')
+        .select('inbound_provider_message_id')
+        .in('inbound_provider_message_id', ids)
+      throwIfError(runs.error, 'Não foi possível verificar quais respostas já foram processadas.')
+      const processed = new Set(((runs.data ?? []) as Array<{ inbound_provider_message_id: string }>).map((row) => row.inbound_provider_message_id))
+      pendingRows.push(...rows.filter((row) => !processed.has(row.provider_message_id)).slice(0, limit - pendingRows.length))
+
+      offset += rows.length
+      if (rows.length < pageSize) break
+    }
+
+    if (pendingRows.length === 0) return { messages: [], statuses: [], contacts: [] }
+
+    return {
+      messages: pendingRows.map((row) => ({
+        phoneNumberId: row.phone_number_id,
+        providerMessageId: row.provider_message_id,
+        contactWaId: row.contact_wa_id,
+        occurredAt: row.occurred_at,
+        direction: 'inbound' as const,
+        source: row.source,
+        messageType: row.message_type,
+        ...(row.body ? { body: row.body } : {}),
+      })),
+      statuses: [],
+      contacts: [],
     }
   }
 

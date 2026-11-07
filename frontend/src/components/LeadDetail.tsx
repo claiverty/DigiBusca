@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { localDateKey } from '../lib/dates'
 import { conversationStages } from '../../../backend/src/contracts/aiOutreach'
 import { createApproachMessage } from '../lib/approachMessage'
-import { hasContactPhone, toWhatsappPhone } from '../lib/phone'
+import { hasContactPhone } from '../lib/phone'
 import { createLeadInteraction, getLeadInteractions, getSiteHealth, type SiteHealthResult } from '../services/leadsService'
 import { CurrencyInput, currencyCentsToNumber } from './CurrencyInput'
 import { DatePicker } from './DatePicker'
@@ -21,6 +21,7 @@ type LeadDetailProps = {
   onToggleSave: () => Promise<void>
   onUpdateLead: (changes: LeadUpdate) => Promise<void>
   onRegisterSale: (input: Omit<CreateSaleInput, 'businessName' | 'leadId'>) => Promise<void>
+  onOpenProspecting: (draftMessage: string) => Promise<void>
 }
 
 const leadStatuses: LeadStatus[] = [
@@ -43,6 +44,13 @@ function getToday() {
   return localDateKey()
 }
 
+function toDateTimeLocal(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ''
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
+
 function formatInteractionDate(value: string) {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(
     new Date(`${value}T12:00:00`),
@@ -56,12 +64,16 @@ export function LeadDetail({
   onToggleSave,
   onUpdateLead,
   onRegisterSale,
+  onOpenProspecting,
 }: LeadDetailProps) {
   const [message, setMessage] = useState(lead.draftMessage ?? createApproachMessage(lead))
   const [status, setStatus] = useState<LeadStatus>(lead.status)
   const [conversationStage, setConversationStage] = useState(lead.conversationStage ?? 'Abertura')
   const [contactName, setContactName] = useState(lead.contactName ?? '')
   const [nextAction, setNextAction] = useState(lead.nextAction ?? '')
+  const [whatsappConsentStatus, setWhatsappConsentStatus] = useState<NonNullable<Lead['whatsappConsentStatus']>>(lead.whatsappConsentStatus ?? 'unknown')
+  const [whatsappConsentSource, setWhatsappConsentSource] = useState(lead.whatsappConsentSource ?? '')
+  const [whatsappConsentAt, setWhatsappConsentAt] = useState(toDateTimeLocal(lead.whatsappConsentAt))
   const [notes, setNotes] = useState(lead.notes ?? '')
   const [nextFollowUp, setNextFollowUp] = useState(lead.nextFollowUp ?? '')
   const [isSaving, setIsSaving] = useState(false)
@@ -83,10 +95,6 @@ export function LeadDetail({
   const [siteHealth, setSiteHealth] = useState<SiteHealthResult | undefined>()
   const [siteHealthStatus, setSiteHealthStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const hasPhone = hasContactPhone(lead.phone)
-  const whatsappPhone = toWhatsappPhone(lead.phone)
-  const whatsappLink = hasPhone
-    ? `https://wa.me/${whatsappPhone ?? lead.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
-    : undefined
 
   useEffect(() => {
     if (!isSaved) {
@@ -152,6 +160,12 @@ export function LeadDetail({
     setIsSaving(true)
     setFeedback('')
 
+    if (whatsappConsentStatus === 'opted_in' && (!whatsappConsentSource.trim() || !whatsappConsentAt || !Number.isFinite(new Date(whatsappConsentAt).getTime()))) {
+      setFeedback('Para registrar a autorização, informe onde e quando ela foi obtida.')
+      setIsSaving(false)
+      return false
+    }
+
     try {
       await onUpdateLead({
         status,
@@ -159,6 +173,9 @@ export function LeadDetail({
         nextFollowUp,
         draftMessage: message,
         conversationStage, contactName, nextAction,
+        whatsappConsentStatus,
+        whatsappConsentSource: whatsappConsentStatus === 'opted_in' ? whatsappConsentSource.trim() : '',
+        whatsappConsentAt: whatsappConsentStatus === 'opted_in' ? new Date(whatsappConsentAt).toISOString() : '',
       })
       setFeedback('Alterações salvas.')
       return true
@@ -167,6 +184,26 @@ export function LeadDetail({
       return false
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleOpenProspecting() {
+    setIsSaving(true)
+    setFeedback('')
+    try {
+      await onOpenProspecting(message)
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Não foi possível salvar a mensagem e abrir a fila.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  function handleConsentStatusChange(nextStatus: NonNullable<Lead['whatsappConsentStatus']>) {
+    setWhatsappConsentStatus(nextStatus)
+    if (nextStatus !== 'opted_in' || whatsappConsentStatus !== 'opted_in') {
+      setWhatsappConsentSource('')
+      setWhatsappConsentAt('')
     }
   }
 
@@ -271,20 +308,9 @@ export function LeadDetail({
               aria-label="Mensagem de abordagem"
             />
             <div className="panel-actions">
-              {whatsappLink ? (
-                <a className="primary-button" href={whatsappLink} target="_blank" rel="noreferrer">
-                  <MessageCircle size={17} /> Abrir no WhatsApp
-                </a>
-              ) : (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled
-                  title="Este perfil não tem telefone público disponível."
-                >
-                  <MessageCircle size={17} /> WhatsApp indisponível
-                </button>
-              )}
+              <button className="primary-button" type="button" onClick={() => void handleOpenProspecting()} disabled={!hasPhone || isSaving} title={!hasPhone ? 'Este perfil não tem telefone público disponível.' : 'Salve a mensagem e abra a fila da Evolution API.'}>
+                <MessageCircle size={17} /> {isSaving ? 'Salvando…' : hasPhone ? 'Abrir fila WhatsApp' : 'WhatsApp indisponível'}
+              </button>
               <button
                 className="secondary-button"
                 type="button"
@@ -294,6 +320,47 @@ export function LeadDetail({
                 {isSaving ? 'Salvando...' : 'Salvar mensagem e acompanhamento'}
               </button>
             </div>
+          </div>
+          <div className="panel whatsapp-consent-panel">
+            <span className="eyebrow">PERMISSÃO DE CONTATO</span>
+            <h2>Consentimento para WhatsApp</h2>
+            <p>O DigiBusca só coloca o lead na fila quando a autorização e a origem estão registradas.</p>
+            {!isSaved && (
+              <div className="consent-save-prompt">
+                <span>Salve este lead antes de registrar a autorização.</span>
+                <button className="secondary-button" type="button" onClick={() => void handleToggleSave()} disabled={isSaving}>
+                  {isSaving ? 'Salvando…' : 'Salvar lead'}
+                </button>
+              </div>
+            )}
+            <label className="detail-field">
+              <span>Status do consentimento</span>
+              <select value={whatsappConsentStatus} onChange={(event) => handleConsentStatusChange(event.target.value as NonNullable<Lead['whatsappConsentStatus']>)} disabled={!isSaved}>
+                <option value="unknown">Não registrado</option>
+                <option value="opted_in">Autorizou contato</option>
+                <option value="opted_out">Pediu para não contatar</option>
+              </select>
+            </label>
+            {whatsappConsentStatus === 'opted_in' && (
+              <div className="detail-form-grid">
+                <label className="detail-field">
+                  <span>Onde a autorização foi obtida?</span>
+                  <input value={whatsappConsentSource} maxLength={250} onChange={(event) => setWhatsappConsentSource(event.target.value)} placeholder="Ex.: formulário do site, evento ou indicação" disabled={!isSaved} />
+                </label>
+                <label className="detail-field">
+                  <span>Quando foi obtida?</span>
+                  <input type="datetime-local" value={whatsappConsentAt} onChange={(event) => setWhatsappConsentAt(event.target.value)} disabled={!isSaved} />
+                </label>
+              </div>
+            )}
+            {isSaved && (
+              <div className="panel-actions">
+                <button className="secondary-button" type="button" onClick={() => void handleSaveChanges()} disabled={isSaving}>
+                  {isSaving ? 'Salvando…' : 'Salvar consentimento'}
+                </button>
+                {feedback && <span className="save-feedback" role="status">{feedback}</span>}
+              </div>
+            )}
           </div>
           <div className="panel detail-follow-up">
             <span className="eyebrow">Acompanhamento</span>
