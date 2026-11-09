@@ -475,14 +475,47 @@ export default {
     configureRuntimeEnvironment(environment)
 
     try {
-      if (new URL(request.url).pathname.startsWith('/api/')) {
-        const pathname = new URL(request.url).pathname
+      const pathname = new URL(request.url).pathname
+      if (pathname === '/app-version.json') {
+        const noStore = { 'Cache-Control': 'no-store, max-age=0' }
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return jsonResponse(request, 405, { error: 'Método não permitido.' }, noStore)
+        }
+        if (!environment.ASSETS) {
+          return jsonResponse(request, 503, { error: 'O pacote de arquivos do site não está disponível.' }, noStore)
+        }
+
+        const assetResponse = await environment.ASSETS.fetch(request)
+        const headers = new Headers(assetResponse.headers)
+        headers.set('Cache-Control', 'no-store, max-age=0')
+        if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json; charset=utf-8')
+        return new Response(assetResponse.body, {
+          status: assetResponse.status,
+          statusText: assetResponse.statusText,
+          headers,
+        })
+      }
+
+      if (pathname.startsWith('/api/')) {
         if (isWhatsAppIntegrationPath(pathname) || isOpenBotIntegrationPath(pathname)) {
           return await proxyLocalIntegration(request, environment.LOCAL_BACKEND_PROXY_URL)
         }
         return await handleApiRequest(request, (task) => context.waitUntil(task))
       }
-      if (environment.ASSETS) return environment.ASSETS.fetch(request)
+      if (environment.ASSETS) {
+        const assetResponse = await environment.ASSETS.fetch(request)
+        const contentType = assetResponse.headers.get('Content-Type')?.split(';', 1)[0].trim().toLowerCase()
+        if ((request.method === 'GET' || request.method === 'HEAD') && contentType === 'text/html') {
+          const headers = new Headers(assetResponse.headers)
+          headers.set('Cache-Control', 'no-cache, max-age=0, must-revalidate')
+          return new Response(assetResponse.body, {
+            status: assetResponse.status,
+            statusText: assetResponse.statusText,
+            headers,
+          })
+        }
+        return assetResponse
+      }
       return new Response('DigiBusca', { status: 404 })
     } catch (error) {
       if (isAuthTokenError(error)) {

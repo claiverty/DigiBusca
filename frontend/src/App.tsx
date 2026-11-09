@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAuth } from './auth/AuthGate'
+import { AppUpdatePrompt } from './components/AppUpdatePrompt'
 import { LeadDetail } from './components/LeadDetail'
 import { Sidebar, type AppView } from './components/Sidebar'
 import { FinancePage } from './pages/FinancePage'
@@ -185,6 +186,7 @@ function App() {
   if (selectedLead) {
     return (
       <div className="app-shell">
+        <AppUpdatePrompt />
         <Sidebar
           activeView={activeView}
           onNavigate={handleNavigate}
@@ -211,6 +213,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      <AppUpdatePrompt />
       <Sidebar
         activeView={activeView}
         onNavigate={handleNavigate}

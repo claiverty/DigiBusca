@@ -1,0 +1,113 @@
+.app-update-prompt {
+  position: fixed;
+  z-index: 80;
+  top: 72px;
+  right: 24px;
+  display: grid;
+  width: min(420px, calc(100vw - 32px));
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+  box-shadow: 0 18px 48px rgba(25, 26, 32, 0.16);
+}
+
+.app-update-prompt__message {
+  min-width: 0;
+}
+
+.app-update-prompt__eyebrow {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.app-update-prompt h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+}
+
+.app-update-prompt p {
+  margin: 6px 0 0;
+  color: var(--color-text-subtle);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.app-update-prompt__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.app-update-prompt__actions button {
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.app-update-prompt__actions button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-accent) 32%, transparent);
+  outline-offset: 2px;
+}
+
+.app-update-prompt__dismiss {
+  color: var(--color-text-subtle);
+  background: transparent;
+}
+
+.app-update-prompt__dismiss:hover {
+  color: var(--color-text);
+  background: #f4f4f6;
+}
+
+.app-update-prompt__update {
+  color: #fff;
+  background: var(--color-accent);
+  box-shadow: var(--shadow-button);
+}
+
+.app-update-prompt__update:hover {
+  background: #172986;
+}
+
+@media (max-width: 590px) {
+  .app-update-prompt {
+    top: calc(58px + 10px);
+    right: 12px;
+    width: calc(100vw - 24px);
+    gap: 15px;
+    padding: 17px;
+  }
+
+  .app-update-prompt__actions {
+    align-items: stretch;
+  }
+
+  .app-update-prompt__actions button {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-update-prompt__actions button {
+    transition: none;
+  }
+}

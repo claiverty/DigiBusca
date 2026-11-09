@@ -50,6 +50,18 @@ npm run build
 
 As chaves e credenciais devem ser configuradas no ambiente de execução e nunca adicionadas aos arquivos versionados.
 
+## Atualização do aplicativo
+
+O build injeta um identificador de versão no frontend (`GITHUB_SHA` no CI; localmente, o commit Git, com fallback para a versão do pacote ou `dev`) e gera `app-version.json`. O Worker serve `/app-version.json` com `Cache-Control: no-store, max-age=0`. Quando a interface detecta que a versão publicada difere daquela carregada na aba, avisa o usuário; **Atualizar agora** recarrega a página para buscar a versão atual.
+
+Após cada deploy, confira o identificador publicado e o cabeçalho de cache no endpoint público:
+
+```bash
+curl -fsS -D - 'https://SEU_DOMINIO/app-version.json'
+```
+
+Compare `version` com o commit do deploy e confirme `Cache-Control: no-store`. Para validar o aviso, mantenha uma aba anterior ao deploy aberta, aguarde a diferença ser detectada e clique em **Atualizar agora**. O endpoint não requer credenciais; não inclua cookies ou tokens no comando nem imprima variáveis de ambiente.
+
 ## Prospecção por conversa
 
 A primeira mensagem tem somente uma saudação curta; aguarde a resposta. Depois, apresente-se quando o nome ou a forma de apresentação estiver informada e identifique quem cuida da presença digital. Conduza a conversa com uma pergunta por vez, passando por permissão, cenário, necessidade, ideia, qualificação de interesse e dúvidas. Para apresentar condições ou confirmar uma decisão, informe antes o escopo e as condições já acordadas; a IA não deve inventar preço, parcelas, prazo, desconto ou forma de pagamento. Recusas explícitas geram um encerramento respeitoso.
