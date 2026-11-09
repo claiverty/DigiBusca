@@ -16,6 +16,7 @@ import { isUuid } from '../contracts/whatsapp.js'
 
 type WorkerEnvironment = RuntimeEnvironment & {
   ASSETS?: { fetch(request: Request): Promise<Response> }
+  WHATSAPP_LOCAL_BACKEND_URL?: string
 }
 
 const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
@@ -27,6 +28,45 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isWhatsAppIntegrationPath(pathname: string) {
   return pathname === '/api/whatsapp' || pathname.startsWith('/api/whatsapp/') ||
     pathname === '/api/webhooks/whatsapp' || pathname === '/api/webhooks/evolution'
+}
+
+async function proxyWhatsAppIntegration(request: Request, backendUrlValue?: string) {
+  const requestUrl = new URL(request.url)
+  const noStore = { 'Cache-Control': 'no-store, max-age=0' }
+  if (!backendUrlValue?.trim()) {
+    return jsonResponse(request, 503, {
+      error: 'O backend WhatsApp local ainda não está conectado ao domínio. Configure o túnel Cloudflare.',
+    }, noStore)
+  }
+
+  let backendOrigin: URL
+  try {
+    backendOrigin = new URL(backendUrlValue)
+    if (
+      backendOrigin.protocol !== 'https:' || backendOrigin.username || backendOrigin.password ||
+      backendOrigin.pathname !== '/' || backendOrigin.search || backendOrigin.hash ||
+      backendOrigin.origin === requestUrl.origin
+    ) throw new Error('invalid_backend_origin')
+  } catch {
+    return jsonResponse(request, 503, { error: 'A origem segura do backend WhatsApp não está configurada.' }, noStore)
+  }
+
+  const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, backendOrigin)
+  try {
+    const upstreamRequest = new Request(targetUrl, request)
+    const upstreamResponse = await fetch(upstreamRequest)
+    const headers = new Headers(upstreamResponse.headers)
+    headers.set('Cache-Control', 'no-store, max-age=0')
+    return new Response(upstreamResponse.body, {
+      status: upstreamResponse.status,
+      statusText: upstreamResponse.statusText,
+      headers,
+    })
+  } catch {
+    return jsonResponse(request, 502, {
+      error: 'Não foi possível alcançar o backend WhatsApp do Mac pelo túnel Cloudflare.',
+    }, noStore)
+  }
 }
 
 function mergeSavedLeadState(lead: Lead, state: Awaited<ReturnType<SupabaseStore['getSavedLeadState']>>) {
@@ -432,6 +472,10 @@ export default {
 
     try {
       if (new URL(request.url).pathname.startsWith('/api/')) {
+        const pathname = new URL(request.url).pathname
+        if (isWhatsAppIntegrationPath(pathname)) {
+          return await proxyWhatsAppIntegration(request, environment.WHATSAPP_LOCAL_BACKEND_URL)
+        }
         return await handleApiRequest(request, (task) => context.waitUntil(task))
       }
       if (environment.ASSETS) return environment.ASSETS.fetch(request)

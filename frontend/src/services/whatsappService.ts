@@ -101,7 +101,9 @@ export type WhatsAppPage<T> = {
   nextCursor?: string
 }
 
-const apiBaseUrl = import.meta.env.VITE_WHATSAPP_LOCAL_API_URL?.trim() || 'http://127.0.0.1:3001/api'
+const apiBaseUrl = import.meta.env.PROD
+  ? '/api'
+  : import.meta.env.VITE_WHATSAPP_LOCAL_API_URL?.trim() || '/api'
 
 function whatsAppFetch(input: string, init: RequestInit = {}) {
   return authenticatedFetch(input, { ...init, cache: 'no-store' })
@@ -112,7 +114,7 @@ async function getWhatsAppData<T>(path: string): Promise<T> {
   try {
     response = await whatsAppFetch(`${apiBaseUrl}${path}`)
   } catch {
-    throw new Error('Não foi possível conectar à API do DigiBusca. Verifique se o backend local está ativo e autorizado para esta origem.')
+    throw new Error('Não foi possível conectar à API WhatsApp pelo domínio do DigiBusca. Verifique se o backend do Mac e o túnel Cloudflare estão ativos.')
   }
   const payload = (await response.json().catch(() => null)) as { data?: T; error?: string } | null
 
