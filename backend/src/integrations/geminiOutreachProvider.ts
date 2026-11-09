@@ -5,7 +5,7 @@ import {
 } from '../contracts/aiOutreach.js'
 import { logError } from '../observability/logger.js'
 
-const model = 'gemini-3.5-flash-lite'
+const model = 'gemini-3.8-flash'
 const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
 
 export class GeminiOutreachError extends Error {
@@ -101,8 +101,8 @@ export async function generateOutreachWithGemini(
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: buildPrompt(context) }] }],
         generationConfig: {
-          temperature: 0.7,
           maxOutputTokens: 700,
+          thinkingConfig: { thinkingLevel: 'low' },
           responseMimeType: 'application/json',
           responseSchema: {
             type: 'OBJECT',

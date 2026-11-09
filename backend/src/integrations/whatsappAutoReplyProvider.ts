@@ -1,6 +1,6 @@
 import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 
-const model = 'gemini-3.5-flash-lite'
+const model = 'gemini-3.8-flash'
 const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
 
 export type WhatsAppAutoReplyContext = {
@@ -79,8 +79,8 @@ export async function generateWhatsAppAutoReply(apiKey: string, context: WhatsAp
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: buildPrompt(context) }] }],
       generationConfig: {
-        temperature: 0.3,
         maxOutputTokens: 300,
+        thinkingConfig: { thinkingLevel: 'low' },
         responseMimeType: 'application/json',
         responseSchema: {
           type: 'OBJECT',
