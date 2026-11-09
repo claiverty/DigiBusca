@@ -10,6 +10,6 @@
   },
   "vars": {
     "WHATSAPP_INTEGRATION_ENABLED": "false",
-    "WHATSAPP_LOCAL_BACKEND_URL": "https://whatsapp-api.digiuptech.com.br"
+    "LOCAL_BACKEND_PROXY_URL": "https://whatsapp-api.digiuptech.com.br"
   }
 }
