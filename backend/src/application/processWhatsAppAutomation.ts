@@ -16,6 +16,18 @@ function normalizeMessage(text: string) {
   return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').trim()
 }
 
+function isInboundProjectInquiry(text: string) {
+  const normalized = normalizeMessage(text)
+  if (/\b(?:nao tenho interesse|nao quero|sem interesse|nao preciso)\b/.test(normalized)) return false
+  return /\b(?:projeto|site|landing page|sistema|aplicativo|app|loja virtual|marketing|presenca digital|automacao)\b/.test(normalized)
+    && /\b(?:vim pelo site|gostaria|queria|quero|preciso|estou procurando|busco|procuro|tenho interesse|conversar|falar)\b/.test(normalized)
+}
+
+function isColdProspectingReply(text: string) {
+  const normalized = normalizeMessage(text)
+  return /\b(?:pessoa que cuida|voce cuida|responsavel pela|responsavel por|divulgacao|presenca digital|posso falar com quem|falar sobre nossos servicos|sou .*\bda\b.*\bdigiup\b)\b/.test(normalized)
+}
+
 function requiresHumanHandoff(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null; occurredAt?: string }>) {
   const chronologicalMessages = [...messages].sort((left, right) => (
     Date.parse(left.occurredAt ?? '') - Date.parse(right.occurredAt ?? '')
@@ -140,6 +152,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
           .map(({ direction, body, occurredAt }) => ({ direction, body: body ?? null, occurredAt })),
       ]
       const shouldHandoff = requiresHumanHandoff(handoffMessages)
+      const inboundProjectInquiry = isInboundProjectInquiry(message.body ?? '')
       const apiKey = getGeminiApiKey()
       const replyPlan = selectWhatsAppAutomationReplyPlan({
         responseMode: profile.responseMode,
@@ -157,7 +170,8 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
             serviceSummary: profile.serviceSummary,
             approvedFacts: profile.approvedFacts,
             escalationContact: profile.escalationContact,
-            stage: context.automationStage,
+            stage: inboundProjectInquiry ? 'qualify_interest' : context.automationStage,
+            inboundProjectInquiry,
             messages: context.messages.map(({ direction, body }) => ({ direction, body })),
           })
         } catch {
@@ -183,6 +197,14 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'assistant_closed')
         await store.completeAutomationRun(runId, 'skipped', 'assistant_closed')
         continue
+      }
+
+      if (inboundProjectInquiry && generated.action === 'reply' && isColdProspectingReply(generated.replyText)) {
+        generated = {
+          action: 'reply',
+          replyText: 'Oi! Claro, vamos conversar. Qual é o objetivo principal do projeto?',
+          nextStage: 'qualify_interest',
+        }
       }
 
       if (generated.action === 'handoff') {
