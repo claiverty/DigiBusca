@@ -28,6 +28,35 @@ function isColdProspectingReply(text: string) {
   return /\b(?:pessoa que cuida|voce cuida|responsavel pela|responsavel por|divulgacao|presenca digital|posso falar com quem|falar sobre nossos servicos|sou .*\bda\b.*\bdigiup\b)\b/.test(normalized)
 }
 
+const repeatedQuestionTopics = [
+  { key: 'project_goal', pattern: /\b(?:objetivo|prioridade|expectativa|meta|finalidade|foco principal|resultado esperado)\b/ },
+  { key: 'project_type', pattern: /\b(?:tipo de projeto|que tipo|qual tipo|qual projeto|qual pagina|que pagina|qual site|qual sistema|qual servico|qual solucao)\b/ },
+] as const
+
+function getRepeatedQuestionTopic(replyText: string, messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>) {
+  if (!replyText.includes('?')) return undefined
+  const questionStart = replyText.slice(0, replyText.indexOf('?'))
+  const questionBoundary = Math.max(questionStart.lastIndexOf('.'), questionStart.lastIndexOf('!'), questionStart.lastIndexOf('\n'))
+  const normalizedQuestion = normalizeMessage(questionStart.slice(questionBoundary + 1))
+  return repeatedQuestionTopics.find(({ pattern }) => (
+    pattern.test(normalizedQuestion)
+    && messages.some(({ direction, body }) => {
+      if (direction !== 'outbound' || !body?.includes('?')) return false
+      const previousQuestionStart = body.slice(0, body.indexOf('?'))
+      const previousBoundary = Math.max(previousQuestionStart.lastIndexOf('.'), previousQuestionStart.lastIndexOf('!'), previousQuestionStart.lastIndexOf('\n'))
+      return pattern.test(normalizeMessage(previousQuestionStart.slice(previousBoundary + 1)))
+    })
+  ))?.key
+}
+
+function distinctFollowUpQuestion(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>) {
+  const transcript = normalizeMessage(messages.map(({ body }) => body ?? '').join(' '))
+  if (/\b(?:pagina|landing page|site)\b/.test(transcript)) {
+    return 'Entendi. Vocês já têm algum site ou referência visual para o estilo dessa página?'
+  }
+  return 'Entendi. Já existe algum exemplo ou material que represente o que vocês imaginam para esse projeto?'
+}
+
 function requiresHumanHandoff(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null; occurredAt?: string }>) {
   const chronologicalMessages = [...messages].sort((left, right) => (
     Date.parse(left.occurredAt ?? '') - Date.parse(right.occurredAt ?? '')
@@ -197,6 +226,13 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'assistant_closed')
         await store.completeAutomationRun(runId, 'skipped', 'assistant_closed')
         continue
+      }
+
+      if (generated.action === 'reply' && getRepeatedQuestionTopic(generated.replyText, context.messages)) {
+        generated = {
+          ...generated,
+          replyText: distinctFollowUpQuestion(context.messages),
+        }
       }
 
       if (inboundProjectInquiry && generated.action === 'reply' && isColdProspectingReply(generated.replyText)) {

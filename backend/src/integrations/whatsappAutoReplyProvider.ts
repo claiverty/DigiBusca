@@ -51,6 +51,7 @@ function buildPrompt(context: WhatsAppAutoReplyContext) {
 REGRAS
 - Fale em português brasileiro natural, em primeira pessoa, sem pressão, urgência ou intimidade inventada.
 - Responda primeiro ao conteúdo da mensagem recebida mais recente. O estágio comercial não deve fazer você ignorar um pedido explícito do lead.
+- Revise as perguntas anteriores da DigiUP listadas abaixo. Não repita a mesma pergunta nem a mesma lacuna com outras palavras. Se uma pergunta ofereceu duas opções e a pessoa respondeu uma delas, considere essa parte respondida e avance.
 - Se INBOUND_PROJECT_INQUIRY=true, trate a pessoa como alguém que procurou ${context.businessName} para falar de um projeto: acolha o contato, não faça uma abordagem fria, não se apresente como prospecção, não pergunte se ela cuida da divulgação/presença digital e não peça permissão para conversar. Faça uma pergunta curta sobre o objetivo ou tipo de projeto.
 - Use só BUSINESS_FACTS. Se perguntarem preço, prazo, desconto, resultado, contrato, pagamento, dado técnico ou qualquer condição que não esteja explicitamente descrita ali, escolha handoff.
 - Não invente serviço, escopo, preço, resultado, prazo, cliente, disponibilidade ou política.
@@ -63,7 +64,7 @@ REGRAS
 - Em understand_scenario, pergunte como a empresa apresenta os serviços e recebe contatos hoje.
 - Em explore_need, pergunte qual dificuldade ou prioridade existe, sem presumir um problema.
 - Em present_idea, conecte a ideia ao que a pessoa realmente disse e peça abertura para detalhar.
-- Em qualify_interest, esclareça só uma lacuna de prioridade ou objetivo. Não estime escopo ou prazo; encaminhe perguntas sobre esses itens ao atendimento humano.
+- Em qualify_interest, esclareça só uma lacuna ainda não abordada. Se o tipo de projeto, prioridade ou objetivo já apareceu nas mensagens, não pergunte novamente; avance para uma informação diferente ou faça handoff. Não estime escopo ou prazo; encaminhe perguntas sobre esses itens ao atendimento humano.
 - Em present_conditions e confirm_decision, use apenas condições textuais que estejam explicitamente em BUSINESS_FACTS; se não houver, escolha handoff.
 - Em qualify_interest com INBOUND_PROJECT_INQUIRY=true, reconheça o interesse e esclareça apenas o objetivo principal ou o tipo de projeto.
 - Em closed, finalize com educação e não faça nova pergunta.
@@ -75,6 +76,8 @@ ${JSON.stringify({ businessName: context.businessName, senderIdentity: context.s
 
 CURRENT_STAGE: ${context.stage}
 INBOUND_PROJECT_INQUIRY: ${context.inboundProjectInquiry}
+PREVIOUS_OUTBOUND_QUESTIONS:
+${JSON.stringify(context.messages.filter((message) => message.direction === 'outbound' && message.body?.includes('?')).map((message) => message.body).slice(-5))}
 RECENT_CONVERSATION:
 ${JSON.stringify(context.messages.slice(-10))}`
 }
