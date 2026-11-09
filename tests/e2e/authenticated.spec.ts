@@ -199,10 +199,7 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
 
   test('acompanha um lead, gera abordagem e registra a conversão', async ({ page }) => {
     await openTestLeadFromCachedSearch(page)
-    await expect(page.getByRole('link', { name: 'Abrir no WhatsApp' })).toHaveAttribute(
-      'href',
-      /^https:\/\/wa\.me\/5511999999999\?text=/,
-    )
+    await expect(page.getByRole('button', { name: 'Abrir fila WhatsApp', exact: true })).toBeVisible()
 
     await page.getByRole('button', { name: 'Salvar lead', exact: true }).first().click()
     await expect(page.getByRole('button', { name: 'Lead salvo', exact: true })).toBeVisible()
