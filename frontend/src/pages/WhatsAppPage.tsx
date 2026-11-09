@@ -36,6 +36,7 @@ function newAutomationProfileDraft(phoneNumberId: string): WhatsAppAutomationPro
       'Não prometa valores, prazos, resultados, disponibilidade, escopo fechado ou condições comerciais. Encaminhe essas perguntas ao atendimento humano pelo mesmo WhatsApp.',
     ].join('\n'),
     escalationContact: 'este mesmo WhatsApp',
+    responseMode: 'handoff_only',
     automationEnabled: false,
     channelApproved: false,
     contentApproved: false,
@@ -95,6 +96,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
   const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(newAutomationProfileDraft(''))
   const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
+  const [automationPersistedResponseMode, setAutomationPersistedResponseMode] = useState<'handoff_only' | 'gemini'>('handoff_only')
   const [automationProfileSaved, setAutomationProfileSaved] = useState(false)
   const [automationState, setAutomationState] = useState<LoadState>('ready')
   const [automationBusy, setAutomationBusy] = useState(false)
@@ -182,6 +184,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     if (!automationPhoneNumberId) {
       setAutomationForm(newAutomationProfileDraft(''))
       setAutomationPersistedEnabled(false)
+      setAutomationPersistedResponseMode('handoff_only')
       setAutomationProfileSaved(false)
       setAutomationState('ready')
       return () => { active = false }
@@ -189,6 +192,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     if (status?.automationStorageReady !== true) {
       setAutomationForm(newAutomationProfileDraft(automationPhoneNumberId))
       setAutomationPersistedEnabled(false)
+      setAutomationPersistedResponseMode('handoff_only')
       setAutomationProfileSaved(false)
       setAutomationState('ready')
       return () => { active = false }
@@ -201,6 +205,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
       .then((profile) => {
         if (!active) return
         setAutomationPersistedEnabled(profile?.automationEnabled === true)
+        setAutomationPersistedResponseMode(profile?.responseMode ?? 'handoff_only')
         setAutomationProfileSaved(Boolean(profile))
         setAutomationForm(profile ? {
           phoneNumberId: profile.phoneNumberId,
@@ -209,6 +214,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
           serviceSummary: profile.serviceSummary,
           approvedFacts: profile.approvedFacts,
           escalationContact: profile.escalationContact,
+          responseMode: profile.responseMode,
           automationEnabled: profile.automationEnabled,
           channelApproved: Boolean(profile.channelApprovedAt),
           contentApproved: Boolean(profile.contentApprovedAt),
@@ -218,6 +224,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
       .catch((error: unknown) => {
         if (!active) return
         setAutomationPersistedEnabled(false)
+        setAutomationPersistedResponseMode('handoff_only')
         setAutomationProfileSaved(false)
         setAutomationError(error instanceof Error ? error.message : 'Não foi possível carregar as regras da automação.')
         setAutomationState('error')
@@ -286,6 +293,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   }
 
   async function saveAutomationSettings() {
+    const responseModeChanged = automationProfileSaved && automationPersistedResponseMode !== automationForm.responseMode
     setAutomationBusy(true)
     setAutomationError('')
     setAutomationNotice('')
@@ -293,15 +301,19 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
       const saved = await saveWhatsAppAutomationProfile(automationForm)
       setAutomationForm({
         ...automationForm,
+        responseMode: saved.responseMode,
         automationEnabled: saved.automationEnabled,
         channelApproved: Boolean(saved.channelApprovedAt),
         contentApproved: Boolean(saved.contentApprovedAt),
       })
       setAutomationPersistedEnabled(saved.automationEnabled)
+      setAutomationPersistedResponseMode(saved.responseMode)
       setAutomationProfileSaved(true)
       setAutomationNotice(saved.automationEnabled
         ? 'Regras salvas. A automação só responderá a novas mensagens recebidas dentro da janela permitida.'
-        : 'Rascunho salvo. A automação continua desativada.')
+        : responseModeChanged
+          ? 'Modo atualizado. As respostas foram pausadas e a aprovação do conteúdo precisa ser feita novamente antes de ativar.'
+          : 'Rascunho salvo. A automação continua desativada.')
     } catch (error) {
       setAutomationError(error instanceof Error ? error.message : 'Não foi possível salvar as regras da automação.')
     } finally {
@@ -418,8 +430,10 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                       <time>{formatWhatsAppDate(conversation.lastMessageAt)}</time>
                     </span>
                     <span className="whatsapp-conversation-preview">{conversation.lastMessagePreview || 'Mensagem recebida'}</span>
-                    {conversation.automationPauseReason === 'handoff' && (
-                      <span className="whatsapp-conversation-handoff">Atendimento humano pendente</span>
+                    {(conversation.automationPauseReason === 'handoff' || conversation.automationPauseReason === 'handoff_send_failed') && (
+                      <span className="whatsapp-conversation-handoff">
+                        {conversation.automationPauseReason === 'handoff_send_failed' ? 'Aviso automático não confirmado' : 'Atendimento humano pendente'}
+                      </span>
                     )}
                   </span>
                 </button>
@@ -441,7 +455,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </header>
                 <div className="whatsapp-thread-automation">
                   <span className={selectedConversation.automationPaused ? 'is-paused' : 'is-running'}>
-                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
+                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'handoff_send_failed' ? 'Aviso automático não confirmado; automação pausada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
                   </span>
                   <button className="secondary-button" type="button" onClick={() => void toggleConversationAutomation()} disabled={pauseBusy || selectedConversation.automationOptedOut === true}>
                     {selectedConversation.automationPaused ? <Play size={14} /> : <Pause size={14} />}
@@ -450,6 +464,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </div>
                 {selectedConversation.automationPauseReason === 'handoff' && (
                   <p className="whatsapp-thread-note" role="status">A resposta automática foi pausada após um pedido de atendimento humano. Continue esta conversa pelo WhatsApp conectado no celular.</p>
+                )}
+                {selectedConversation.automationPauseReason === 'handoff_send_failed' && (
+                  <p className="whatsapp-thread-note" role="alert">Não foi possível confirmar o envio do aviso automático. A automação foi pausada; confira o WhatsApp conectado e responda por lá.</p>
                 )}
                 {pauseError && <p className="whatsapp-connect-state is-error" role="alert">{pauseError}</p>}
                 <div className="whatsapp-thread-messages" aria-live="polite">
@@ -562,7 +579,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               )}
               {connections.length === 0 && <p className="whatsapp-connect-state is-pending">Conecte um número WhatsApp antes de configurar as respostas automáticas.</p>}
               {status?.automationStorageReady === false && (
-                <p className="whatsapp-connect-state is-pending">A estrutura ainda não está no Supabase. Revise e aplique a migration <code>011_whatsapp_reply_automation.sql</code> antes de salvar.</p>
+                <p className="whatsapp-connect-state is-pending">A estrutura de atendimento ainda não está completa no Supabase. Aplique as migrations <code>011_whatsapp_reply_automation.sql</code> e <code>014_whatsapp_automation_response_mode.sql</code> antes de salvar.</p>
               )}
               {status?.automationRuntimeEnabled === false && (
                 <p className="whatsapp-connect-state is-pending">O interruptor global do servidor está desligado. Para disponibilizar ativação, configure <code>WHATSAPP_AUTOMATION_RUNTIME_ENABLED=true</code> após aprovar canal e conteúdo.</p>
@@ -574,6 +591,22 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               )}
 
               <div className="whatsapp-automation-fields">
+                <label className="whatsapp-form-field is-wide">
+                  <span>Como o bot deve operar</span>
+                  <select
+                    value={automationForm.responseMode}
+                    onChange={(event) => {
+                      const responseMode = event.target.value === 'gemini' ? 'gemini' : 'handoff_only'
+                      setAutomationForm((current) => ({ ...current, responseMode, contentApproved: false, automationEnabled: false }))
+                    }}
+                  >
+                    <option value="handoff_only">Só encaminhar para atendimento humano</option>
+                    <option value="gemini">Responder com Gemini dentro dos fatos aprovados</option>
+                  </select>
+                  <small>{automationForm.responseMode === 'handoff_only'
+                    ? 'O texto da conversa não é enviado ao Gemini. A primeira mensagem elegível recebe um aviso e a automação pausa para você assumir pelo WhatsApp.'
+                    : 'O Gemini recebe as mensagens recentes para preparar respostas com base nos fatos aprovados. Perguntas comerciais e pedidos de humano são encaminhados.'}</small>
+                </label>
                 <label className="whatsapp-form-field">
                   <span>Nome do negócio</span>
                   <input value={automationForm.businessName} maxLength={120} onChange={(event) => updateAutomationContent('businessName', event.target.value)} placeholder="Nome que a pessoa reconhece" />
@@ -603,19 +636,28 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </label>
                 <label className="whatsapp-check-row">
                   <input type="checkbox" checked={automationForm.contentApproved} onChange={(event) => setAutomationForm((current) => ({ ...current, contentApproved: event.target.checked, automationEnabled: event.target.checked && current.channelApproved ? current.automationEnabled : false }))} />
-                  <span>Aprovo o conteúdo acima para o bot usar nesta conversa comercial.</span>
+                  <span>{automationForm.responseMode === 'handoff_only'
+                    ? 'Aprovo o aviso de encaminhamento e a rota humana configurada para este número.'
+                    : 'Aprovo os fatos acima e o envio das mensagens recentes ao Gemini para preparar respostas.'}</span>
                 </label>
                 <label className="whatsapp-check-row is-enable">
                   <input
                     type="checkbox"
                     checked={automationForm.automationEnabled}
-                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved}
+                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationProfileSaved && automationPersistedResponseMode !== automationForm.responseMode)}
                     onChange={(event) => setAutomationForm((current) => ({ ...current, automationEnabled: event.target.checked }))}
                   />
                   <span>Ativar respostas automáticas após salvar as aprovações.</span>
                 </label>
               </div>
-              <p className="whatsapp-automation-privacy">O texto recente da conversa será enviado ao Gemini para preparar cada resposta. Fora da janela de 24 horas, com recusa, pausa ou falta de dados aprovados, o bot não envia resposta automática; dúvidas fora do escopo são encaminhadas ao contato humano indicado.</p>
+              {automationPersistedEnabled && automationPersistedResponseMode !== automationForm.responseMode && (
+                <p className="whatsapp-connect-state is-pending" role="alert">
+                  A escolha de modo está somente no rascunho. O perfil salvo continua em {automationPersistedResponseMode === 'gemini' ? 'Gemini' : 'encaminhamento humano'} até você salvar. Salvar esta mudança pausa as respostas e exige nova aprovação do conteúdo.
+                </p>
+              )}
+              <p className="whatsapp-automation-privacy">{automationForm.responseMode === 'handoff_only'
+                ? 'No modo de encaminhamento humano, o bot não usa Gemini: após uma mensagem elegível, envia um aviso de recebimento, pausa a automação e deixa a conversa para você continuar pelo WhatsApp conectado.'
+                : 'No modo Gemini, o texto recente da conversa é enviado ao modelo para preparar cada resposta. Fora da janela de 24 horas, com recusa, pausa ou falta de dados aprovados, o bot não responde; dúvidas fora do escopo são encaminhadas ao contato humano indicado.'}</p>
               {automationError && <p className="whatsapp-connect-state is-error" role="alert">{automationError}</p>}
               {automationNotice && <p className="whatsapp-connect-state is-ready" role="status">{automationNotice}</p>}
               <div className="whatsapp-automation-actions">

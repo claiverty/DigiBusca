@@ -1,6 +1,7 @@
 import { getEvolutionApiConfig, getGeminiApiKey, isWhatsAppAutomationRuntimeEnabled } from '../config/supabase.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
 import { generateWhatsAppAutoReply } from '../integrations/whatsappAutoReplyProvider.js'
+import { selectWhatsAppAutomationReplyPlan } from './whatsappAutomationPolicy.js'
 import { getEvolutionConnectionState, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
 import { logWarning } from '../observability/logger.js'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWebhook.js'
@@ -95,6 +96,8 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
 
   for (const message of messages) {
     let runId: string | undefined
+    let handoffSendAttempted = false
+    let handoffReplyId: string | undefined
     try {
       const context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
       if (!context) continue
@@ -137,28 +140,29 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
           .map(({ direction, body, occurredAt }) => ({ direction, body: body ?? null, occurredAt })),
       ]
       const shouldHandoff = requiresHumanHandoff(handoffMessages)
+      const apiKey = getGeminiApiKey()
+      const replyPlan = selectWhatsAppAutomationReplyPlan({
+        responseMode: profile.responseMode,
+        shouldHandoff,
+        geminiConfigured: Boolean(apiKey),
+      })
       let generated: Awaited<ReturnType<typeof generateWhatsAppAutoReply>>
-      if (shouldHandoff) {
+      if (replyPlan === 'handoff' || !apiKey) {
         generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
       } else {
-        const apiKey = getGeminiApiKey()
-        if (!apiKey) {
+        try {
+          generated = await generateWhatsAppAutoReply(apiKey, {
+            businessName: profile.businessName,
+            senderIdentity: profile.senderIdentity,
+            serviceSummary: profile.serviceSummary,
+            approvedFacts: profile.approvedFacts,
+            escalationContact: profile.escalationContact,
+            stage: context.automationStage,
+            messages: context.messages.map(({ direction, body }) => ({ direction, body })),
+          })
+        } catch {
           generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
-        } else {
-          try {
-            generated = await generateWhatsAppAutoReply(apiKey, {
-              businessName: profile.businessName,
-              senderIdentity: profile.senderIdentity,
-              serviceSummary: profile.serviceSummary,
-              approvedFacts: profile.approvedFacts,
-              escalationContact: profile.escalationContact,
-              stage: context.automationStage,
-              messages: context.messages.map(({ direction, body }) => ({ direction, body })),
-            })
-          } catch {
-            generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
-            logWarning('whatsapp_automation_gemini_fallback', { reason: 'gemini_unavailable' })
-          }
+          logWarning('whatsapp_automation_gemini_fallback', { reason: 'gemini_unavailable' })
         }
       }
 
@@ -189,7 +193,9 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
           continue
         }
         await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'handoff')
+        handoffSendAttempted = true
         const replyId = await sendEvolutionTextMessage(message.phoneNumberId, message.contactWaId, body)
+        handoffReplyId = replyId
         const sentAt = new Date().toISOString()
         await store.persistAutomatedReply({
           userId: context.userId, phoneNumberId: message.phoneNumberId, conversationId: context.conversationId,
@@ -212,6 +218,14 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       }
       await store.completeAutomationRun(runId, 'sent', undefined, replyId)
     } catch (error) {
+      if (handoffSendAttempted && !handoffReplyId) {
+        try {
+          const context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
+          if (context) await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'handoff_send_failed')
+        } catch {
+          logWarning('whatsapp_automation_handoff_failure_state_failed', { reason: 'conversation_state_unavailable' })
+        }
+      }
       if (runId) {
         await store.completeAutomationRun(runId, 'failed', 'processing_error').catch(() => undefined)
       }

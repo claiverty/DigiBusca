@@ -48,6 +48,7 @@ export type WhatsAppAutomationProfile = {
   serviceSummary: string
   approvedFacts: string
   escalationContact: string
+  responseMode: 'handoff_only' | 'gemini'
   automationEnabled: boolean
   channelApprovedAt: string | null
   contentApprovedAt: string | null

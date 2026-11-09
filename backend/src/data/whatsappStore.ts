@@ -51,6 +51,7 @@ function mapAutomationProfile(row: Record<string, unknown>): WhatsAppAutomationP
     serviceSummary: row.service_summary as string,
     approvedFacts: row.approved_facts as string,
     escalationContact: row.escalation_contact as string,
+    responseMode: row.response_mode === 'gemini' ? 'gemini' : 'handoff_only',
     automationEnabled: row.automation_enabled === true,
     channelApprovedAt: row.channel_approved_at as string | null,
     contentApprovedAt: row.content_approved_at as string | null,
@@ -177,7 +178,7 @@ export class WhatsAppStore {
   async isAutomationStorageReady() {
     try {
       const admin = createWhatsAppWebhookSupabaseClient()
-      const result = await admin.from('whatsapp_automation_profiles').select('phone_number_id').limit(0)
+      const result = await admin.from('whatsapp_automation_profiles').select('phone_number_id, response_mode').limit(0)
       if (result.error) return false
       const runs = await admin.from('whatsapp_automation_runs').select('id').limit(0)
       return !runs.error
@@ -194,7 +195,7 @@ export class WhatsAppStore {
     if (!ownership.data) return undefined
 
     const result = await admin.from('whatsapp_automation_profiles')
-      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, automation_enabled, channel_approved_at, content_approved_at, updated_at')
+      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, response_mode, automation_enabled, channel_approved_at, content_approved_at, updated_at')
       .eq('user_id', userId).eq('phone_number_id', phoneNumberId).maybeSingle()
     throwIfError(result.error, 'Não foi possível carregar as regras de atendimento automático.')
     return result.data ? mapAutomationProfile(result.data as Record<string, unknown>) : undefined
@@ -207,6 +208,12 @@ export class WhatsAppStore {
     throwIfError(ownership.error, 'Não foi possível validar o número WhatsApp selecionado.')
     if (!ownership.data) throw new Error('O número WhatsApp não está conectado a esta conta.')
 
+    const existingProfile = await admin.from('whatsapp_automation_profiles')
+      .select('response_mode')
+      .eq('user_id', userId).eq('phone_number_id', input.phoneNumberId).maybeSingle()
+    throwIfError(existingProfile.error, 'Não foi possível validar o modo de atendimento salvo.')
+    const responseModeChanged = Boolean(existingProfile.data && existingProfile.data.response_mode !== input.responseMode)
+
     const approvedAt = new Date().toISOString()
     const values = {
       user_id: userId,
@@ -216,14 +223,15 @@ export class WhatsAppStore {
       service_summary: input.serviceSummary,
       approved_facts: input.approvedFacts,
       escalation_contact: input.escalationContact,
-      automation_enabled: input.automationEnabled,
+      response_mode: input.responseMode,
+      automation_enabled: responseModeChanged ? false : input.automationEnabled,
       channel_approved_at: input.channelApproved ? approvedAt : null,
-      content_approved_at: input.contentApproved ? approvedAt : null,
+      content_approved_at: input.contentApproved && !responseModeChanged ? approvedAt : null,
       updated_at: approvedAt,
     }
     const result = await admin.from('whatsapp_automation_profiles')
       .upsert(values, { onConflict: 'phone_number_id,user_id' })
-      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, automation_enabled, channel_approved_at, content_approved_at, updated_at')
+      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, response_mode, automation_enabled, channel_approved_at, content_approved_at, updated_at')
       .single()
     throwIfError(result.error, 'Não foi possível salvar as regras de atendimento automático.')
     return mapAutomationProfile(result.data as Record<string, unknown>)
@@ -289,7 +297,7 @@ export class WhatsAppStore {
         .eq('user_id', connection.user_id).eq('phone_number_id', phoneNumberId)
         .eq('contact_wa_id', contactWaId).maybeSingle(),
       admin.from('whatsapp_automation_profiles')
-        .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, automation_enabled, channel_approved_at, content_approved_at, updated_at')
+        .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, response_mode, automation_enabled, channel_approved_at, content_approved_at, updated_at')
         .eq('user_id', connection.user_id).eq('phone_number_id', phoneNumberId).maybeSingle(),
     ])
     throwIfError(conversationResult.error, 'Não foi possível carregar a conversa para responder.')
