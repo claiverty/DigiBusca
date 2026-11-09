@@ -161,8 +161,8 @@ jobs:
 
           const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-          async function getJson(path) {
-            for (let attempt = 1; attempt <= 5; attempt += 1) {
+          async function getJson(path, maxAttempts = 5) {
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
               try {
                 const response = await fetch(new URL(path, baseUrl), {
                   headers: { accept: 'application/json' },
@@ -174,7 +174,7 @@ jobs:
                 if (!response.ok || contentType !== 'application/json') throw new Error();
                 return JSON.parse(body);
               } catch {
-                if (attempt === 5) throw new Error(`Production endpoint validation failed: ${path}`);
+                if (attempt === maxAttempts) throw new Error(`Production endpoint validation failed: ${path}`);
                 await sleep(3_000 * attempt);
               }
             }
@@ -185,9 +185,21 @@ jobs:
             throw new Error('Production health response did not match the expected service.');
           }
 
-          const appVersion = await getJson('/app-version.json');
-          if (appVersion.version !== expectedSha) {
-            throw new Error('Published app version does not match this commit.');
+          let versionMatches = false;
+          for (let attempt = 1; attempt <= 10; attempt += 1) {
+            try {
+              const appVersion = await getJson(`/app-version.json?check=${Date.now()}-${attempt}`, 1);
+              if (appVersion.version === expectedSha) {
+                versionMatches = true;
+                break;
+              }
+            } catch {
+              // Retry while the Cloudflare deployment propagates.
+            }
+            if (attempt < 10) await sleep(5_000);
+          }
+          if (!versionMatches) {
+            throw new Error('Published app version validation failed.');
           }
 
           console.log('Production health and app version validated.');
