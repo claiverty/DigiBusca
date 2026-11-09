@@ -102,10 +102,14 @@ export type WhatsAppPage<T> = {
 
 const apiBaseUrl = import.meta.env.VITE_WHATSAPP_LOCAL_API_URL?.trim() || 'http://127.0.0.1:3001/api'
 
+function whatsAppFetch(input: string, init: RequestInit = {}) {
+  return authenticatedFetch(input, { ...init, cache: 'no-store' })
+}
+
 async function getWhatsAppData<T>(path: string): Promise<T> {
   let response: Response
   try {
-    response = await authenticatedFetch(`${apiBaseUrl}${path}`)
+    response = await whatsAppFetch(`${apiBaseUrl}${path}`)
   } catch {
     throw new Error('Não foi possível conectar à API do DigiBusca. Verifique se o backend local está ativo e autorizado para esta origem.')
   }
@@ -133,7 +137,7 @@ export async function getWhatsAppProspectingDashboard(): Promise<WhatsAppProspec
 export async function saveWhatsAppProspectingSettings(input: Pick<WhatsAppProspectingSettings, 'enabled' | 'dailyNewLeadLimit'>): Promise<WhatsAppProspectingSettings> {
   let response: Response
   try {
-    response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/prospecting/settings`, {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/prospecting/settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -149,7 +153,7 @@ export async function saveWhatsAppProspectingSettings(input: Pick<WhatsAppProspe
 export async function enqueueWhatsAppNewLead(input: { phoneNumberId: string; leadId: string; message: string }): Promise<WhatsAppProspectingQueueItem> {
   let response: Response
   try {
-    response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/prospecting/queue`, {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/prospecting/queue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -165,7 +169,7 @@ export async function enqueueWhatsAppNewLead(input: { phoneNumberId: string; lea
 export async function cancelWhatsAppQueueItem(queueId: string): Promise<void> {
   let response: Response
   try {
-    response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/prospecting/queue/${encodeURIComponent(queueId)}`, { method: 'DELETE' })
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/prospecting/queue/${encodeURIComponent(queueId)}`, { method: 'DELETE' })
   } catch {
     throw new Error('Não foi possível conectar ao backend para cancelar este contato.')
   }
@@ -180,7 +184,7 @@ export async function getWhatsAppAutomationProfile(phoneNumberId: string): Promi
 export async function saveWhatsAppAutomationProfile(input: WhatsAppAutomationProfileInput): Promise<WhatsAppAutomationProfile> {
   let response: Response
   try {
-    response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/automation`, {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/automation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -196,7 +200,7 @@ export async function saveWhatsAppAutomationProfile(input: WhatsAppAutomationPro
 export async function setWhatsAppConversationAutomationPaused(conversationId: string, paused: boolean): Promise<void> {
   let response: Response
   try {
-    response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/conversations/${encodeURIComponent(conversationId)}/automation`, {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/conversations/${encodeURIComponent(conversationId)}/automation`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ paused }),
@@ -215,7 +219,7 @@ export type WhatsAppEvolutionConnectionResult = {
 }
 
 export async function getWhatsAppEvolutionPairingStatus(): Promise<WhatsAppEvolutionConnectionResult> {
-  const response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/connections/evolution/qr`, { cache: 'no-store' })
+  const response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/connections/evolution/qr`)
   const payload = (await response.json().catch(() => null)) as { data?: WhatsAppEvolutionConnectionResult; error?: string } | null
   if (!response.ok || !payload?.data) throw new Error(payload?.error ?? 'Não foi possível atualizar o QR Code.')
   return payload.data
@@ -224,7 +228,7 @@ export async function getWhatsAppEvolutionPairingStatus(): Promise<WhatsAppEvolu
 export async function connectWhatsAppEvolution(): Promise<WhatsAppEvolutionConnectionResult> {
   let response: Response
   try {
-    response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/connections/evolution`, {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/connections/evolution`, {
       method: 'POST',
     })
   } catch {

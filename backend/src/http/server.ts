@@ -283,12 +283,13 @@ function getSearchParams(request: IncomingMessage) {
 }
 
 async function handleRequest(request: IncomingMessage, response: ServerResponse) {
+  const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
+  if (isWhatsAppIntegrationPath(requestUrl.pathname)) response.setHeader('Cache-Control', 'no-store')
+
   if (request.method === 'OPTIONS') {
     sendJson(response, 204, null)
     return
   }
-
-  const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
 
   if (requestUrl.pathname === '/api/health') {
     sendJson(response, 200, {

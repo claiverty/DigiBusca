@@ -20,6 +20,13 @@ test('API protege dados de usuários não autenticados', async ({ request }) => 
   })
 })
 
+test('resposta de WhatsApp não é armazenada em cache', async ({ request }) => {
+  const response = await request.get('/api/whatsapp/status')
+
+  expect([401, 410]).toContain(response.status())
+  expect(response.headers()['cache-control']).toContain('no-store')
+})
+
 test('landing page abre as rotas de entrada e cadastro', async ({ page }) => {
   await page.goto('/')
 
