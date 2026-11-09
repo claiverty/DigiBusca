@@ -36,22 +36,35 @@ API TypeScript responsável pela autenticação, regras de negócio, integraçõ
 
 Todas as rotas de negócio exigem um token Bearer do Supabase Auth. O backend valida o token e executa as consultas com o contexto do usuário; o PostgreSQL aplica RLS para impedir acesso cruzado entre contas.
 
-## WhatsApp pela Evolution API no Mac
+## Evolution API: candidata local para pareamento QR
 
-O DigiBusca usa a Evolution API com a integração `WHATSAPP-BAILEYS` (WhatsApp Web). A conexão é pareada na tela **WhatsApp → Conexão** por QR Code. As mensagens e respostas recebidas chegam ao backend local pelo webhook autenticado; o Worker remoto não recebe nem envia mensagens do WhatsApp.
+A release estável mais recente da Evolution é `v2.3.7`, mas ela fixa Baileys `7.0.0-rc.9`, afetado pelo [advisory crítico de mensagens falsificadas](https://github.com/advisories/GHSA-qvv5-jq5g-4cgg). A `2.4.0` ainda está em pré-release e a linha `develop` usa Baileys `rc13`, que não reconhece a etapa `companion_reg_refresh` enviada pelo WhatsApp durante o pareamento. Por isso o QR pode ser exibido e ainda assim falhar depois da leitura.
 
-1. Inicie o Docker Desktop ou o Colima no Mac (`colima start`); a configuração deste projeto usa o Docker CLI.
-2. Copie `evolution/.env.example` para `evolution/.env` e defina `AUTHENTICATION_API_KEY` com uma chave forte.
-3. Use a mesma chave como `EVOLUTION_API_KEY` em `backend/.env`. Configure também `EVOLUTION_API_URL=http://127.0.0.1:8080`, `EVOLUTION_WEBHOOK_SECRET` com outro segredo aleatório de no mínimo 32 bytes (`openssl rand -hex 32`) e `EVOLUTION_WEBHOOK_URL=http://host.docker.internal:3001/api/webhooks/evolution`. O backend só aceita HTTP para endereços de loopback; use HTTPS para uma Evolution remota.
-4. Defina `HOST=0.0.0.0` e `PORT=3001` para o container alcançar o webhook local. Isso faz o backend escutar em todas as interfaces do Mac: mantenha o firewall do macOS ativo e não encaminhe a porta 3001 no roteador. As rotas de negócio exigem sessão autenticada; o webhook rejeita segredo abaixo de 32 bytes.
-5. Inicie a Evolution com `docker compose -f docker-compose.evolution.yml up -d`.
-6. Configure `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` em `backend/.env`; o service role é necessário para persistir mensagens recebidas.
-7. Aplique as migrations `008_whatsapp_cloud_consent.sql` a `013_whatsapp_prospecting_queue.sql` no Supabase. Inicie o backend e o frontend, abra **WhatsApp → Conexão** e leia o QR pelo WhatsApp no celular em **Aparelhos conectados → Conectar aparelho**.
+O script prepara uma candidata baseada no branch aberto [Evolution PR #2759](https://github.com/evolution-foundation/evolution-api/pull/2759), fixado no commit `d0198733da3cb133bd0c64d24fc4d1e7720696b1`. Ele atualiza Baileys para `7.0.0-rc14` (corrigido para o advisory), inclui o patch de QR do [PR #2727](https://github.com/evolution-foundation/evolution-api/pull/2727) e uma proteção para ACKs antes do login do [Baileys PR #2749](https://github.com/WhiskeySockets/Baileys/pull/2749). Esses patches ainda não fazem parte de uma release oficial; a imagem permanece uma candidata local para validação.
 
-A configuração local deixa `WHATSAPP_AUTOMATION_RUNTIME_ENABLED=false` e `WHATSAPP_PROSPECTING_RUNTIME_ENABLED=false`. Depois de conectar, aprove as regras e o conteúdo na tela. Para respostas Gemini, habilite o primeiro interruptor; para novos contatos, habilite o segundo e a fila na interface. A fila aceita apenas leads salvos com consentimento explícito registrado, telefone válido e status `Novo`. O banco reserva o limite de 17–25 por dia de forma atômica e distribui novos contatos de segunda a sexta, das 9h às 18h, no fuso de São Paulo, com intervalos de 18 a 23 minutos. Respostas de conversas existentes não consomem esse limite. Falhas com resultado incerto não são reenviadas automaticamente; confira a conversa antes de tentar de novo.
+O Compose só inicia com o perfil explícito `evolution-candidate`. A API publica apenas `127.0.0.1:8081`; o webhook não publica porta no Mac. Evolution e webhook compartilham uma rede de aplicação; o PostgreSQL fica em uma rede interna separada e não tem porta no host. Os volumes do candidato são isolados dos dados Evolution existentes. A coleta de histórico importado fica desligada.
 
-A Evolution e o PostgreSQL local são iniciados pelo Compose em modo standalone conforme o [guia Docker oficial](https://docs.evolutionfoundation.com.br/evolution-api/install/docker). A chave do PostgreSQL fica em `evolution/.env` e os dados persistem no volume `evolution_database`. Se o backend local estiver ligado a outra origem, inclua a origem exata em `DIGIBUSCA_APP_ORIGINS`. O backend mantém `127.0.0.1` como host padrão; `HOST=0.0.0.0` é necessário para o webhook do container Docker no Mac.
+Prepare os arquivos locais sem substituir segredos existentes:
+
+```sh
+[ -f backend/.env ] || cp backend/.env.example backend/.env
+[ -f evolution/.env ] || cp evolution/.env.example evolution/.env
+```
+
+Preencha `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` em `backend/.env`; defina `EVOLUTION_API_KEY` igual a `AUTHENTICATION_API_KEY` em `evolution/.env`. Use segredos fortes e diferentes para `AUTHENTICATION_API_KEY`, `POSTGRES_PASSWORD` e `EVOLUTION_WEBHOOK_SECRET`. Em `backend/.env`, habilite `WHATSAPP_INTEGRATION_ENABLED=true` para abrir as rotas de conexão; mantenha `WHATSAPP_AUTOMATION_RUNTIME_ENABLED=false` e `WHATSAPP_PROSPECTING_RUNTIME_ENABLED=false`.
+
+Compile a imagem fixada e valide a configuração:
+
+```sh
+sh scripts/build-evolution-candidate.sh
+docker compose --project-name digibusca-evolution-candidate --env-file backend/.env --env-file evolution/.env -f docker-compose.evolution.yml --profile evolution-candidate config --quiet
+docker compose --project-name digibusca-evolution-candidate --env-file backend/.env --env-file evolution/.env -f docker-compose.evolution.yml --profile evolution-candidate build digibusca-webhook
+```
+
+O healthcheck do webhook consulta o Supabase e exige as tabelas de conexão, conversa e mensagem das migrations `009_whatsapp_webhook.sql` e `010_whatsapp_coexistence.sql`; a Evolution só inicia depois dessa checagem passar. A rota local `/api/whatsapp/status` também bloqueia a geração do QR se a persistência ainda não estiver pronta. O backend no Mac continua em `127.0.0.1:3001`; o webhook interno usa `0.0.0.0` somente dentro da rede Docker.
+
+Depois do pareamento, automação Gemini e prospecção continuam desligadas. O atendimento não tem tabela de preços configurada: pedidos sobre preço, prazo, desconto, contrato ou pagamento vão para encaminhamento humano. Antes de ativar envios, revise as aprovações na tela, valide o fluxo com leads de teste e confirme o registro de consentimento.
 
 As integrações ficam isoladas em adaptadores. A chave do Google Places e a chave do Gemini são lidas apenas do ambiente do backend. As migrations versionadas em `supabase/migrations/` definem tabelas, índices, permissões e políticas de acesso.
 
-A API local escuta em `127.0.0.1` por padrão. Para receber o webhook enviado pelo container Evolution no Mac, configure `HOST=0.0.0.0`; inclua as origens exatas em `DIGIBUSCA_APP_ORIGINS` para permitir que o navegador alcance o backend local. O controle privado de rede do navegador pode pedir autorização para essa conexão.
+A API local escuta em `127.0.0.1` por padrão. Não configure `HOST=0.0.0.0` no processo do Mac: o webhook usa o serviço interno do Compose, cuja porta não é publicada no host.

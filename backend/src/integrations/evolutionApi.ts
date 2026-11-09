@@ -58,7 +58,7 @@ function webhookConfig() {
     webhook: {
       enabled: true,
       url: webhookUrlFor(config),
-      events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+      events: ['MESSAGES_UPSERT'],
       headers: { 'x-digibot-webhook-secret': config.webhookSecret },
       base64: false,
     },

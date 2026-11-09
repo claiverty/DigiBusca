@@ -56,13 +56,14 @@ export function getEvolutionApiConfig() {
     const url = new URL(baseUrl)
     const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
     const isLoopbackHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(hostname)
-    if (url.protocol !== 'https:' && !isLoopbackHttp) return undefined
+    const isEvolutionContainerHttp = url.protocol === 'http:' && hostname === 'evolution-api'
+    if (url.protocol !== 'https:' && !isLoopbackHttp && !isEvolutionContainerHttp) return undefined
     if (url.username || url.password || url.search || url.hash) return undefined
     if (new TextEncoder().encode(webhookSecret).byteLength < 32) return undefined
 
     const webhookTarget = new URL(webhookUrl)
     const webhookHostname = webhookTarget.hostname.replace(/^\[|\]$/g, '').toLowerCase()
-    const isLocalWebhook = ['localhost', '127.0.0.1', '::1', 'host.docker.internal'].includes(webhookHostname)
+    const isLocalWebhook = ['localhost', '127.0.0.1', '::1', 'host.docker.internal', 'digibusca-webhook'].includes(webhookHostname)
     if (webhookTarget.protocol !== 'https:' && !(webhookTarget.protocol === 'http:' && isLocalWebhook)) return undefined
     if (webhookTarget.username || webhookTarget.password || webhookTarget.search || webhookTarget.hash) return undefined
   } catch {

@@ -214,6 +214,13 @@ export type WhatsAppEvolutionConnectionResult = {
   qrCode?: string
 }
 
+export async function getWhatsAppEvolutionPairingStatus(): Promise<WhatsAppEvolutionConnectionResult> {
+  const response = await authenticatedFetch(`${apiBaseUrl}/whatsapp/connections/evolution/qr`, { cache: 'no-store' })
+  const payload = (await response.json().catch(() => null)) as { data?: WhatsAppEvolutionConnectionResult; error?: string } | null
+  if (!response.ok || !payload?.data) throw new Error(payload?.error ?? 'Não foi possível atualizar o QR Code.')
+  return payload.data
+}
+
 export async function connectWhatsAppEvolution(): Promise<WhatsAppEvolutionConnectionResult> {
   let response: Response
   try {

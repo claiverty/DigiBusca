@@ -50,7 +50,17 @@ export async function startEvolutionConnection(userId: string) {
   if (!qrCode && state.state.toLowerCase() !== 'open') {
     qrCode = qrFromPayload(await getEvolutionQrCode(instanceName))
   }
-  return { instanceName, state, qrCode }
+  return { instanceName, state: state.state, qrCode }
+}
+
+export async function getEvolutionPairingStatus(userId: string) {
+  const instanceName = await new WhatsAppStore().getEvolutionInstanceName(userId)
+  if (!instanceName) throw new Error('Gere um QR Code para iniciar a conexão.')
+  const state = await getEvolutionConnectionState(instanceName)
+  const qrCode = state.state.toLowerCase() === 'connecting'
+    ? qrFromPayload(await getEvolutionQrCode(instanceName))
+    : undefined
+  return { instanceName, state: state.state, qrCode }
 }
 
 export async function getEvolutionConnections(userId: string) {

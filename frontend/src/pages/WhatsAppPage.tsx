@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, Send, ShieldCheck } from 'lucide-react'
 import {
   connectWhatsAppEvolution,
+  getWhatsAppEvolutionPairingStatus,
   getWhatsAppEvolutionSetupStatus,
   getWhatsAppConnections,
   getWhatsAppConversationMessages,
@@ -90,6 +91,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [connectError, setConnectError] = useState('')
   const [connectNotice, setConnectNotice] = useState('')
   const [connectQrCode, setConnectQrCode] = useState('')
+  const qrActive = Boolean(connectQrCode)
   const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
   const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(newAutomationProfileDraft(''))
   const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
@@ -145,10 +147,35 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   }, [refreshKey])
 
   useEffect(() => {
-    if (!connectQrCode) return
-    const timer = window.setInterval(() => setRefreshKey((value) => value + 1), 5_000)
-    return () => window.clearInterval(timer)
-  }, [connectQrCode])
+    if (!qrActive) return
+    let active = true
+    let timer: number
+    const refreshQr = async () => {
+      try {
+        const result = await getWhatsAppEvolutionPairingStatus()
+        if (!active) return
+        if (result.state.toLowerCase() === 'open') {
+          setConnectQrCode('')
+          setConnectNotice('WhatsApp conectado à Evolution API.')
+          setRefreshKey((value) => value + 1)
+          return
+        }
+        if (result.state.toLowerCase() !== 'connecting' || !result.qrCode) {
+          setConnectQrCode('')
+          setConnectNotice('O QR Code expirou. Gere um novo para tentar novamente.')
+          return
+        }
+        setConnectQrCode(result.qrCode)
+        timer = window.setTimeout(() => void refreshQr(), 3_000)
+      } catch {
+        if (!active) return
+        setConnectQrCode('')
+        setConnectError('Não foi possível atualizar o QR Code. Gere um novo para tentar novamente.')
+      }
+    }
+    timer = window.setTimeout(() => void refreshQr(), 3_000)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [qrActive])
 
   useEffect(() => {
     let active = true
@@ -487,12 +514,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 className="secondary-button"
                 type="button"
                 onClick={() => void connectWhatsAppAccount()}
-                disabled={!status?.evolutionConfigured || status?.connectionStorageReady !== true || connectBusy}
+                disabled={status?.integrationEnabled !== true || !status?.evolutionConfigured || status?.connectionStorageReady !== true || connectBusy}
               >
                 <QrCode size={15} />
                 {connectBusy ? 'Preparando QR Code…' : connectionReady ? 'Atualizar conexão' : 'Gerar QR Code'}
               </button>
-              {loadState === 'ready' && status?.evolutionConfigured === false && <p className="whatsapp-connect-state is-pending">Configure <code>EVOLUTION_API_URL</code>, <code>EVOLUTION_API_KEY</code> e <code>EVOLUTION_WEBHOOK_SECRET</code> em <code>backend/.env</code>.</p>}
+              {loadState === 'ready' && status?.integrationEnabled === false && <p className="whatsapp-connect-state is-pending">Ative <code>WHATSAPP_INTEGRATION_ENABLED=true</code> em <code>backend/.env</code> para liberar as rotas de conexão. As automações continuam desligadas pelos runtimes separados.</p>}
+              {loadState === 'ready' && status?.evolutionConfigured === false && <p className="whatsapp-connect-state is-pending">Configure <code>EVOLUTION_API_URL</code>, <code>EVOLUTION_API_KEY</code>, <code>EVOLUTION_WEBHOOK_SECRET</code> e <code>EVOLUTION_WEBHOOK_URL</code> em <code>backend/.env</code>.</p>}
               {status?.persistenceConfigured === false && <p className="whatsapp-connect-state is-pending">Configure <code>SUPABASE_SERVICE_ROLE_KEY</code> em <code>backend/.env</code> para salvar a conexão e as mensagens recebidas.</p>}
               {status?.persistenceConfigured === true && status.connectionStorageReady === false && <p className="whatsapp-connect-state is-pending">Aplique as migrations <code>009_whatsapp_webhook.sql</code> e <code>010_whatsapp_coexistence.sql</code> no Supabase antes do pareamento.</p>}
               {connectError && <p className="whatsapp-connect-state is-error" role="alert">{connectError}</p>}

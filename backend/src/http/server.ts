@@ -6,7 +6,7 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { opportunityTypes, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, configureRuntimeEnvironment, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppEvolutionSetupStatus, isWhatsAppAutomationRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppProspectingRuntimeEnabled } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppEvolutionSetupStatus, isWhatsAppAutomationRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
@@ -17,7 +17,7 @@ import { createRequestId, logError, logInfo } from '../observability/logger.js'
 import { checkSiteHealth } from '../integrations/siteHealth.js'
 import { buildOpenBotOutreachPrompt, OpenBotOutreachResponseError, validateOpenBotOutreachAnswer } from '../application/generateOpenBotOutreach.js'
 import { getOpenBotDelivery, listOpenBotAgents, OpenBotAutomationError, sendOpenBotAgentMessage } from '../integrations/openbotAutomationApi.js'
-import { getEvolutionConnections, startEvolutionConnection } from '../application/evolutionConnections.js'
+import { getEvolutionConnections, getEvolutionPairingStatus, startEvolutionConnection } from '../application/evolutionConnections.js'
 import { persistEvolutionWebhook } from '../application/evolutionWebhook.js'
 import { evolutionWebhookSecretMatches, EvolutionApiError } from '../integrations/evolutionApi.js'
 import { whatsappWebhookMaxBodyBytes, WhatsAppWebhookBodyTooLargeError } from '../application/whatsappWebhook.js'
@@ -299,6 +299,14 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
 
+  if (requestUrl.pathname === '/api/health/whatsapp-ready') {
+    const configReady = isWhatsAppIntegrationEnabled() && Boolean(getEvolutionApiConfig()) && isWhatsAppWebhookPersistenceConfigured()
+    const storageReady = configReady && await new WhatsAppStore().isEvolutionStorageReady()
+    const ready = configReady && storageReady
+    sendJson(response, ready ? 200 : 503, { status: ready ? 'ready' : 'not_ready' })
+    return
+  }
+
   if (isWhatsAppIntegrationPath(requestUrl.pathname) && !isWhatsAppIntegrationEnabled()) {
     sendJson(response, 410, { error: 'A integração do WhatsApp está desativada.' })
     return
@@ -473,6 +481,16 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/connections') {
     response.setHeader('Cache-Control', 'no-store')
     sendJson(response, 200, { data: await getEvolutionConnections(user.id) })
+    return
+  }
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/connections/evolution/qr') {
+    response.setHeader('Cache-Control', 'no-store')
+    try {
+      sendJson(response, 200, { data: await getEvolutionPairingStatus(user.id) })
+    } catch {
+      sendJson(response, 503, { error: 'Não foi possível atualizar o QR Code. Gere um novo código.' })
+    }
     return
   }
 

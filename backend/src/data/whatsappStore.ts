@@ -131,9 +131,12 @@ export class WhatsAppStore {
   async isEvolutionStorageReady() {
     try {
       const admin = createWhatsAppWebhookSupabaseClient()
-      const result = await admin.from('whatsapp_phone_number_connections')
-        .select('phone_number_id, platform_type').limit(0)
-      return !result.error
+      const results = await Promise.all([
+        admin.from('whatsapp_phone_number_connections').select('phone_number_id, platform_type').limit(0),
+        admin.from('whatsapp_conversations').select('id').limit(0),
+        admin.from('whatsapp_messages').select('id').limit(0),
+      ])
+      return results.every((result) => !result.error)
     } catch {
       return false
     }

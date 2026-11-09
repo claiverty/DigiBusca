@@ -1,31 +1,98 @@
 services:
   evolution-api:
-    container_name: digibusca-evolution-api
-    image: evoapicloud/evolution-api:v2.1.1
-    restart: unless-stopped
+    profiles: ["evolution-candidate"]
+    image: digibusca-evolution-api:2.3.7-pairing-rc14-d0198733
+    restart: "no"
     ports:
-      - "127.0.0.1:8080:8080"
-    env_file:
-      - ./evolution/.env
+      - "127.0.0.1:8081:8080"
+    environment:
+      AUTHENTICATION_API_KEY: ${AUTHENTICATION_API_KEY:?Defina AUTHENTICATION_API_KEY em evolution/.env}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER:-evolution}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD em evolution/.env}@evolution-db:5432/${POSTGRES_DB:-evolution}?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: digibusca
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_LABELS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "false"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      DEL_INSTANCE: "false"
     depends_on:
       evolution-db:
         condition: service_healthy
+      digibusca-webhook:
+        condition: service_healthy
     volumes:
-      - evolution_instances:/evolution/instances
+      - evolution_instances_candidate:/evolution/instances
+    networks:
+      - evolution-app
+      - evolution-database
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   evolution-db:
+    profiles: ["evolution-candidate"]
     image: postgres:16-alpine
-    restart: unless-stopped
-    env_file:
-      - ./evolution/.env
+    restart: "no"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-evolution}
+      POSTGRES_USER: ${POSTGRES_USER:-evolution}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD em evolution/.env}
     volumes:
-      - evolution_database:/var/lib/postgresql/data
+      - evolution_database_candidate:/var/lib/postgresql/data
+    networks:
+      - evolution-database
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 20
 
+  digibusca-webhook:
+    profiles: ["evolution-candidate"]
+    image: digibusca-backend-webhook:local
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: "no"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:?Defina SUPABASE_URL em backend/.env}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Defina SUPABASE_SERVICE_ROLE_KEY em backend/.env}
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:?Defina EVOLUTION_API_KEY em backend/.env}
+      EVOLUTION_WEBHOOK_SECRET: ${EVOLUTION_WEBHOOK_SECRET:?Defina EVOLUTION_WEBHOOK_SECRET em backend/.env}
+      HOST: 0.0.0.0
+      PORT: "3001"
+      WHATSAPP_INTEGRATION_ENABLED: "true"
+      WHATSAPP_AUTOMATION_RUNTIME_ENABLED: "false"
+      WHATSAPP_PROSPECTING_RUNTIME_ENABLED: "false"
+      EVOLUTION_API_URL: http://evolution-api:8080
+      EVOLUTION_WEBHOOK_URL: http://digibusca-webhook:3001/api/webhooks/evolution
+    expose:
+      - "3001"
+    networks:
+      - evolution-app
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health/whatsapp-ready').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+networks:
+  evolution-app:
+    driver: bridge
+  evolution-database:
+    driver: bridge
+    internal: true
+
 volumes:
-  evolution_instances:
-  evolution_database:
+  evolution_instances_candidate:
+  evolution_database_candidate:
