@@ -1,8 +1,8 @@
 .app-update-prompt {
   position: fixed;
   z-index: 80;
-  top: 72px;
-  right: 24px;
+  top: 50%;
+  left: 50%;
   display: grid;
   width: min(420px, calc(100vw - 32px));
   gap: 18px;
@@ -10,7 +10,8 @@
   border: 1px solid var(--color-border);
   border-radius: 18px;
   background: var(--color-surface);
-  box-shadow: 0 18px 48px rgba(25, 26, 32, 0.16);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
+  transform: translate(-50%, -50%);
 }
 
 .app-update-prompt__message {
@@ -20,7 +21,7 @@
 .app-update-prompt__eyebrow {
   display: block;
   margin-bottom: 7px;
-  color: var(--color-accent);
+  color: var(--color-text);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -63,7 +64,7 @@
 }
 
 .app-update-prompt__actions button:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--color-accent) 32%, transparent);
+  outline: 3px solid #696b70;
   outline-offset: 2px;
 }
 
@@ -79,18 +80,16 @@
 
 .app-update-prompt__update {
   color: #fff;
-  background: var(--color-accent);
-  box-shadow: var(--shadow-button);
+  background: var(--color-text);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.14);
 }
 
 .app-update-prompt__update:hover {
-  background: #172986;
+  background: #414348;
 }
 
 @media (max-width: 590px) {
   .app-update-prompt {
-    top: calc(58px + 10px);
-    right: 12px;
     width: calc(100vw - 24px);
     gap: 15px;
     padding: 17px;
