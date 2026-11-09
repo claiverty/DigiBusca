@@ -4,16 +4,38 @@ import { generateWhatsAppAutoReply } from '../integrations/whatsappAutoReplyProv
 import { selectWhatsAppAutomationReplyPlan } from './whatsappAutomationPolicy.js'
 import { getEvolutionConnectionState, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
 import { logWarning } from '../observability/logger.js'
+import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWebhook.js'
 
 const customerServiceWindowMs = 24 * 60 * 60 * 1_000
-const optOutPattern = /^\s*(?:por favor[, ]+)?(parar|pare|cancelar|cancele|sair|remover|descadastrar|stop|unsubscribe|nao enviar(?: mais)?|nao envie(?: mais)?|nao mandar(?: mais)?|nao mande(?: mais)?|nao quero(?: mais)? receber|nao me (?:envie|mande|contate)(?: mais)?)(?:[.!?,\s]|$)/i
+const optOutPattern = /^\s*(?:por favor[, ]+)?(?:parar|pare|cancelar|cancele|sair|remover|descadastrar|stop|unsubscribe|nao entre (?:mais )?em contato|nao quero(?: mais)? contato|nao quero(?: mais)? receber(?: mensagens?)?|nao envie(?: mais)?|nao mandar(?: mais)?|nao mande(?: mais)?|nao me (?:envie|mande|contate|procure)(?: mais)?|nao me ligue(?: mais)?|nao quero ser contatad[oa]|me (?:remova|remove|retire|tire) da lista)(?:[.!?,\s]|$)/i
 const refusalPattern = /^\s*(nao tenho interesse|nao quero|sem interesse)(?:[.!?,\s]|$)/i
 const humanHandoffPattern = /\b(?:atendente|humano|pessoa real|pessoa de verdade|falar com (?:uma? )?(?:pessoa|gente|humano|atendente|alguem)|conversar com (?:uma? )?(?:pessoa|gente|humano|atendente|alguem)|(?:quero|gostaria|preciso|prefiro) falar com (?:uma? )?(?:pessoa|gente|humano|atendente|alguem)|me (?:encaminha|conecta) com (?:uma? )?(?:pessoa|gente|humano|atendente|alguem))\b/i
+const cristhianHandoffPattern = /\b(?:(?:quero|gostaria|preciso|prefiro) (?:falar|conversar) com (?:o )?cristhian|(?:falar|conversar) com (?:o )?cristhian|(?:me )?(?:encaminha|conecta|passa) com (?:o )?cristhian|chama (?:o )?cristhian)\b/i
 const commercialHandoffPattern = /\b(?:precos?|valores?|custos?|quanto (?:custa|fica|ficaria|sai|seria|e|voc[eê]s cobram|voc[eê]s cobrariam)|orcamentos?|descontos?|prazos?|pagamentos?|parcel\w*|condicoes?(?: comerciais| de pagamento)?|contratos?|garantias?|escopos?|propostas?|resultados?|investimentos?|quanto tempo (?:demora|leva|fica|seria)|quando (?:fica pronto|entrega|comeca)|qual (?:e )?o prazo|tem prazo)\b/i
+const sensitiveHandoffPattern = /\b(?:consulta juridica pessoal|aconselhamento juridico pessoal|meu problema juridico|minha situacao juridica|cpf|rg|dados? pessoais|documentos? pessoais?|senhas?|codigo de autenticacao|dados? bancarios|dados? da minha conta(?: bancaria)?|dados? do cartao|numero do cartao|minha saude|meu estado de saude|problema de saude pessoal|condicao de saude pessoal|dados? de saude|meu diagnostico|meus sintomas|meu tratamento|diagnostico medico pessoal|tratamento medico pessoal|minha doenca|minha situacao financeira|problema financeiro pessoal|minha divida|meu emprestimo|minha renda|meu credito|fui vitima de fraud\w*|sofri fraud\w*|denunciar fraud\w*|fraude na minha conta|cai (?:em|num) (?:um )?golpe|me aplicaram (?:um )?golpe|sofri ameaca|fui ameacad\w*|me ameacaram|estou sendo ameacad\w*|ameaca contra mim|sofri assedio|fui vitima de assedio|fui assediad\w*|estou sendo assediad\w*|sofri violencia|fui vitima de violencia|sofri discriminacao|fui discriminad\w*)\b/i
+const repeatedQuestionFeedbackPattern = /\b(?:(?:nao (?:quero|vou) (?:repetir|responder(?: isso)? de novo|falar disso de novo))|(?:(?:eu\s+)?(?:ja\s+)?(?:te\s+)?(?:respondi|respondeu|respondemos|respondido|falei|disse|informei|passei)(?:\s+(?:isso|essa pergunta|a mesma coisa|sobre isso|essas informacoes))?)|(?:essa pergunta|essa questao)\s+ja\s+foi\s+respondida|(?:voce|vc)\s+(?:perguntou|repetiu)\s+(?:isso|a mesma coisa)(?:\s+(?:de novo|novamente))?|(?:pergunta|questao)\s+repetida|(?:perguntou|repetiu)\s+(?:isso|a mesma coisa)\s+(?:de novo|novamente))\b/i
+const identityQuestionPattern = /\b(?:quem (?:esta|ta) (?:me )?(?:respondendo|falando|atendendo)|quem (?:responde|atende)|com quem (?:eu )?(?:estou|to) falando|quem (?:e|eh) voce|voce (?:e|eh) (?:o )?(?:proprio )?cristhian|voce (?:esta|ta) falando com (?:o )?(?:proprio )?cristhian|e voce (?:o )?(?:proprio )?cristhian|estou falando com (?:o )?(?:proprio )?cristhian|cristhian (?:esta|ta) respondendo|e (?:o )?cristhian que (?:esta|ta) (?:respondendo|falando|atendendo)|voce (?:e|eh) (?:uma? )?(?:pessoa|humano|ia|inteligencia artificial|bot|robo|assistente(?: virtual)?)|(?:essa|esta) (?:e )?(?:uma? )?mensagem automatica|e (?:uma? )?mensagem automatica|isso (?:e|eh) (?:uma? )?(?:mensagem|resposta) automatica|(?:suas|essas) respostas? (?:sao )?automaticas?|(?:esse|este|seu) atendimento (?:e|eh) automatizado|(?:essa|sua) resposta (?:foi )?gerada por (?:uma? )?ia)\b/i
 
 function normalizeMessage(text: string) {
   return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').trim()
+}
+
+function messageClauses(text: string) {
+  return normalizeMessage(text).split(/[.!?,;\n]+|\b(?:e|mas)\b/).map((clause) => clause.trim()).filter(Boolean)
+}
+
+function hasOptOutRequest(text: string) {
+  return messageClauses(text).some((clause) => optOutPattern.test(clause))
+}
+
+function hasRefusal(text: string) {
+  const repeatComplaintRefusalPattern = /^nao (?:quero|vou) (?:repetir|responder(?: isso)? de novo|falar disso de novo)\b/i
+  return messageClauses(text).some((clause) => refusalPattern.test(clause) && !repeatComplaintRefusalPattern.test(clause))
+}
+
+function hasStopOrRefusal(text: string) {
+  return hasOptOutRequest(text) || hasRefusal(text)
 }
 
 function isInboundProjectInquiry(text: string) {
@@ -33,20 +55,64 @@ const repeatedQuestionTopics = [
   { key: 'project_type', pattern: /\b(?:tipo de projeto|que tipo|qual tipo|qual projeto|qual pagina|que pagina|qual site|qual sistema|qual servico|qual solucao)\b/ },
 ] as const
 
-function getRepeatedQuestionTopic(replyText: string, messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>) {
-  if (!replyText.includes('?')) return undefined
-  const questionStart = replyText.slice(0, replyText.indexOf('?'))
+function getQuestionText(text: string) {
+  if (!text.includes('?')) return undefined
+  const questionStart = text.slice(0, text.indexOf('?'))
   const questionBoundary = Math.max(questionStart.lastIndexOf('.'), questionStart.lastIndexOf('!'), questionStart.lastIndexOf('\n'))
-  const normalizedQuestion = normalizeMessage(questionStart.slice(questionBoundary + 1))
+  const question = normalizeMessage(questionStart.slice(questionBoundary + 1))
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return question || undefined
+}
+
+function getRepeatedQuestionTopic(replyText: string, messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>) {
+  const normalizedQuestion = getQuestionText(replyText)
+  if (!normalizedQuestion) return undefined
   return repeatedQuestionTopics.find(({ pattern }) => (
     pattern.test(normalizedQuestion)
     && messages.some(({ direction, body }) => {
-      if (direction !== 'outbound' || !body?.includes('?')) return false
-      const previousQuestionStart = body.slice(0, body.indexOf('?'))
-      const previousBoundary = Math.max(previousQuestionStart.lastIndexOf('.'), previousQuestionStart.lastIndexOf('!'), previousQuestionStart.lastIndexOf('\n'))
-      return pattern.test(normalizeMessage(previousQuestionStart.slice(previousBoundary + 1)))
+      if (direction !== 'outbound' || !body) return false
+      return pattern.test(getQuestionText(body) ?? '')
     })
   ))?.key
+}
+
+function isRepeatedQuestionComplaint(text: string) {
+  const normalized = normalizeMessage(text)
+  return repeatedQuestionFeedbackPattern.test(normalized)
+    && !hasStopOrRefusal(normalized)
+    && !humanHandoffPattern.test(normalized)
+    && !cristhianHandoffPattern.test(normalized)
+    && !commercialHandoffPattern.test(normalized)
+    && !sensitiveHandoffPattern.test(normalized)
+}
+
+function isDirectIdentityQuestion(text: string) {
+  return identityQuestionPattern.test(normalizeMessage(text))
+}
+
+function identityDisclosure(text: string) {
+  const normalized = normalizeMessage(text)
+  const asksIfHumanOrCristhian = /\b(?:voce (?:e|eh) (?:o )?(?:proprio )?cristhian|voce (?:esta|ta) falando com (?:o )?(?:proprio )?cristhian|e voce (?:o )?(?:proprio )?cristhian|estou falando com (?:o )?(?:proprio )?cristhian|cristhian (?:esta|ta) respondendo|e (?:o )?cristhian que (?:esta|ta) (?:respondendo|falando|atendendo)|voce (?:e|eh) (?:uma? )?(?:pessoa|humano))\b/.test(normalized)
+  const asksIfAutomated = /\b(?:(?:essa|esta) (?:e )?(?:uma? )?mensagem automatica|e (?:uma? )?mensagem automatica|isso (?:e|eh) (?:uma? )?(?:mensagem|resposta) automatica|(?:suas|essas) respostas? (?:sao )?automaticas?|(?:esse|este|seu) atendimento (?:e|eh) automatizado|(?:essa|sua) resposta (?:foi )?gerada por (?:uma? )?ia|(?:voce|vc) (?:e|eh) (?:uma? )?(?:ia|inteligencia artificial|bot|robo|assistente(?: virtual)?))\b/.test(normalized)
+  const answerPrefix = asksIfHumanOrCristhian ? 'Não. ' : asksIfAutomated ? 'Sim. ' : ''
+  return `${answerPrefix}Sou uma IA que auxilia no atendimento da DigiUP.`
+}
+
+function identityReply(text: string) {
+  return `${identityDisclosure(text)} O Cristhian pode continuar por aqui se você preferir.`
+}
+
+function advanceStageAfterRepeatedQuestion(stage: WhatsAppAutomationStage): WhatsAppAutomationStage {
+  switch (stage) {
+    case 'identify_responsible': return 'request_permission'
+    case 'request_permission': return 'understand_scenario'
+    case 'understand_scenario': return 'explore_need'
+    case 'explore_need':
+    case 'qualify_interest': return 'present_idea'
+    default: return stage
+  }
 }
 
 function distinctFollowUpQuestion(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>) {
@@ -72,12 +138,16 @@ function requiresHumanHandoff(messages: Array<{ direction: 'inbound' | 'outbound
   return chronologicalMessages.slice(lastOutboundIndex + 1).some(({ direction, body }) => {
     if (direction !== 'inbound' || !body?.trim()) return false
     const normalized = normalizeMessage(body)
-    return humanHandoffPattern.test(normalized) || commercialHandoffPattern.test(normalized)
+    return humanHandoffPattern.test(normalized)
+      || cristhianHandoffPattern.test(normalized)
+      || commercialHandoffPattern.test(normalized)
+      || sensitiveHandoffPattern.test(normalized)
   })
 }
 
-function handoffMessage(contact: string) {
-  const message = `Vou pausar as respostas automáticas. Para atendimento humano, a rota disponível é ${contact}.`
+function handoffMessage(leadAskedIdentity: boolean, inboundText: string) {
+  const disclosure = leadAskedIdentity ? `${identityDisclosure(inboundText)} ` : ''
+  const message = `${disclosure}Claro, vou encaminhar isso para o Cristhian continuar por aqui.`
   return message.length <= 500 ? message : undefined
 }
 
@@ -108,11 +178,11 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
 
   for (const message of inboundMessages) {
     const normalized = normalizeMessage(message.body ?? '')
-    if (!optOutPattern.test(normalized) && !refusalPattern.test(normalized)) continue
+    if (!hasStopOrRefusal(normalized)) continue
     try {
       const context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
       if (!context) continue
-      if (optOutPattern.test(normalized)) {
+      if (hasOptOutRequest(normalized)) {
         await store.markConversationOptedOut(context.userId, context.conversationId)
       } else {
         await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'refusal')
@@ -144,7 +214,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       if (!context) continue
 
       const normalized = normalizeMessage(message.body ?? '')
-      if (optOutPattern.test(normalized) || refusalPattern.test(normalized)) {
+      if (hasStopOrRefusal(normalized)) {
         continue
       }
 
@@ -181,6 +251,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
           .map(({ direction, body, occurredAt }) => ({ direction, body: body ?? null, occurredAt })),
       ]
       const shouldHandoff = requiresHumanHandoff(handoffMessages)
+      const leadAskedIdentity = isDirectIdentityQuestion(message.body ?? '')
       const inboundProjectInquiry = isInboundProjectInquiry(message.body ?? '')
       const apiKey = getGeminiApiKey()
       const replyPlan = selectWhatsAppAutomationReplyPlan({
@@ -188,8 +259,24 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         shouldHandoff,
         geminiConfigured: Boolean(apiKey),
       })
+      const repeatedQuestionRecovery = replyPlan === 'gemini'
+        && !shouldHandoff
+        && isRepeatedQuestionComplaint(message.body ?? '')
+      const identityDisclosureResponse = leadAskedIdentity && !shouldHandoff
+      const deterministicReply = repeatedQuestionRecovery || identityDisclosureResponse
       let generated: Awaited<ReturnType<typeof generateWhatsAppAutoReply>>
-      if (replyPlan === 'handoff' || !apiKey) {
+      if (deterministicReply) {
+        generated = {
+          action: 'reply',
+          replyText: [
+            repeatedQuestionRecovery ? 'Você tem razão, desculpa por repetir. Vou considerar o que você já me contou e seguir daqui.' : undefined,
+            identityDisclosureResponse ? identityReply(message.body ?? '') : undefined,
+          ].filter(Boolean).join(' '),
+          nextStage: repeatedQuestionRecovery
+            ? advanceStageAfterRepeatedQuestion(context.automationStage)
+            : context.automationStage,
+        }
+      } else if (replyPlan === 'handoff' || !apiKey) {
         generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
       } else {
         try {
@@ -244,7 +331,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       }
 
       if (generated.action === 'handoff') {
-        const body = handoffMessage(profile.escalationContact)
+        const body = handoffMessage(leadAskedIdentity, message.body ?? '')
         if (!body) {
           await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'handoff')
           await store.completeAutomationRun(runId, 'needs_human', 'handoff_contact_too_long')
@@ -270,9 +357,13 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         userId: context.userId, phoneNumberId: message.phoneNumberId, conversationId: context.conversationId,
         contactWaId: message.contactWaId, providerMessageId: replyId, body, occurredAt: sentAt,
       })
-      await store.updateAutomationStage(context.conversationId, generated.nextStage)
-      if (generated.nextStage === 'closed') {
-        await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'assistant_closed')
+      if (repeatedQuestionRecovery) {
+        await store.updateAutomationStage(context.conversationId, generated.nextStage)
+      } else if (!identityDisclosureResponse) {
+        await store.updateAutomationStage(context.conversationId, generated.nextStage)
+        if (generated.nextStage === 'closed') {
+          await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'assistant_closed')
+        }
       }
       await store.completeAutomationRun(runId, 'sent', undefined, replyId)
     } catch (error) {

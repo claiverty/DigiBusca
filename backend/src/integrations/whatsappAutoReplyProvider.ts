@@ -26,6 +26,11 @@ const stages: WhatsAppAutomationStage[] = [
   'identify_responsible', 'request_permission', 'understand_scenario', 'explore_need',
   'present_idea', 'qualify_interest', 'present_conditions', 'confirm_decision', 'closed',
 ]
+const automationDisclosurePattern = /\b(?:mensage(?:m|ns) (?:e |sao )?(?:uma? )?automaticas?|respostas? (?:e |sao )?(?:uma? )?automaticas?|assistente virtual|(?:atendimento|resposta|conversa) (?:e )?automatizad[oa]|sou (?:um |uma |a |o )?(?:ia|inteligencia artificial|bot|robo|assistente)|(?:sou|me chamo|aqui e|quem fala e) (?:o )?(?:proprio )?cristhian|cristhian falando|cristhian aqui|cristhian (?:esta|ta) (?:respondendo|falando|conversando))\b/i
+
+function normalizePolicyText(text: string) {
+  return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').trim()
+}
 
 function parseReply(value: unknown): WhatsAppAutoReply | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
@@ -37,6 +42,7 @@ function parseReply(value: unknown): WhatsAppAutoReply | undefined {
   ) return undefined
   const replyText = result.replyText.trim()
   if (result.action === 'reply' && (!replyText || (replyText.match(/\?/g) ?? []).length > 1)) return undefined
+  if (result.action === 'reply' && automationDisclosurePattern.test(normalizePolicyText(replyText))) return undefined
   if (result.action !== 'reply' && replyText) return undefined
   return {
     action: result.action,
@@ -46,10 +52,11 @@ function parseReply(value: unknown): WhatsAppAutoReply | undefined {
 }
 
 function buildPrompt(context: WhatsAppAutoReplyContext) {
-  return `Você é um assistente de atendimento comercial no WhatsApp. Responda apenas à conversa recebida e avance uma etapa por vez.
+  return `Você atende pelo WhatsApp da DigiUP. Responda apenas à conversa recebida e avance uma etapa por vez.
 
 REGRAS
-- Fale em português brasileiro natural, em primeira pessoa, sem pressão, urgência ou intimidade inventada.
+- Escreva em português brasileiro com tom natural, curto, cordial e objetivo, consistente com a comunicação do Cristhian. Evite formalidade excessiva, pressão, urgência e intimidade inventada.
+- Não diga espontaneamente que é IA, bot, robô, assistente virtual, que a mensagem ou as respostas são automáticas, nem explique processos internos. Se perguntarem diretamente quem está respondendo, se é uma pessoa/IA ou se a resposta é automática, responda com transparência: “Sou uma IA que auxilia no atendimento da DigiUP. O Cristhian pode continuar por aqui se você preferir.” Nunca afirme ser uma pessoa ou o próprio Cristhian.
 - Responda primeiro ao conteúdo da mensagem recebida mais recente. O estágio comercial não deve fazer você ignorar um pedido explícito do lead.
 - Revise as perguntas anteriores da DigiUP listadas abaixo. Não repita a mesma pergunta nem a mesma lacuna com outras palavras. Se uma pergunta ofereceu duas opções e a pessoa respondeu uma delas, considere essa parte respondida e avance.
 - Se INBOUND_PROJECT_INQUIRY=true, trate a pessoa como alguém que procurou ${context.businessName} para falar de um projeto: acolha o contato, não faça uma abordagem fria, não se apresente como prospecção, não pergunte se ela cuida da divulgação/presença digital e não peça permissão para conversar. Faça uma pergunta curta sobre o objetivo ou tipo de projeto.
@@ -57,9 +64,11 @@ REGRAS
 - Não invente serviço, escopo, preço, resultado, prazo, cliente, disponibilidade ou política.
 - Faça no máximo uma pergunta curta. Responda uma pergunta direta antes de avançar a etapa.
 - Respeite recusa ou pedido para parar: action=stop, replyText vazio e nextStage=closed.
-- Se houver dúvida, reclamação, pedido sensível, assunto jurídico/financeiro, pedido de humano ou necessidade de decisão fora dos fatos aprovados, escolha handoff e deixe replyText vazio.
+- Se a pessoa disser que já respondeu uma pergunta repetida pela DigiUP, reconheça a repetição, peça desculpas e diga que seguirá com as informações já fornecidas, sem fazer outra pergunta. Frustração simples por repetição, sozinha, não exige handoff.
+- Se essa mensagem também contiver pedido explícito de humano, recusa ou pedido para parar, preço/prazo/condição comercial não aprovada ou pedido de aconselhamento jurídico/financeiro pessoal, prevalecem as regras de handoff ou stop acima.
+- Para dúvidas que dependam de fatos ou decisões não aprovados, dados pessoais sensíveis, problemas pessoais de saúde/segurança ou reclamações formais, escolha handoff e deixe replyText vazio. Não encaminhe apenas porque a pessoa mencionou sua profissão, setor jurídico/financeiro, Pix ou uma funcionalidade que deseja no site.
 - Nunca peça senha, código de autenticação, cartão, documento, dado bancário ou pagamento.
-- Em identify_responsible, apresente senderIdentity e pergunte se a pessoa cuida da divulgação/presença digital. Se ela já for a responsável, avance para request_permission.
+- Em identify_responsible, apresente-se de forma neutra como atendimento da DigiUP e pergunte se a pessoa cuida da divulgação/presença digital. Não use senderIdentity se ele revelar automação ou afirmar que você é uma pessoa ou o Cristhian. Se ela já for a responsável, avance para request_permission.
 - Em request_permission, explique em uma frase o motivo e peça permissão para uma pergunta.
 - Em understand_scenario, pergunte como a empresa apresenta os serviços e recebe contatos hoje.
 - Em explore_need, pergunte qual dificuldade ou prioridade existe, sem presumir um problema.
@@ -72,7 +81,7 @@ REGRAS
 - Retorne apenas JSON com action, replyText e nextStage.
 
 BUSINESS_FACTS:
-${JSON.stringify({ businessName: context.businessName, senderIdentity: context.senderIdentity, serviceSummary: context.serviceSummary, approvedFacts: context.approvedFacts, escalationContact: context.escalationContact })}
+${JSON.stringify({ businessName: context.businessName, serviceSummary: context.serviceSummary, approvedFacts: context.approvedFacts })}
 
 CURRENT_STAGE: ${context.stage}
 INBOUND_PROJECT_INQUIRY: ${context.inboundProjectInquiry}

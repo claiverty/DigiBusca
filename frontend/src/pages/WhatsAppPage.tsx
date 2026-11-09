@@ -27,7 +27,7 @@ function newAutomationProfileDraft(phoneNumberId: string): WhatsAppAutomationPro
   return {
     phoneNumberId,
     businessName: 'DigiUP',
-    senderIdentity: 'Sou o assistente virtual da DigiUP.',
+    senderIdentity: 'Atendimento da DigiUP, no tom do Cristhian.',
     serviceSummary: 'A DigiUP desenvolve sites profissionais e presença digital, sistemas e plataformas sob medida, integrações e APIs, automações com IA, além de manutenção e evolução de sites e sistemas. Atende empresas online em todo o Brasil. O primeiro contato é uma conversa de diagnóstico.',
     approvedFacts: [
       'A DigiUP cria sites profissionais e presença digital, sistemas e plataformas sob medida, soluções de IA e automação, integrações e APIs, além de manutenção, evolução e suporte.',
@@ -533,7 +533,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   </button>
                 </div>
                 {selectedConversation.automationPauseReason === 'handoff' && (
-                  <p className="whatsapp-thread-note" role="status">A resposta automática foi pausada após um pedido de atendimento humano. Continue esta conversa pelo WhatsApp conectado no celular.</p>
+                  <p className="whatsapp-thread-note" role="status">A automação foi pausada para esta conversa. Revise o histórico e responda manualmente pelo WhatsApp conectado; retome a automação quando estiver pronto.</p>
                 )}
                 {selectedConversation.automationPauseReason === 'handoff_send_failed' && (
                   <p className="whatsapp-thread-note" role="alert">Não foi possível confirmar o envio do aviso automático. A automação foi pausada; confira o WhatsApp conectado e responda por lá.</p>
