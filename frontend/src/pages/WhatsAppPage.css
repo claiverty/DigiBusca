@@ -277,6 +277,16 @@
   white-space: nowrap;
 }
 
+.whatsapp-conversation-handoff {
+  width: fit-content;
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: #754b13;
+  background: #fff0d4;
+  font-size: 9px;
+  font-weight: 650;
+}
+
 .whatsapp-conversation-view {
   display: grid;
   place-items: center;

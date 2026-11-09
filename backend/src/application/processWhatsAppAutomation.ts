@@ -8,22 +8,34 @@ import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWe
 const customerServiceWindowMs = 24 * 60 * 60 * 1_000
 const optOutPattern = /^\s*(?:por favor[, ]+)?(parar|pare|cancelar|cancele|sair|remover|descadastrar|stop|unsubscribe|nao enviar(?: mais)?|nao envie(?: mais)?|nao mandar(?: mais)?|nao mande(?: mais)?|nao quero(?: mais)? receber|nao me (?:envie|mande|contate)(?: mais)?)(?:[.!?,\s]|$)/i
 const refusalPattern = /^\s*(nao tenho interesse|nao quero|sem interesse)(?:[.!?,\s]|$)/i
+const humanHandoffPattern = /\b(?:atendente|humano|pessoa real|pessoa de verdade|falar com (?:uma? )?(?:pessoa|gente|humano|atendente|alguem)|conversar com (?:uma? )?(?:pessoa|gente|humano|atendente|alguem)|(?:quero|gostaria|preciso|prefiro) falar com (?:uma? )?(?:pessoa|gente|humano|atendente|alguem)|me (?:encaminha|conecta) com (?:uma? )?(?:pessoa|gente|humano|atendente|alguem))\b/i
+const commercialHandoffPattern = /\b(?:precos?|valores?|custos?|quanto (?:custa|fica|ficaria|sai|seria|e|voc[eê]s cobram|voc[eê]s cobrariam)|orcamentos?|descontos?|prazos?|pagamentos?|parcel\w*|condicoes?(?: comerciais| de pagamento)?|contratos?|garantias?|escopos?|propostas?|resultados?|investimentos?|quanto tempo (?:demora|leva|fica|seria)|quando (?:fica pronto|entrega|comeca)|qual (?:e )?o prazo|tem prazo)\b/i
 
 function normalizeMessage(text: string) {
   return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').trim()
 }
 
-function escalationLine(contact: string) {
-  return `Atendimento humano: ${contact}.`
-}
+function requiresHumanHandoff(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null; occurredAt?: string }>) {
+  const chronologicalMessages = [...messages].sort((left, right) => (
+    Date.parse(left.occurredAt ?? '') - Date.parse(right.occurredAt ?? '')
+  ))
+  let lastOutboundIndex = -1
+  for (let index = chronologicalMessages.length - 1; index >= 0; index -= 1) {
+    if (chronologicalMessages[index]?.direction === 'outbound') {
+      lastOutboundIndex = index
+      break
+    }
+  }
 
-function addEscalationLine(reply: string, contact: string) {
-  const message = `${reply.trim()}\n\n${escalationLine(contact)}`
-  return message.length <= 500 ? message : undefined
+  return chronologicalMessages.slice(lastOutboundIndex + 1).some(({ direction, body }) => {
+    if (direction !== 'inbound' || !body?.trim()) return false
+    const normalized = normalizeMessage(body)
+    return humanHandoffPattern.test(normalized) || commercialHandoffPattern.test(normalized)
+  })
 }
 
 function handoffMessage(contact: string) {
-  const message = `Para atendimento humano, use: ${contact}. Vou pausar minhas respostas automáticas nesta conversa.`
+  const message = `Vou pausar as respostas automáticas. Para atendimento humano, a rota disponível é ${contact}.`
   return message.length <= 500 ? message : undefined
 }
 
@@ -99,9 +111,8 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       }
 
       if (!isWhatsAppAutomationRuntimeEnabled()) continue
-      const apiKey = getGeminiApiKey()
       const evolutionConfig = getEvolutionApiConfig()
-      if (!apiKey || !evolutionConfig) continue
+      if (!evolutionConfig) continue
 
       const profile = context.profile
       if (
@@ -119,15 +130,37 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       runId = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
       if (!runId) continue
 
-      const generated = await generateWhatsAppAutoReply(apiKey, {
-        businessName: profile.businessName,
-        senderIdentity: profile.senderIdentity,
-        serviceSummary: profile.serviceSummary,
-        approvedFacts: profile.approvedFacts,
-        escalationContact: profile.escalationContact,
-        stage: context.automationStage,
-        messages: context.messages.map(({ direction, body }) => ({ direction, body })),
-      })
+      const handoffMessages = [
+        ...context.messages,
+        ...inboundMessages
+          .filter((candidate) => candidate.phoneNumberId === message.phoneNumberId && candidate.contactWaId === message.contactWaId)
+          .map(({ direction, body, occurredAt }) => ({ direction, body: body ?? null, occurredAt })),
+      ]
+      const shouldHandoff = requiresHumanHandoff(handoffMessages)
+      let generated: Awaited<ReturnType<typeof generateWhatsAppAutoReply>>
+      if (shouldHandoff) {
+        generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
+      } else {
+        const apiKey = getGeminiApiKey()
+        if (!apiKey) {
+          generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
+        } else {
+          try {
+            generated = await generateWhatsAppAutoReply(apiKey, {
+              businessName: profile.businessName,
+              senderIdentity: profile.senderIdentity,
+              serviceSummary: profile.serviceSummary,
+              approvedFacts: profile.approvedFacts,
+              escalationContact: profile.escalationContact,
+              stage: context.automationStage,
+              messages: context.messages.map(({ direction, body }) => ({ direction, body })),
+            })
+          } catch {
+            generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
+            logWarning('whatsapp_automation_gemini_fallback', { reason: 'gemini_unavailable' })
+          }
+        }
+      }
 
       const currentContext = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
       const currentAgeMs = Date.now() - Date.parse(message.occurredAt)
@@ -166,12 +199,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         continue
       }
 
-      const body = addEscalationLine(generated.replyText, profile.escalationContact)
-      if (!body) {
-        await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'handoff')
-        await store.completeAutomationRun(runId, 'needs_human', 'reply_validation_failed')
-        continue
-      }
+      const body = generated.replyText.trim()
       const replyId = await sendEvolutionTextMessage(message.phoneNumberId, message.contactWaId, body)
       const sentAt = new Date().toISOString()
       await store.persistAutomatedReply({

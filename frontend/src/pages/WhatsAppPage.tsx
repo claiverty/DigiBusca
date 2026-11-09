@@ -21,14 +21,20 @@ import './WhatsAppPage.css'
 type PageTab = 'inbox' | 'settings' | 'prospecting'
 type LoadState = 'loading' | 'ready' | 'error'
 
-function blankAutomationProfile(phoneNumberId: string): WhatsAppAutomationProfileInput {
+function newAutomationProfileDraft(phoneNumberId: string): WhatsAppAutomationProfileInput {
   return {
     phoneNumberId,
-    businessName: '',
-    senderIdentity: '',
-    serviceSummary: '',
-    approvedFacts: '',
-    escalationContact: '',
+    businessName: 'DigiUP',
+    senderIdentity: 'Sou o assistente virtual da DigiUP.',
+    serviceSummary: 'A DigiUP desenvolve sites profissionais e presença digital, sistemas e plataformas sob medida, integrações e APIs, automações com IA, além de manutenção e evolução de sites e sistemas. Atende empresas online em todo o Brasil. O primeiro contato é uma conversa de diagnóstico.',
+    approvedFacts: [
+      'A DigiUP cria sites profissionais e presença digital, sistemas e plataformas sob medida, soluções de IA e automação, integrações e APIs, além de manutenção, evolução e suporte.',
+      'Atende empresas online em todo o Brasil.',
+      'O primeiro contato começa com o desafio, o objetivo e o momento do negócio; a DigiUP organiza uma conversa de diagnóstico e indica o caminho adequado.',
+      'Escopo, etapas, canais de acompanhamento e prazos dependem de cada projeto e são definidos em proposta. O site não publica preços.',
+      'Não prometa valores, prazos, resultados, disponibilidade, escopo fechado ou condições comerciais. Encaminhe essas perguntas ao atendimento humano pelo mesmo WhatsApp.',
+    ].join('\n'),
+    escalationContact: 'este mesmo WhatsApp',
     automationEnabled: false,
     channelApproved: false,
     contentApproved: false,
@@ -85,8 +91,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [connectNotice, setConnectNotice] = useState('')
   const [connectQrCode, setConnectQrCode] = useState('')
   const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
-  const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(blankAutomationProfile(''))
+  const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(newAutomationProfileDraft(''))
   const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
+  const [automationProfileSaved, setAutomationProfileSaved] = useState(false)
   const [automationState, setAutomationState] = useState<LoadState>('ready')
   const [automationBusy, setAutomationBusy] = useState(false)
   const [automationError, setAutomationError] = useState('')
@@ -146,24 +153,28 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   useEffect(() => {
     let active = true
     if (!automationPhoneNumberId) {
-      setAutomationForm(blankAutomationProfile(''))
+      setAutomationForm(newAutomationProfileDraft(''))
       setAutomationPersistedEnabled(false)
+      setAutomationProfileSaved(false)
       setAutomationState('ready')
       return () => { active = false }
     }
     if (status?.automationStorageReady !== true) {
-      setAutomationForm(blankAutomationProfile(automationPhoneNumberId))
+      setAutomationForm(newAutomationProfileDraft(automationPhoneNumberId))
       setAutomationPersistedEnabled(false)
+      setAutomationProfileSaved(false)
       setAutomationState('ready')
       return () => { active = false }
     }
     setAutomationState('loading')
+    setAutomationProfileSaved(false)
     setAutomationError('')
     setAutomationNotice('')
     void getWhatsAppAutomationProfile(automationPhoneNumberId)
       .then((profile) => {
         if (!active) return
         setAutomationPersistedEnabled(profile?.automationEnabled === true)
+        setAutomationProfileSaved(Boolean(profile))
         setAutomationForm(profile ? {
           phoneNumberId: profile.phoneNumberId,
           businessName: profile.businessName,
@@ -174,12 +185,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
           automationEnabled: profile.automationEnabled,
           channelApproved: Boolean(profile.channelApprovedAt),
           contentApproved: Boolean(profile.contentApprovedAt),
-        } : blankAutomationProfile(automationPhoneNumberId))
+        } : newAutomationProfileDraft(automationPhoneNumberId))
         setAutomationState('ready')
       })
       .catch((error: unknown) => {
         if (!active) return
         setAutomationPersistedEnabled(false)
+        setAutomationProfileSaved(false)
         setAutomationError(error instanceof Error ? error.message : 'Não foi possível carregar as regras da automação.')
         setAutomationState('error')
       })
@@ -259,6 +271,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         contentApproved: Boolean(saved.contentApprovedAt),
       })
       setAutomationPersistedEnabled(saved.automationEnabled)
+      setAutomationProfileSaved(true)
       setAutomationNotice(saved.automationEnabled
         ? 'Regras salvas. A automação só responderá a novas mensagens recebidas dentro da janela permitida.'
         : 'Rascunho salvo. A automação continua desativada.')
@@ -378,6 +391,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                       <time>{formatWhatsAppDate(conversation.lastMessageAt)}</time>
                     </span>
                     <span className="whatsapp-conversation-preview">{conversation.lastMessagePreview || 'Mensagem recebida'}</span>
+                    {conversation.automationPauseReason === 'handoff' && (
+                      <span className="whatsapp-conversation-handoff">Atendimento humano pendente</span>
+                    )}
                   </span>
                 </button>
               ))}
@@ -398,13 +414,16 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </header>
                 <div className="whatsapp-thread-automation">
                   <span className={selectedConversation.automationPaused ? 'is-paused' : 'is-running'}>
-                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
+                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
                   </span>
                   <button className="secondary-button" type="button" onClick={() => void toggleConversationAutomation()} disabled={pauseBusy || selectedConversation.automationOptedOut === true}>
                     {selectedConversation.automationPaused ? <Play size={14} /> : <Pause size={14} />}
                     {pauseBusy ? 'Atualizando…' : selectedConversation.automationOptedOut ? 'Parada respeitada' : selectedConversation.automationPaused ? 'Retomar automação' : 'Assumir no WhatsApp'}
                   </button>
                 </div>
+                {selectedConversation.automationPauseReason === 'handoff' && (
+                  <p className="whatsapp-thread-note" role="status">A resposta automática foi pausada após um pedido de atendimento humano. Continue esta conversa pelo WhatsApp conectado no celular.</p>
+                )}
                 {pauseError && <p className="whatsapp-connect-state is-error" role="alert">{pauseError}</p>}
                 <div className="whatsapp-thread-messages" aria-live="polite">
                   {messagesState === 'loading' && <p className="whatsapp-inline-state">Carregando mensagens…</p>}
@@ -521,6 +540,10 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 <p className="whatsapp-connect-state is-pending">O interruptor global do servidor está desligado. Para disponibilizar ativação, configure <code>WHATSAPP_AUTOMATION_RUNTIME_ENABLED=true</code> após aprovar canal e conteúdo.</p>
               )}
               {automationState === 'loading' && <p className="whatsapp-connect-state">Carregando configuração…</p>}
+
+              {automationState === 'ready' && !automationProfileSaved && (
+                <p className="whatsapp-connect-state is-pending">Rascunho inicial baseado no site público da DigiUP. Ele não inclui preços; revise os fatos e a rota humana antes de aprovar. As aprovações deste rascunho começam desligadas.</p>
+              )}
 
               <div className="whatsapp-automation-fields">
                 <label className="whatsapp-form-field">
