@@ -151,4 +151,44 @@ jobs:
         run: npx wrangler deploy
 
       - name: Validar ambiente publicado
-        run: curl --fail --silent --show-error --retry 5 --retry-delay 3 "$PRODUCTION_URL/api/health"
+        run: |
+          node --input-type=module <<'NODE'
+          const baseUrl = process.env.PRODUCTION_URL;
+          const expectedSha = process.env.GITHUB_SHA;
+          if (!baseUrl || !expectedSha) {
+            throw new Error('Production validation configuration is missing.');
+          }
+
+          const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+          async function getJson(path) {
+            for (let attempt = 1; attempt <= 5; attempt += 1) {
+              try {
+                const response = await fetch(new URL(path, baseUrl), {
+                  headers: { accept: 'application/json' },
+                  signal: AbortSignal.timeout(15_000),
+                });
+                const contentType = response.headers.get('content-type')
+                  ?.split(';', 1)[0].trim().toLowerCase();
+                const body = await response.text();
+                if (!response.ok || contentType !== 'application/json') throw new Error();
+                return JSON.parse(body);
+              } catch {
+                if (attempt === 5) throw new Error(`Production endpoint validation failed: ${path}`);
+                await sleep(3_000 * attempt);
+              }
+            }
+          }
+
+          const health = await getJson('/api/health');
+          if (health.status !== 'ok' || health.service !== 'digibusca-backend') {
+            throw new Error('Production health response did not match the expected service.');
+          }
+
+          const appVersion = await getJson('/app-version.json');
+          if (appVersion.version !== expectedSha) {
+            throw new Error('Published app version does not match this commit.');
+          }
+
+          console.log('Production health and app version validated.');
+          NODE
