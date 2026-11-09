@@ -3,10 +3,11 @@ import {
   type GeneratedOutreachCopy,
   type OutreachContext,
 } from '../contracts/aiOutreach.js'
-import { logError } from '../observability/logger.js'
+import { logError, logWarning } from '../observability/logger.js'
 
 const model = 'gemini-3.8-flash'
-const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+const fallbackModel = 'gemini-3.5-flash-lite'
+const endpointFor = (selectedModel: string) => `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`
 
 export class GeminiOutreachError extends Error {
   constructor(
@@ -84,15 +85,16 @@ ${JSON.stringify({
   })}`
 }
 
-export async function generateOutreachWithGemini(
+async function generateOutreachWithModel(
   apiKey: string,
   context: OutreachContext,
+  selectedModel: string,
 ): Promise<GeneratedOutreachCopy> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 35_000)
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(endpointFor(selectedModel), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -122,15 +124,9 @@ export async function generateOutreachWithGemini(
       logError(
         'gemini_request_failed',
         new Error('O provedor de IA respondeu com erro.'),
-        { status: response.status },
+        { status: response.status, model: selectedModel },
       )
-      if (response.status === 429) {
-        throw new GeminiOutreachError(
-          'A IA está temporariamente indisponível por limite do provedor. Tente novamente mais tarde.',
-          429,
-        )
-      }
-      throw new GeminiOutreachError('A IA não conseguiu gerar a abordagem agora.', 503)
+      throw new GeminiOutreachError('A IA não conseguiu gerar a abordagem agora.', response.status)
     }
 
     const payload = (await response.json()) as {
@@ -151,11 +147,29 @@ export async function generateOutreachWithGemini(
     return outreach
   } catch (error) {
     if (error instanceof GeminiOutreachError) throw error
-    if (error instanceof Error && error.name === 'AbortError') {
+    if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)) {
       throw new GeminiOutreachError('A IA demorou demais para responder. Tente novamente.', 504)
     }
     throw new GeminiOutreachError('Não foi possível acessar a IA agora.', 503)
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+function shouldUseFallback(error: unknown) {
+  if (error instanceof GeminiOutreachError) return error.status === 408 || error.status === 429 || error.status >= 500
+  return error instanceof TypeError || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
+}
+
+export async function generateOutreachWithGemini(
+  apiKey: string,
+  context: OutreachContext,
+): Promise<GeneratedOutreachCopy> {
+  try {
+    return await generateOutreachWithModel(apiKey, context, model)
+  } catch (error) {
+    if (!shouldUseFallback(error)) throw error
+    logWarning('gemini_outreach_primary_model_fallback', { primaryModel: model, fallbackModel })
+    return generateOutreachWithModel(apiKey, context, fallbackModel)
   }
 }

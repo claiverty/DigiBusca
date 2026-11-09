@@ -1,7 +1,9 @@
 import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
+import { logWarning } from '../observability/logger.js'
 
 const model = 'gemini-3.8-flash'
-const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+const fallbackModel = 'gemini-3.5-flash-lite'
+const endpointFor = (selectedModel: string) => `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`
 
 export type WhatsAppAutoReplyContext = {
   businessName: string
@@ -72,8 +74,16 @@ RECENT_CONVERSATION:
 ${JSON.stringify(context.messages.slice(-10))}`
 }
 
-export async function generateWhatsAppAutoReply(apiKey: string, context: WhatsAppAutoReplyContext): Promise<WhatsAppAutoReply> {
-  const response = await fetch(endpoint, {
+function shouldUseFallback(error: unknown) {
+  if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)) return true
+  if (error instanceof TypeError) return true
+  if (typeof error !== 'object' || error === null || !('status' in error)) return false
+  const status = (error as { status?: unknown }).status
+  return typeof status === 'number' && (status === 408 || status === 429 || status >= 500)
+}
+
+async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyContext, selectedModel: string): Promise<WhatsAppAutoReply> {
+  const response = await fetch(endpointFor(selectedModel), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
@@ -95,7 +105,11 @@ export async function generateWhatsAppAutoReply(apiKey: string, context: WhatsAp
     }),
     signal: AbortSignal.timeout(20_000),
   })
-  if (!response.ok) throw new Error('gemini_reply_unavailable')
+  if (!response.ok) {
+    const error = new Error('gemini_reply_unavailable') as Error & { status: number }
+    error.status = response.status
+    throw error
+  }
   const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
   const text = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text
   if (!text) throw new Error('gemini_reply_empty')
@@ -104,4 +118,14 @@ export async function generateWhatsAppAutoReply(apiKey: string, context: WhatsAp
   const reply = parseReply(parsed)
   if (!reply) throw new Error('gemini_reply_invalid')
   return reply
+}
+
+export async function generateWhatsAppAutoReply(apiKey: string, context: WhatsAppAutoReplyContext): Promise<WhatsAppAutoReply> {
+  try {
+    return await generateWithModel(apiKey, context, model)
+  } catch (error) {
+    if (!shouldUseFallback(error)) throw error
+    logWarning('whatsapp_gemini_primary_model_fallback', { primaryModel: model, fallbackModel })
+    return generateWithModel(apiKey, context, fallbackModel)
+  }
 }
