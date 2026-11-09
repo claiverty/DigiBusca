@@ -104,7 +104,7 @@ export async function getEvolutionConnectionState(instanceName: string): Promise
 export async function sendEvolutionTextMessage(instanceName: string, phone: string, text: string) {
   const result = await evolutionRequest<Record<string, unknown>>(`/message/sendText/${encodeURIComponent(instanceName)}`, {
     method: 'POST',
-    body: JSON.stringify({ number: phone, textMessage: { text }, linkPreview: false }),
+    body: JSON.stringify({ number: phone, text, linkPreview: false }),
   })
   const key = typeof result.key === 'object' && result.key !== null ? result.key as Record<string, unknown> : undefined
   const messageId = typeof key?.id === 'string'
