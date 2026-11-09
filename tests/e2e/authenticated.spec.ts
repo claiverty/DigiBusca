@@ -207,7 +207,7 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     await page.locator('.detail-follow-up').getByRole('combobox').first().selectOption('Contatado')
     await page.getByLabel('Observações do lead').fill('Contato iniciado pelo teste isolado.')
     await page.getByRole('button', { name: 'Salvar acompanhamento' }).click()
-    await expect(page.getByRole('status').filter({ hasText: 'Alterações salvas.' })).toBeVisible()
+    await expect(page.locator('.detail-follow-up').getByRole('status').filter({ hasText: 'Alterações salvas.' })).toBeVisible()
 
     await page.getByLabel('Resumo da interação').fill('Apresentei a proposta inicial.')
     await page.getByLabel('Resultado da interação').fill('Solicitou retorno.')
