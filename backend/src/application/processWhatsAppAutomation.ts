@@ -19,7 +19,7 @@ function normalizeMessage(text: string) {
 function isInboundProjectInquiry(text: string) {
   const normalized = normalizeMessage(text)
   if (/\b(?:nao tenho interesse|nao quero|sem interesse|nao preciso)\b/.test(normalized)) return false
-  return /\b(?:projeto|site|landing page|sistema|aplicativo|app|loja virtual|marketing|presenca digital|automacao)\b/.test(normalized)
+  return /\b(?:projeto|pagina|paginas|site|landing page|sistema|aplicativo|app|loja virtual|marketing|presenca digital|automacao)\b/.test(normalized)
     && /\b(?:vim pelo site|gostaria|queria|quero|preciso|estou procurando|busco|procuro|tenho interesse|conversar|falar)\b/.test(normalized)
 }
 

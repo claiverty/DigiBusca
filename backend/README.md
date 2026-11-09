@@ -51,7 +51,7 @@ Prepare os arquivos locais sem substituir segredos existentes:
 [ -f evolution/.env ] || cp evolution/.env.example evolution/.env
 ```
 
-Preencha `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` em `backend/.env`; defina `EVOLUTION_API_KEY` igual a `AUTHENTICATION_API_KEY` em `evolution/.env`. Use segredos fortes e diferentes para `AUTHENTICATION_API_KEY`, `POSTGRES_PASSWORD` e `EVOLUTION_WEBHOOK_SECRET`. Em `backend/.env`, habilite `WHATSAPP_INTEGRATION_ENABLED=true` para abrir as rotas de conexão. Os runtimes locais podem ficar ligados para liberar os controles na tela: respostas só saem com o perfil aprovado e ativo; novos contatos só saem quando a fila estiver ativa e cada lead elegível entrar nela com autorização registrada. Os controles de perfil e fila começam desligados.
+Preencha `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` em `backend/.env`; defina `EVOLUTION_API_KEY` igual a `AUTHENTICATION_API_KEY` em `evolution/.env`. Use segredos fortes e diferentes para `AUTHENTICATION_API_KEY`, `POSTGRES_PASSWORD` e `EVOLUTION_WEBHOOK_SECRET`. Em `backend/.env`, habilite `WHATSAPP_INTEGRATION_ENABLED=true` para abrir as rotas de conexão. O agendador de respostas e prospecção roda apenas no backend local do Mac; o serviço Docker `digibusca-webhook` recebe e persiste webhooks com os dois runtimes desativados, evitando que dois processos concorram pela mesma mensagem. Respostas só saem com o perfil aprovado e ativo; novos contatos só saem quando a fila estiver ativa e cada lead elegível entrar nela com autorização registrada. Os controles de perfil e fila começam desligados.
 
 Compile a imagem fixada e valide a configuração:
 
