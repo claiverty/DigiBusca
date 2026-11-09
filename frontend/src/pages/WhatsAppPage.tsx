@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, Send, ShieldCheck } from 'lucide-react'
 import {
   connectWhatsAppEvolution,
@@ -21,6 +21,7 @@ import './WhatsAppPage.css'
 
 type PageTab = 'inbox' | 'settings' | 'prospecting'
 type LoadState = 'loading' | 'ready' | 'error'
+const inboxRefreshIntervalMs = 5_000
 
 function newAutomationProfileDraft(phoneNumberId: string): WhatsAppAutomationProfileInput {
   return {
@@ -80,6 +81,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [conversations, setConversations] = useState<WhatsAppConversation[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<WhatsAppMessage[]>([])
+  const threadMessagesRef = useRef<HTMLDivElement | null>(null)
   const [inboxState, setInboxState] = useState<LoadState>('loading')
   const [messagesState, setMessagesState] = useState<LoadState>('ready')
   const [inboxError, setInboxError] = useState('')
@@ -284,9 +286,77 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     return () => { active = false }
   }, [selectedConversationId, refreshKey])
 
+  useEffect(() => {
+    if (activeTab !== 'inbox') return
+    let active = true
+    let refreshInProgress = false
+
+    const refreshInbox = async () => {
+      if (!active || refreshInProgress || document.visibilityState === 'hidden') return
+      refreshInProgress = true
+      try {
+        await Promise.all([
+          getWhatsAppConversations()
+            .then((page) => {
+              if (!active) return
+              const items = Array.isArray(page?.data) ? page.data : []
+              setConversations(items)
+              setSelectedConversationId((current) => (
+                current && items.some((conversation) => conversation.id === current)
+                  ? current
+                  : items[0]?.id ?? null
+              ))
+              setInboxError('')
+              setInboxState('ready')
+            })
+            .catch((error: unknown) => {
+              if (!active) return
+              setInboxError(error instanceof Error ? error.message : 'Não foi possível atualizar as conversas.')
+              setInboxState('error')
+            }),
+          selectedConversationId
+            ? getWhatsAppConversationMessages(selectedConversationId)
+              .then((page) => {
+                if (!active) return
+                setMessages([...page.data].reverse())
+                setMessagesError('')
+                setMessagesState('ready')
+              })
+              .catch((error: unknown) => {
+                if (!active) return
+                setMessagesError(error instanceof Error ? error.message : 'Não foi possível atualizar as mensagens.')
+                setMessagesState('error')
+              })
+            : Promise.resolve(),
+        ])
+      } finally {
+        refreshInProgress = false
+      }
+    }
+
+    const interval = window.setInterval(() => { void refreshInbox() }, inboxRefreshIntervalMs)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refreshInbox()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [activeTab, selectedConversationId])
+
   const sendReady = loadState === 'ready' && status?.evolutionConfigured === true
   const connectionReady = connections.some((connection) => connection.connectionState?.toLowerCase() === 'open')
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId)
+
+  useEffect(() => {
+    const container = threadMessagesRef.current
+    if (!container) return
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    if (distanceFromBottom < 96) container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+  }, [messages.at(-1)?.id, selectedConversationId])
 
   function updateAutomationContent(key: 'businessName' | 'senderIdentity' | 'serviceSummary' | 'approvedFacts' | 'escalationContact', value: string) {
     setAutomationForm((current) => ({ ...current, [key]: value, contentApproved: false, automationEnabled: false }))
@@ -469,7 +539,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <p className="whatsapp-thread-note" role="alert">Não foi possível confirmar o envio do aviso automático. A automação foi pausada; confira o WhatsApp conectado e responda por lá.</p>
                 )}
                 {pauseError && <p className="whatsapp-connect-state is-error" role="alert">{pauseError}</p>}
-                <div className="whatsapp-thread-messages" aria-live="polite">
+                <div className="whatsapp-thread-messages" aria-live="polite" ref={threadMessagesRef}>
                   {messagesState === 'loading' && <p className="whatsapp-inline-state">Carregando mensagens…</p>}
                   {messagesState === 'error' && <p className="whatsapp-inline-state is-error" role="alert">{messagesError}</p>}
                   {messagesState === 'ready' && messages.length === 0 && (
@@ -488,7 +558,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     )
                   })}
                 </div>
-                <p className="whatsapp-thread-note">A automação só responde a novas mensagens de texto recebidas; “Assumir no WhatsApp” pausa o bot nesta conversa.</p>
+                <p className="whatsapp-thread-note">As mensagens atualizam automaticamente a cada 5 segundos enquanto a aba estiver aberta. “Assumir no WhatsApp” pausa o bot nesta conversa.</p>
               </>
             ) : (
               <div className="whatsapp-conversation-placeholder">
