@@ -204,7 +204,7 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     await page.getByRole('button', { name: 'Salvar lead', exact: true }).first().click()
     await expect(page.getByRole('button', { name: 'Lead salvo', exact: true })).toBeVisible()
 
-    await page.getByLabel('Status').selectOption('Contatado')
+    await page.getByLabel('Status', { exact: true }).selectOption('Contatado')
     await page.getByLabel('Observações do lead').fill('Contato iniciado pelo teste isolado.')
     await page.getByRole('button', { name: 'Salvar acompanhamento' }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Alterações salvas.' })).toBeVisible()
@@ -223,7 +223,7 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     )
 
     await page.getByRole('combobox', { name: 'O que foi vendido' }).fill('Site institucional')
-    await page.getByLabel('Valor').fill('150000')
+    await page.getByLabel('Valor', { exact: true }).fill('150000')
     await page.getByRole('button', { name: 'Registrar venda', exact: true }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Venda registrada no Financeiro.' })).toBeVisible()
   })
@@ -243,7 +243,7 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     await page.getByRole('button', { name: 'Nova venda' }).click()
     await page.getByLabel('Comércio ou cliente').fill('Cliente do teste isolado')
     await page.getByRole('combobox', { name: 'O que foi vendido' }).fill('Landing page')
-    await page.getByLabel('Valor').fill('250000')
+    await page.getByLabel('Valor', { exact: true }).fill('250000')
     await page.getByRole('dialog', { name: 'Adicionar ao histórico' })
       .getByRole('button', { name: 'Registrar venda' })
       .click()
@@ -286,7 +286,7 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Corrigir registro' })
     await expect(dialog).toBeVisible()
-    await page.getByLabel('Valor').fill('275000')
+    await page.getByLabel('Valor', { exact: true }).fill('275000')
     await dialog.getByRole('button', { name: 'Salvar alterações' }).click()
     await expect(page.getByRole('status')).toHaveText('Venda atualizada.')
     await expect(page.getByRole('button', { name: 'Editar venda de Cliente para corrigir' }))
