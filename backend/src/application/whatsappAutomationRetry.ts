@@ -5,7 +5,7 @@ export type AutomationRunState = {
   reply_provider_message_id?: string | null
 }
 
-const generationRetryDelaysMs = [30_000, 90_000]
+const generationRetryDelaysMs = [5_000, 15_000]
 
 export function generationFailureReason(attempt: number) {
   return attempt < 3 ? `gemini_generation_retry_${attempt}` : 'gemini_generation_retry_exhausted'

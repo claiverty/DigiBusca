@@ -598,6 +598,29 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
 
+  const scheduleReviewMatch = requestUrl.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/schedule-review$/)
+  if (request.method === 'PATCH' && scheduleReviewMatch) {
+    const conversationId = scheduleReviewMatch[1]
+    let body: unknown
+    try {
+      body = await readJsonBody(request)
+    } catch {
+      sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+      return
+    }
+    if (!isUuid(conversationId) || typeof body !== 'object' || body === null || (body as Record<string, unknown>).reviewed !== true) {
+      sendJson(response, 400, { error: 'A confirmação do aviso de agendamento é inválida.' })
+      return
+    }
+    const updated = await new WhatsAppStore().clearConversationScheduleReview(user.id, conversationId)
+    if (!updated) {
+      sendJson(response, 409, { error: 'Este aviso de agendamento já foi removido ou a conversa mudou.' })
+      return
+    }
+    sendJson(response, 200, { data: { reviewed: true } })
+    return
+  }
+
   const whatsappMessagesMatch = requestUrl.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/messages$/)
   if (request.method === 'GET' && whatsappMessagesMatch) {
     const conversationId = whatsappMessagesMatch[1]

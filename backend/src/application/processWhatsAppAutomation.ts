@@ -8,6 +8,7 @@ import { asksForCristhian, asksForHumanHandoff, asksForUnapprovedCommercialTerms
 import { sanitizeWhatsAppHistoryForGemini } from './whatsappConversationPrivacy.js'
 import { generationFailureReason } from './whatsappAutomationRetry.js'
 import { isProjectServiceCorrection, resolveWhatsAppProjectContext } from './whatsappProjectContext.js'
+import { getWhatsAppSchedulingReply } from './whatsappScheduling.js'
 import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWebhook.js'
 
@@ -278,6 +279,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       const leadAskedIdentity = isDirectIdentityQuestion(message.body ?? '')
       const inboundProjectInquiry = isInboundProjectInquiry(message.body ?? '')
       const projectContext = resolveWhatsAppProjectContext(context.messages)
+      const schedulingReply = shouldHandoff ? undefined : getWhatsAppSchedulingReply(context.messages)
       const requestStage = projectContext.startsNewRequest || projectContext.clarificationReply
         || (inboundProjectInquiry && context.automationStage === 'identify_responsible')
         ? 'understand_scenario' : context.automationStage
@@ -291,7 +293,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         && !shouldHandoff
         && isRepeatedQuestionComplaint(message.body ?? '')
       const identityDisclosureResponse = leadAskedIdentity && !shouldHandoff
-      const deterministicReply = repeatedQuestionRecovery || identityDisclosureResponse
+      const deterministicReply = repeatedQuestionRecovery || identityDisclosureResponse || Boolean(schedulingReply)
       let generated: Awaited<ReturnType<typeof generateWhatsAppAutoReply>>
       if (deterministicReply) {
         generated = {
@@ -299,6 +301,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
           replyText: [
             repeatedQuestionRecovery ? 'Você tem razão, desculpa por repetir. Vou considerar o que você já me contou e seguir daqui.' : undefined,
             identityDisclosureResponse ? identityReply(message.body ?? '') : undefined,
+          schedulingReply?.replyText,
           ].filter(Boolean).join(' '),
           nextStage: repeatedQuestionRecovery
             ? advanceStageAfterRepeatedQuestion(context.automationStage)
@@ -387,6 +390,14 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'handoff')
         await store.completeAutomationRun(runId, 'needs_human', shouldHandoff ? 'explicit_human_or_commercial_request' : 'human_review_required')
         continue
+      }
+
+      if (schedulingReply) {
+        try {
+          await store.markConversationScheduleReviewRequired(context.userId, context.conversationId)
+        } catch {
+          logWarning('whatsapp_schedule_review_mark_failed', { reason: 'schedule_review_state_unavailable' })
+        }
       }
 
       const body = generated.replyText.trim()

@@ -215,6 +215,21 @@ export async function setWhatsAppConversationAutomationPaused(conversationId: st
   if (!response.ok) throw new Error(payload?.error ?? 'Não foi possível atualizar a automação desta conversa.')
 }
 
+export async function clearWhatsAppScheduleReview(conversationId: string): Promise<void> {
+  let response: Response
+  try {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/conversations/${encodeURIComponent(conversationId)}/schedule-review`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewed: true }),
+    })
+  } catch {
+    throw new Error('Não foi possível atualizar o aviso de agendamento.')
+  }
+  const payload = (await response.json().catch(() => null)) as { error?: string } | null
+  if (!response.ok) throw new Error(payload?.error ?? 'Não foi possível atualizar o aviso de agendamento.')
+}
+
 export type WhatsAppEvolutionConnectionResult = {
   instanceName: string
   state: string

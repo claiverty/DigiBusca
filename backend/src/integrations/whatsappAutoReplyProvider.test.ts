@@ -89,3 +89,30 @@ test('pedido genérico confirma serviço anterior e não chama o modelo para pre
   assert.deepEqual(reply, { action: 'reply', replyText: 'Claro! É sobre a landing page que você comentou antes ou é outro projeto?', nextStage: 'understand_scenario' })
   assert.equal(calls, 0)
 })
+
+test('responde a uma saudação simples sem esperar pelo Gemini', async () => {
+  let calls = 0
+  const provider = new WhatsAppAutoReplyProvider(async () => { calls += 1; return replyResponse() })
+  const reply = await provider.generate('test-key', {
+    ...context,
+    stage: 'identify_responsible',
+    inboundProjectInquiry: false,
+    messages: [{ direction: 'inbound', body: 'Opa boa tarde' }],
+  })
+  assert.deepEqual(reply, {
+    action: 'reply',
+    replyText: 'Opa, boa tarde! Aqui é o Cristhian, da DigiUP. Como posso te ajudar?',
+    nextStage: 'identify_responsible',
+  })
+  assert.equal(calls, 0)
+})
+
+test('uma saudação dentro de uma solicitação não impede a resposta do Gemini', async () => {
+  let calls = 0
+  const provider = new WhatsAppAutoReplyProvider(async () => { calls += 1; return replyResponse() })
+  await provider.generate('test-key', {
+    ...context,
+    messages: [{ direction: 'inbound', body: 'Boa tarde, quanto custa um sistema?' }],
+  })
+  assert.equal(calls, 1)
+})

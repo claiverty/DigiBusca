@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, Send, ShieldCheck } from 'lucide-react'
 import {
   connectWhatsAppEvolution,
+  clearWhatsAppScheduleReview,
   getWhatsAppEvolutionPairingStatus,
   getWhatsAppEvolutionSetupStatus,
   getWhatsAppConnections,
@@ -34,6 +35,9 @@ function mergeInboxConversations(latest: WhatsAppConversation[], pending: WhatsA
     const leftPending = left.automationPauseReason === 'handoff' || left.automationPauseReason === 'handoff_send_failed'
     const rightPending = right.automationPauseReason === 'handoff' || right.automationPauseReason === 'handoff_send_failed'
     if (leftPending !== rightPending) return leftPending ? -1 : 1
+    const leftSchedule = left.automationPauseReason === 'schedule_review_required'
+    const rightSchedule = right.automationPauseReason === 'schedule_review_required'
+    if (leftSchedule !== rightSchedule) return leftSchedule ? -1 : 1
     return Date.parse(right.lastMessageAt ?? right.updatedAt) - Date.parse(left.lastMessageAt ?? left.updatedAt)
   })
 }
@@ -437,6 +441,22 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     }
   }
 
+  async function clearScheduleReview() {
+    if (!selectedConversation) return
+    setPauseBusy(true)
+    setPauseError('')
+    try {
+      await clearWhatsAppScheduleReview(selectedConversation.id)
+      setConversations((current) => current.map((conversation) => conversation.id === selectedConversation.id
+        ? { ...conversation, automationPauseReason: undefined }
+        : conversation))
+    } catch (error) {
+      setPauseError(error instanceof Error ? error.message : 'Não foi possível atualizar o aviso de agendamento.')
+    } finally {
+      setPauseBusy(false)
+    }
+  }
+
   async function connectWhatsAppAccount() {
     setConnectBusy(true)
     setConnectError('')
@@ -507,6 +527,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 {humanPendingCount === 1 ? '1 conversa precisa da sua resposta.' : `${humanPendingCount} conversas precisam da sua resposta.`}
               </p>
             )}
+            {conversations.some((conversation) => conversation.automationPauseReason === 'schedule_review_required') && (
+              <p className="whatsapp-inbox-scheduling-alert" role="status">
+                {conversations.filter((conversation) => conversation.automationPauseReason === 'schedule_review_required').length === 1
+                  ? '1 pedido de agenda precisa da sua conferência.'
+                  : `${conversations.filter((conversation) => conversation.automationPauseReason === 'schedule_review_required').length} pedidos de agenda precisam da sua conferência.`}
+              </p>
+            )}
             <div className="whatsapp-conversation-items" aria-live="polite">
               {inboxState === 'loading' && <p className="whatsapp-inline-state">Carregando conversas…</p>}
               {inboxState === 'error' && <p className="whatsapp-inline-state is-error" role="alert">{inboxError}</p>}
@@ -534,9 +561,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                       <time>{formatWhatsAppDate(conversation.lastMessageAt)}</time>
                     </span>
                     <span className="whatsapp-conversation-preview">{conversation.lastMessagePreview || 'Mensagem recebida'}</span>
-                    {(conversation.automationPauseReason === 'handoff' || conversation.automationPauseReason === 'handoff_send_failed' || conversation.automationPauseReason === 'provider_unavailable') && (
+                    {(conversation.automationPauseReason === 'handoff' || conversation.automationPauseReason === 'handoff_send_failed' || conversation.automationPauseReason === 'provider_unavailable' || conversation.automationPauseReason === 'schedule_review_required') && (
                       <span className="whatsapp-conversation-handoff">
-                        {conversation.automationPauseReason === 'provider_unavailable' ? 'Gemini indisponível; tentar novamente' : conversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior' : 'Atendimento humano pendente'}
+                        {conversation.automationPauseReason === 'schedule_review_required' ? 'Pedido de agenda' : conversation.automationPauseReason === 'provider_unavailable' ? 'Gemini indisponível; tentar novamente' : conversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior' : 'Atendimento humano pendente'}
                       </span>
                     )}
                   </span>
@@ -559,13 +586,23 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </header>
                 <div className="whatsapp-thread-automation">
                   <span className={selectedConversation.automationPaused ? 'is-paused' : 'is-running'}>
-                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'provider_unavailable' ? 'Gemini temporariamente indisponível; resposta pendente' : selectedConversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior; automação pausada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
+                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'schedule_review_required' ? 'Pedido de agenda para conferir; automação continua ativa' : selectedConversation.automationPauseReason === 'provider_unavailable' ? 'Gemini temporariamente indisponível; resposta pendente' : selectedConversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior; automação pausada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
                   </span>
-                  <button className="secondary-button" type="button" onClick={() => void toggleConversationAutomation()} disabled={pauseBusy || selectedConversation.automationOptedOut === true}>
-                    {selectedConversation.automationPaused ? <Play size={14} /> : <Pause size={14} />}
-                    {pauseBusy ? 'Atualizando…' : selectedConversation.automationOptedOut ? 'Parada respeitada' : selectedConversation.automationPauseReason === 'provider_unavailable' ? 'Tentar resposta novamente' : selectedConversation.automationPaused ? 'Retomar automação' : 'Assumir no WhatsApp'}
-                  </button>
+                  {selectedConversation.automationPauseReason === 'schedule_review_required' && !selectedConversation.automationPaused ? (
+                    <button className="secondary-button" type="button" onClick={() => void clearScheduleReview()} disabled={pauseBusy}>
+                      <Check size={14} />
+                      {pauseBusy ? 'Atualizando…' : 'Marcar como conferido'}
+                    </button>
+                  ) : (
+                    <button className="secondary-button" type="button" onClick={() => void toggleConversationAutomation()} disabled={pauseBusy || selectedConversation.automationOptedOut === true}>
+                      {selectedConversation.automationPaused ? <Play size={14} /> : <Pause size={14} />}
+                      {pauseBusy ? 'Atualizando…' : selectedConversation.automationOptedOut ? 'Parada respeitada' : selectedConversation.automationPauseReason === 'provider_unavailable' ? 'Tentar resposta novamente' : selectedConversation.automationPaused ? 'Retomar automação' : 'Assumir no WhatsApp'}
+                    </button>
+                  )}
                 </div>
+                {selectedConversation.automationPauseReason === 'schedule_review_required' && (
+                  <p className="whatsapp-thread-note is-scheduling" role="status">O Cristhian continua atendendo e já pediu para conferir a agenda. Verifique a disponibilidade e confirme o horário no WhatsApp; depois marque este aviso como conferido.</p>
+                )}
                 {selectedConversation.automationPauseReason === 'handoff' && (
                   <p className="whatsapp-thread-note" role="status">A automação foi pausada para esta conversa. Revise o histórico e responda manualmente pelo WhatsApp conectado; retome a automação quando estiver pronto.</p>
                 )}

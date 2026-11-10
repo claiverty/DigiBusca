@@ -251,6 +251,26 @@ export class WhatsAppStore {
     return Boolean(result.data)
   }
 
+  async markConversationScheduleReviewRequired(userId: string, conversationId: string) {
+    const result = await createWhatsAppWebhookSupabaseClient().from('whatsapp_conversations')
+      .update({ automation_pause_reason: 'schedule_review_required' })
+      .eq('id', conversationId).eq('user_id', userId)
+      .eq('automation_paused', false).eq('automation_opted_out', false)
+      .select('id').maybeSingle()
+    throwIfError(result.error, 'Não foi possível registrar o pedido de agendamento.')
+    return Boolean(result.data)
+  }
+
+  async clearConversationScheduleReview(userId: string, conversationId: string) {
+    const result = await createWhatsAppWebhookSupabaseClient().from('whatsapp_conversations')
+      .update({ automation_pause_reason: null })
+      .eq('id', conversationId).eq('user_id', userId)
+      .eq('automation_pause_reason', 'schedule_review_required')
+      .select('id').maybeSingle()
+    throwIfError(result.error, 'Não foi possível limpar o aviso de agendamento.')
+    return Boolean(result.data)
+  }
+
   async resumeRecoverableConversationAutomation(userId: string, conversationId: string, reason: 'assistant_closed' | 'provider_unavailable') {
     const admin = createWhatsAppWebhookSupabaseClient()
     const result = await admin.from('whatsapp_conversations')

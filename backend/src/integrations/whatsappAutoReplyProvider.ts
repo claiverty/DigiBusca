@@ -4,6 +4,8 @@ import { resolveWhatsAppProjectContext } from '../application/whatsappProjectCon
 
 const models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
 const modelCooldownMs = 60_000
+const modelRequestTimeoutMs = 8_000
+const generationBudgetMs = 20_000
 const endpointFor = (selectedModel: string) => `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`
 
 export type WhatsAppAutoReplyContext = {
@@ -32,6 +34,12 @@ const humanImpersonationPattern = /\b(?:sou (?:o )?proprio cristhian|cristhian(?
 
 function normalizePolicyText(text: string) {
   return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').trim()
+}
+
+const greetingOnlyPattern = /^(?:(?:oi|ola|opa|bom dia|boa tarde|boa noite|e ai|eae|tudo bem|tudo bom|tudo certo)(?:[\s,]+(?:oi|ola|opa|bom dia|boa tarde|boa noite|e ai|eae|tudo bem|tudo bom|tudo certo)){0,2})[!?.\s,]*$/i
+
+function isSimpleGreeting(text: string) {
+  return greetingOnlyPattern.test(normalizePolicyText(text))
 }
 
 export function isUnsolicitedAutomationDisclosure(text: string) {
@@ -133,7 +141,7 @@ function shouldUseFallback(error: unknown) {
   return typeof status === 'number' && (status === 404 || status === 408 || status === 429 || status >= 500)
 }
 
-async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyContext, selectedModel: string, fetcher: typeof fetch, project: ReturnType<typeof resolveWhatsAppProjectContext>): Promise<WhatsAppAutoReply> {
+async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyContext, selectedModel: string, fetcher: typeof fetch, project: ReturnType<typeof resolveWhatsAppProjectContext>, timeoutMs: number): Promise<WhatsAppAutoReply> {
   const response = await fetcher(endpointFor(selectedModel), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
@@ -154,7 +162,7 @@ async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyConte
         },
       },
     }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(timeoutMs),
   })
   if (!response.ok) {
     throw new WhatsAppAutoReplyError('gemini_reply_unavailable', response.status)
@@ -175,6 +183,15 @@ export class WhatsAppAutoReplyProvider {
   constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args), private readonly now = Date.now) {}
 
   async generate(apiKey: string, context: WhatsAppAutoReplyContext): Promise<WhatsAppAutoReply> {
+    const latestInbound = [...context.messages].reverse().find((message) => message.direction === 'inbound' && message.body?.trim())
+    if (latestInbound?.body && isSimpleGreeting(latestInbound.body)) {
+      return {
+        action: 'reply',
+        replyText: 'Opa, boa tarde! Aqui é o Cristhian, da DigiUP. Como posso te ajudar?',
+        nextStage: context.stage,
+      }
+    }
+
     const project = resolveWhatsAppProjectContext(context.messages)
     if (project.clarificationReply) {
       return { action: 'reply', replyText: project.clarificationReply, nextStage: 'understand_scenario' }
@@ -182,9 +199,12 @@ export class WhatsAppAutoReplyProvider {
     const available = models.filter((model) => (this.unavailableUntil.get(model) ?? 0) <= this.now())
     if (available.length === 0) throw new WhatsAppAutoReplyError('gemini_models_cooling_down', 503)
     let lastError: unknown
+    const deadline = this.now() + generationBudgetMs
     for (const model of available) {
+      const remainingMs = deadline - this.now()
+      if (remainingMs <= 0) break
       try {
-        const reply = await generateWithModel(apiKey, context, model, this.fetcher, project)
+        const reply = await generateWithModel(apiKey, context, model, this.fetcher, project, Math.min(modelRequestTimeoutMs, remainingMs))
         this.unavailableUntil.delete(model)
         return reply
       } catch (error) {
@@ -194,7 +214,7 @@ export class WhatsAppAutoReplyProvider {
         logWarning('whatsapp_gemini_model_unavailable', { model, ...autoReplyFailureDetails(error) })
       }
     }
-    throw lastError
+    throw lastError ?? new WhatsAppAutoReplyError('gemini_generation_timeout', 408)
   }
 }
 

@@ -5,11 +5,11 @@ import { canManuallyRetryGeneration, generationFailureReason, nextGenerationRetr
 const now = Date.parse('2026-11-10T12:00:00Z')
 
 test('retenta apenas geração falha após o intervalo e encerra depois da terceira tentativa', () => {
-  const run = { status: 'failed', reason: generationFailureReason(1), completed_at: new Date(now - 29_999).toISOString() }
+  const run = { status: 'failed', reason: generationFailureReason(1), completed_at: new Date(now - 4_999).toISOString() }
   assert.equal(nextGenerationRetryAttempt(run, now), undefined)
   assert.equal(nextGenerationRetryAttempt(run, now + 1), 2)
   assert.equal(nextGenerationRetryAttempt({ ...run, reply_provider_message_id: 'accepted-message' }, now + 1), undefined)
-  assert.equal(nextGenerationRetryAttempt({ ...run, reason: generationFailureReason(2), completed_at: new Date(now - 90_000).toISOString() }, now), 3)
+  assert.equal(nextGenerationRetryAttempt({ ...run, reason: generationFailureReason(2), completed_at: new Date(now - 15_000).toISOString() }, now), 3)
   assert.equal(nextGenerationRetryAttempt({ ...run, reason: generationFailureReason(3) }, now), undefined)
 })
 
