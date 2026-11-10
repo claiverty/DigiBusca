@@ -16,6 +16,7 @@ export type WhatsAppAutoReplyContext = {
   escalationContact: string
   stage: WhatsAppAutomationStage
   inboundProjectInquiry: boolean
+  inboundReceivedAt?: string
   messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>
 }
 
@@ -185,9 +186,11 @@ export class WhatsAppAutoReplyProvider {
   async generate(apiKey: string, context: WhatsAppAutoReplyContext): Promise<WhatsAppAutoReply> {
     const latestInbound = [...context.messages].reverse().find((message) => message.direction === 'inbound' && message.body?.trim())
     if (latestInbound?.body && isSimpleGreeting(latestInbound.body)) {
+      const receivedAt = Date.parse(context.inboundReceivedAt ?? '')
+      const lateReply = Number.isFinite(receivedAt) && this.now() - receivedAt > 60_000
       return {
         action: 'reply',
-        replyText: 'Opa, boa tarde! Aqui é o Cristhian, da DigiUP. Como posso te ajudar?',
+        replyText: `${lateReply ? 'Desculpa a demora! ' : ''}Opa, boa tarde! Aqui é o Cristhian, da DigiUP. Como posso te ajudar?`,
         nextStage: context.stage,
       }
     }

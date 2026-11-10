@@ -116,3 +116,16 @@ test('uma saudação dentro de uma solicitação não impede a resposta do Gemin
   })
   assert.equal(calls, 1)
 })
+
+test('uma saudação que ficou pendente recebe um pedido de desculpas pela demora', async () => {
+  const now = Date.parse('2026-11-10T15:55:00Z')
+  const provider = new WhatsAppAutoReplyProvider(async () => replyResponse(), () => now)
+  const reply = await provider.generate('test-key', {
+    ...context,
+    stage: 'identify_responsible',
+    inboundProjectInquiry: false,
+    inboundReceivedAt: new Date(now - 5 * 60_000).toISOString(),
+    messages: [{ direction: 'inbound', body: 'Opa boa tarde' }],
+  })
+  assert.equal(reply.replyText, 'Desculpa a demora! Opa, boa tarde! Aqui é o Cristhian, da DigiUP. Como posso te ajudar?')
+})

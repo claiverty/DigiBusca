@@ -320,6 +320,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
             escalationContact: profile.escalationContact,
             stage: requestStage,
             inboundProjectInquiry,
+            inboundReceivedAt: message.occurredAt,
             messages: sanitizeWhatsAppHistoryForGemini(context.messages),
           })
         } catch (error) {
