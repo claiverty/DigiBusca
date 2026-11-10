@@ -220,7 +220,7 @@ export function createSafeOutreachTemplate(context: OutreachContext): GeneratedO
       ? `Combinamos estas condições: ${offerDetails}. Quer seguir com essa opção?`
       : 'Qual ponto ainda precisa de confirmação?',
     'Retomar contato': 'Oi, podemos continuar a conversa por aqui?',
-    'Encerrar': 'Tudo bem, obrigado por responder. Não vou insistir',
+    'Encerrar': 'Tá bem, obrigado por me responder',
   }
   const salesArgument = stage === 'Apresentar condições'
     ? 'Apresente somente o escopo e as condições informadas. Não invente preço, prazo, desconto ou forma de pagamento.'
