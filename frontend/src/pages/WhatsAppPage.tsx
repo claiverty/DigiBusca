@@ -28,17 +28,23 @@ const inboxRefreshIntervalMs = 5_000
 
 function mergeInboxConversations(latest: WhatsAppConversation[], pending: WhatsAppConversation[]) {
   const byId = new Map<string, WhatsAppConversation>()
-  for (const conversation of [...pending, ...latest]) {
+  for (const conversation of [...latest, ...pending]) {
     if (!byId.has(conversation.id)) byId.set(conversation.id, conversation)
   }
   return [...byId.values()].sort((left, right) => {
+    const leftTimestamp = Date.parse(left.lastMessageAt ?? left.updatedAt)
+    const rightTimestamp = Date.parse(right.lastMessageAt ?? right.updatedAt)
+    const recentFirst = (Number.isFinite(rightTimestamp) ? rightTimestamp : 0)
+      - (Number.isFinite(leftTimestamp) ? leftTimestamp : 0)
+    if (recentFirst !== 0) return recentFirst
+
     const leftPending = left.automationPauseReason === 'handoff' || left.automationPauseReason === 'handoff_send_failed'
     const rightPending = right.automationPauseReason === 'handoff' || right.automationPauseReason === 'handoff_send_failed'
     if (leftPending !== rightPending) return leftPending ? -1 : 1
     const leftSchedule = left.automationPauseReason === 'schedule_review_required'
     const rightSchedule = right.automationPauseReason === 'schedule_review_required'
     if (leftSchedule !== rightSchedule) return leftSchedule ? -1 : 1
-    return Date.parse(right.lastMessageAt ?? right.updatedAt) - Date.parse(left.lastMessageAt ?? left.updatedAt)
+    return 0
   })
 }
 
