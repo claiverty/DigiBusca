@@ -181,6 +181,12 @@
   min-width: 0;
 }
 
+.overview-record > div:first-child > .text-button {
+  justify-self: start;
+  min-height: 0;
+  text-align: left;
+}
+
 .overview-record strong {
   overflow: hidden;
   color: var(--color-text);
