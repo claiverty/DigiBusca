@@ -1,8 +1,8 @@
 import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 import { logWarning } from '../observability/logger.js'
 
-const model = 'gemini-3.8-flash'
-const fallbackModel = 'gemini-3.5-flash-lite'
+const models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
+const modelCooldownMs = 60_000
 const endpointFor = (selectedModel: string) => `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent`
 
 export type WhatsAppAutoReplyContext = {
@@ -102,22 +102,39 @@ RECENT_CONVERSATION:
 ${JSON.stringify(context.messages.slice(-30))}`
 }
 
+export class WhatsAppAutoReplyError extends Error {
+  constructor(public readonly reason: string, public readonly status?: number) {
+    super(reason)
+    this.name = 'WhatsAppAutoReplyError'
+  }
+}
+
+export function autoReplyFailureDetails(error: unknown) {
+  return {
+    reason: error instanceof WhatsAppAutoReplyError ? error.reason
+      : error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name) ? 'gemini_timeout'
+      : 'gemini_network_error',
+    ...(error instanceof WhatsAppAutoReplyError && error.status ? { status: error.status } : {}),
+  }
+}
+
 function shouldUseFallback(error: unknown) {
+  if (error instanceof WhatsAppAutoReplyError && error.reason === 'gemini_reply_invalid') return true
   if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)) return true
   if (error instanceof TypeError) return true
   if (typeof error !== 'object' || error === null || !('status' in error)) return false
   const status = (error as { status?: unknown }).status
-  return typeof status === 'number' && (status === 408 || status === 429 || status >= 500)
+  return typeof status === 'number' && (status === 404 || status === 408 || status === 429 || status >= 500)
 }
 
-async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyContext, selectedModel: string): Promise<WhatsAppAutoReply> {
-  const response = await fetch(endpointFor(selectedModel), {
+async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyContext, selectedModel: string, fetcher: typeof fetch): Promise<WhatsAppAutoReply> {
+  const response = await fetcher(endpointFor(selectedModel), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: buildPrompt(context) }] }],
       generationConfig: {
-        maxOutputTokens: 300,
+        maxOutputTokens: 1024,
         thinkingConfig: { thinkingLevel: 'low' },
         responseMimeType: 'application/json',
         responseSchema: {
@@ -134,26 +151,45 @@ async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyConte
     signal: AbortSignal.timeout(20_000),
   })
   if (!response.ok) {
-    const error = new Error('gemini_reply_unavailable') as Error & { status: number }
-    error.status = response.status
-    throw error
+    throw new WhatsAppAutoReplyError('gemini_reply_unavailable', response.status)
   }
   const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
   const text = payload.candidates?.[0]?.content?.parts?.find((part) => part.text)?.text
-  if (!text) throw new Error('gemini_reply_empty')
+  if (!text) throw new WhatsAppAutoReplyError('gemini_reply_invalid')
   let parsed: unknown
-  try { parsed = JSON.parse(text) } catch { throw new Error('gemini_reply_invalid') }
+  try { parsed = JSON.parse(text) } catch { throw new WhatsAppAutoReplyError('gemini_reply_invalid') }
   const reply = parseReply(parsed)
-  if (!reply) throw new Error('gemini_reply_invalid')
+  if (!reply) throw new WhatsAppAutoReplyError('gemini_reply_invalid')
   return reply
 }
 
-export async function generateWhatsAppAutoReply(apiKey: string, context: WhatsAppAutoReplyContext): Promise<WhatsAppAutoReply> {
-  try {
-    return await generateWithModel(apiKey, context, model)
-  } catch (error) {
-    if (!shouldUseFallback(error)) throw error
-    logWarning('whatsapp_gemini_primary_model_fallback', { primaryModel: model, fallbackModel })
-    return generateWithModel(apiKey, context, fallbackModel)
+export class WhatsAppAutoReplyProvider {
+  private readonly unavailableUntil = new Map<string, number>()
+
+  constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args), private readonly now = Date.now) {}
+
+  async generate(apiKey: string, context: WhatsAppAutoReplyContext): Promise<WhatsAppAutoReply> {
+    const available = models.filter((model) => (this.unavailableUntil.get(model) ?? 0) <= this.now())
+    if (available.length === 0) throw new WhatsAppAutoReplyError('gemini_models_cooling_down', 503)
+    let lastError: unknown
+    for (const model of available) {
+      try {
+        const reply = await generateWithModel(apiKey, context, model, this.fetcher)
+        this.unavailableUntil.delete(model)
+        return reply
+      } catch (error) {
+        if (!shouldUseFallback(error)) throw error
+        lastError = error
+        this.unavailableUntil.set(model, this.now() + modelCooldownMs)
+        logWarning('whatsapp_gemini_model_unavailable', { model, ...autoReplyFailureDetails(error) })
+      }
+    }
+    throw lastError
   }
+}
+
+const provider = new WhatsAppAutoReplyProvider()
+
+export function generateWhatsAppAutoReply(apiKey: string, context: WhatsAppAutoReplyContext): Promise<WhatsAppAutoReply> {
+  return provider.generate(apiKey, context)
 }

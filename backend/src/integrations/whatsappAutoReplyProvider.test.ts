@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isMisleadingHumanIdentityClaim, isUnsolicitedAutomationDisclosure } from './whatsappAutoReplyProvider.js'
+import { isMisleadingHumanIdentityClaim, isUnsolicitedAutomationDisclosure, WhatsAppAutoReplyProvider, type WhatsAppAutoReplyContext } from './whatsappAutoReplyProvider.js'
 
 test('permite que o agente use o nome Cristhian sem alegar ser humano', () => {
   assert.equal(isUnsolicitedAutomationDisclosure('Aqui é o Cristhian, da DigiUP.'), false)
@@ -17,4 +17,60 @@ test('não permite que Cristhian alegue ser a pessoa humana', () => {
   assert.equal(isMisleadingHumanIdentityClaim('Cristhian aqui, sou eu mesmo.'), true)
   assert.equal(isMisleadingHumanIdentityClaim('Sou uma pessoa real chamada Cristhian.'), true)
   assert.equal(isMisleadingHumanIdentityClaim('Sou o Cristhian, agente de atendimento da DigiUP.'), false)
+})
+
+const context: WhatsAppAutoReplyContext = {
+  businessName: 'DigiUP', senderIdentity: 'Cristhian', serviceSummary: 'Sites profissionais',
+  approvedFacts: 'Escopo definido conforme o projeto.', escalationContact: 'este WhatsApp',
+  stage: 'qualify_interest', inboundProjectInquiry: true,
+  messages: [{ direction: 'inbound', body: 'Gostaria de conversar sobre um projeto.' }],
+}
+const safeReply = { action: 'reply', replyText: 'Claro! Que tipo de projeto você tem em mente?', nextStage: 'qualify_interest' }
+function replyResponse(reply = safeReply) {
+  return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(reply) }] }, finishReason: 'STOP' }] })
+}
+
+test('usa Gemini 3.5 Flash quando os modelos anteriores falham e evita repetir modelos indisponíveis', async () => {
+  const calls: string[] = []
+  const provider = new WhatsAppAutoReplyProvider(async (url) => {
+    const model = String(url).split('/models/')[1]!.split(':')[0]!
+    calls.push(model)
+    return model === 'gemini-3.5-flash' ? replyResponse() : Response.json({}, { status: 503 })
+  })
+  assert.deepEqual(await provider.generate('test-key', context), safeReply)
+  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash'])
+  calls.length = 0
+  await provider.generate('test-key', context)
+  assert.deepEqual(calls, ['gemini-3.5-flash'])
+})
+
+test('indisponibilidade de todos os modelos produz falha técnica e permite recuperar depois do intervalo', async () => {
+  let now = 0
+  let calls = 0
+  let healthy = false
+  const provider = new WhatsAppAutoReplyProvider(async () => {
+    calls += 1
+    return healthy ? replyResponse() : Response.json({}, { status: 503 })
+  }, () => now)
+  await assert.rejects(provider.generate('test-key', context), /gemini_reply_unavailable/)
+  assert.equal(calls, 4)
+  await assert.rejects(provider.generate('test-key', context), /gemini_models_cooling_down/)
+  assert.equal(calls, 4)
+  now = 60_001
+  healthy = true
+  assert.deepEqual(await provider.generate('test-key', context), safeReply)
+})
+
+test('resposta inválida tenta outro modelo e falha de credencial não dispara chamadas extras', async () => {
+  let calls = 0
+  const provider = new WhatsAppAutoReplyProvider(async () => {
+    calls += 1
+    return calls === 1 ? replyResponse({ ...safeReply, replyText: 'x'.repeat(281) }) : replyResponse()
+  })
+  assert.deepEqual(await provider.generate('test-key', context), safeReply)
+  assert.equal(calls, 2)
+  calls = 0
+  const denied = new WhatsAppAutoReplyProvider(async () => { calls += 1; return Response.json({}, { status: 403 }) })
+  await assert.rejects(denied.generate('test-key', context), /gemini_reply_unavailable/)
+  assert.equal(calls, 1)
 })

@@ -534,9 +534,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                       <time>{formatWhatsAppDate(conversation.lastMessageAt)}</time>
                     </span>
                     <span className="whatsapp-conversation-preview">{conversation.lastMessagePreview || 'Mensagem recebida'}</span>
-                    {(conversation.automationPauseReason === 'handoff' || conversation.automationPauseReason === 'handoff_send_failed') && (
+                    {(conversation.automationPauseReason === 'handoff' || conversation.automationPauseReason === 'handoff_send_failed' || conversation.automationPauseReason === 'provider_unavailable') && (
                       <span className="whatsapp-conversation-handoff">
-                        {conversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior' : 'Atendimento humano pendente'}
+                        {conversation.automationPauseReason === 'provider_unavailable' ? 'Gemini indisponível; tentar novamente' : conversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior' : 'Atendimento humano pendente'}
                       </span>
                     )}
                   </span>
@@ -559,15 +559,18 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </header>
                 <div className="whatsapp-thread-automation">
                   <span className={selectedConversation.automationPaused ? 'is-paused' : 'is-running'}>
-                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior; automação pausada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
+                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'provider_unavailable' ? 'Gemini temporariamente indisponível; resposta pendente' : selectedConversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior; automação pausada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
                   </span>
                   <button className="secondary-button" type="button" onClick={() => void toggleConversationAutomation()} disabled={pauseBusy || selectedConversation.automationOptedOut === true}>
                     {selectedConversation.automationPaused ? <Play size={14} /> : <Pause size={14} />}
-                    {pauseBusy ? 'Atualizando…' : selectedConversation.automationOptedOut ? 'Parada respeitada' : selectedConversation.automationPaused ? 'Retomar automação' : 'Assumir no WhatsApp'}
+                    {pauseBusy ? 'Atualizando…' : selectedConversation.automationOptedOut ? 'Parada respeitada' : selectedConversation.automationPauseReason === 'provider_unavailable' ? 'Tentar resposta novamente' : selectedConversation.automationPaused ? 'Retomar automação' : 'Assumir no WhatsApp'}
                   </button>
                 </div>
                 {selectedConversation.automationPauseReason === 'handoff' && (
                   <p className="whatsapp-thread-note" role="status">A automação foi pausada para esta conversa. Revise o histórico e responda manualmente pelo WhatsApp conectado; retome a automação quando estiver pronto.</p>
+                )}
+                {selectedConversation.automationPauseReason === 'provider_unavailable' && (
+                  <p className="whatsapp-thread-note" role="alert">O Gemini não respondeu após três tentativas. Use “Tentar resposta novamente” para responder à última mensagem pendente. Uma nova mensagem também libera uma nova tentativa.</p>
                 )}
                 {selectedConversation.automationPauseReason === 'handoff_send_failed' && (
                   <p className="whatsapp-thread-note" role="alert">Uma tentativa de envio anterior falhou. A automação permanece pausada; confira o WhatsApp conectado e responda por lá.</p>

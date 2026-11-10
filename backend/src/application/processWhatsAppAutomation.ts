@@ -1,11 +1,12 @@
 import { getEvolutionApiConfig, getGeminiApiKey, isWhatsAppAutomationRuntimeEnabled } from '../config/supabase.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
-import { generateWhatsAppAutoReply } from '../integrations/whatsappAutoReplyProvider.js'
+import { autoReplyFailureDetails, generateWhatsAppAutoReply, WhatsAppAutoReplyError } from '../integrations/whatsappAutoReplyProvider.js'
 import { selectWhatsAppAutomationReplyPlan } from './whatsappAutomationPolicy.js'
 import { getEvolutionConnectionState, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
 import { logWarning } from '../observability/logger.js'
 import { asksForCristhian, asksForHumanHandoff, asksForUnapprovedCommercialTerms, requiresHumanReview } from './whatsappEscalationRules.js'
 import { sanitizeWhatsAppHistoryForGemini } from './whatsappConversationPrivacy.js'
+import { generationFailureReason } from './whatsappAutomationRetry.js'
 import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWebhook.js'
 
@@ -204,7 +205,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       const context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
       if (!context) continue
       const skippedRunId = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
-      if (skippedRunId) await store.completeAutomationRun(skippedRunId, 'skipped', 'superseded_by_newer_inbound')
+      if (skippedRunId) await store.completeAutomationRun(skippedRunId.id, 'skipped', 'superseded_by_newer_inbound')
     } catch {
       logWarning('whatsapp_automation_superseded_message_failed', { reason: 'superseded_message_state_unavailable' })
     }
@@ -212,26 +213,24 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
 
   for (const message of messages) {
     let runId: string | undefined
+    let sendingStarted = false
+    let acceptedReplyId: string | undefined
     try {
       let context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
       if (!context) continue
 
-      if (context.automationPaused && context.automationPauseReason === 'assistant_closed' && !context.automationOptedOut) {
-        const resumed = await store.resumeClosedConversationAutomation(context.userId, context.conversationId)
-        if (!resumed) continue
-        const resumedStage: WhatsAppAutomationStage = context.automationStage === 'closed' ? 'qualify_interest' : context.automationStage
-        if (resumedStage !== context.automationStage) await store.updateAutomationStage(context.conversationId, resumedStage)
-        context = { ...context, automationPaused: false, automationPauseReason: null, automationStage: resumedStage }
-      }
-
-      const normalized = normalizeMessage(message.body ?? '')
-      if (hasStopOrRefusal(normalized)) {
+      if (context.latestProviderMessageId !== message.providerMessageId || context.lastMessageDirection !== 'inbound') {
+        const skippedRun = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
+        if (skippedRun) await store.completeAutomationRun(skippedRun.id, 'skipped', 'superseded_before_processing')
         continue
       }
 
-      if (context.latestProviderMessageId !== message.providerMessageId || context.lastMessageDirection !== 'inbound') {
-        const skippedRunId = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
-        if (skippedRunId) await store.completeAutomationRun(skippedRunId, 'skipped', 'superseded_before_processing')
+      const recoverablePause = context.automationPaused && !context.automationOptedOut
+        && (context.automationPauseReason === 'assistant_closed' || context.automationPauseReason === 'provider_unavailable')
+        ? context.automationPauseReason : undefined
+
+      const normalized = normalizeMessage(message.body ?? '')
+      if (hasStopOrRefusal(normalized)) {
         continue
       }
 
@@ -241,7 +240,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
 
       const profile = context.profile
       if (
-        context.automationPaused || context.automationOptedOut || context.latestProviderMessageId !== message.providerMessageId ||
+        (context.automationPaused && !recoverablePause) || context.automationOptedOut || context.latestProviderMessageId !== message.providerMessageId ||
         context.lastMessageDirection !== 'inbound' || !context.lastMessageAt ||
         !profile?.automationEnabled || !profile.channelApprovedAt || !profile.contentApprovedAt ||
         !profile.businessName || !profile.senderIdentity || !profile.serviceSummary || !profile.escalationContact
@@ -252,8 +251,20 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       const connectionState = await getEvolutionConnectionState(message.phoneNumberId)
       if (connectionState.state.toLowerCase() !== 'open') continue
 
-      runId = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
-      if (!runId) continue
+      const run = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
+      if (!run) continue
+      runId = run.id
+
+      if (recoverablePause) {
+        const resumed = await store.resumeRecoverableConversationAutomation(context.userId, context.conversationId, recoverablePause)
+        if (!resumed) {
+          await store.completeAutomationRun(runId, 'skipped', 'state_changed_before_resume')
+          continue
+        }
+        const resumedStage: WhatsAppAutomationStage = context.automationStage === 'closed' ? 'qualify_interest' : context.automationStage
+        if (resumedStage !== context.automationStage) await store.updateAutomationStage(context.conversationId, resumedStage)
+        context = { ...context, automationPaused: false, automationPauseReason: null, automationStage: resumedStage }
+      }
 
       const handoffMessages = [
         ...context.messages,
@@ -287,10 +298,11 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
             ? advanceStageAfterRepeatedQuestion(context.automationStage)
             : context.automationStage,
         }
-      } else if (replyPlan === 'handoff' || !apiKey) {
+      } else if (shouldHandoff || profile.responseMode === 'handoff_only') {
         generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
       } else {
         try {
+          if (!apiKey) throw new WhatsAppAutoReplyError('gemini_not_configured', 401)
           generated = await generateWhatsAppAutoReply(apiKey, {
             businessName: profile.businessName,
             senderIdentity: profile.senderIdentity,
@@ -301,9 +313,14 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
             inboundProjectInquiry,
             messages: sanitizeWhatsAppHistoryForGemini(context.messages),
           })
-        } catch {
-          generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
-          logWarning('whatsapp_automation_gemini_fallback', { reason: 'gemini_unavailable' })
+        } catch (error) {
+          const failureReason = generationFailureReason(run.attempt)
+          await store.completeAutomationRun(runId, 'failed', failureReason)
+          if (run.attempt >= 3 && context.lastMessageAt) {
+            await store.pauseConversationForGenerationFailure(context.userId, context.conversationId, context.lastMessageAt)
+          }
+          logWarning('whatsapp_automation_generation_failed', { attempt: run.attempt, ...autoReplyFailureDetails(error) })
+          continue
         }
       }
 
@@ -368,7 +385,11 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       }
 
       const body = generated.replyText.trim()
+      await store.markAutomationRunSending(runId)
+      sendingStarted = true
       const replyId = await sendEvolutionTextMessage(message.phoneNumberId, message.contactWaId, body)
+      acceptedReplyId = replyId
+      await store.recordAutomationReplyAccepted(runId, replyId)
       const sentAt = new Date().toISOString()
       await store.persistAutomatedReply({
         userId: context.userId, phoneNumberId: message.phoneNumberId, conversationId: context.conversationId,
@@ -385,7 +406,8 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       await store.completeAutomationRun(runId, 'sent', undefined, replyId)
     } catch (error) {
       if (runId) {
-        await store.completeAutomationRun(runId, 'failed', 'processing_error').catch(() => undefined)
+        const reason = acceptedReplyId ? 'history_sync_failed_after_send' : sendingStarted ? 'delivery_unconfirmed' : 'processing_error'
+        await store.completeAutomationRun(runId, 'failed', reason, acceptedReplyId).catch(() => undefined)
       }
       logWarning('whatsapp_automation_message_skipped', {
         reason: error instanceof Error ? error.message : 'unknown_error',

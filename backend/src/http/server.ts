@@ -584,9 +584,14 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
     const paused = (body as { paused: boolean }).paused
-    const updated = await new WhatsAppStore().setConversationAutomationPaused(user.id, conversationId, paused, paused ? 'manual' : 'manual_resume')
+    const store = new WhatsAppStore()
+    const updated = await store.setConversationAutomationPaused(user.id, conversationId, paused, paused ? 'manual' : 'manual_resume')
     if (!updated) {
       sendJson(response, 404, { error: 'Conversa não encontrada.' })
+      return
+    }
+    if (!paused && await store.queueLatestUnansweredReply(user.id, conversationId) === 'conflict') {
+      sendJson(response, 409, { error: 'O atendimento mudou durante a tentativa. Atualize a conversa para conferir o estado atual.' })
       return
     }
     sendJson(response, 200, { data: { paused } })

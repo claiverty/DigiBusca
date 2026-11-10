@@ -3,6 +3,7 @@ import { createUserSupabaseClient, createWhatsAppWebhookSupabaseClient } from '.
 import type { WhatsAppPageOptions } from '../contracts/whatsapp.js'
 import type { WhatsAppWebhookEvents } from '../application/whatsappWebhook.js'
 import type { WhatsAppAutomationProfile, WhatsAppAutomationProfileInput, WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
+import { canManuallyRetryGeneration, nextGenerationRetryAttempt, type AutomationRunState } from '../application/whatsappAutomationRetry.js'
 
 type ConnectionRow = { phone_number_id: string; user_id: string }
 type BusinessContactRow = { contact_wa_id: string; contact_name: string | null; is_removed: boolean }
@@ -250,16 +251,25 @@ export class WhatsAppStore {
     return Boolean(result.data)
   }
 
-  async resumeClosedConversationAutomation(userId: string, conversationId: string) {
+  async resumeRecoverableConversationAutomation(userId: string, conversationId: string, reason: 'assistant_closed' | 'provider_unavailable') {
     const admin = createWhatsAppWebhookSupabaseClient()
     const result = await admin.from('whatsapp_conversations')
       .update({ automation_paused: false, automation_pause_reason: null })
       .eq('id', conversationId).eq('user_id', userId)
       .eq('automation_paused', true).eq('automation_opted_out', false)
-      .eq('automation_pause_reason', 'assistant_closed')
+      .eq('automation_pause_reason', reason)
       .select('id').maybeSingle()
     throwIfError(result.error, 'Não foi possível retomar a conversa encerrada.')
     return Boolean(result.data)
+  }
+
+  async pauseConversationForGenerationFailure(userId: string, conversationId: string, lastMessageAt: string) {
+    const result = await createWhatsAppWebhookSupabaseClient().from('whatsapp_conversations')
+      .update({ automation_paused: true, automation_pause_reason: 'provider_unavailable' })
+      .eq('id', conversationId).eq('user_id', userId)
+      .eq('automation_paused', false).eq('automation_opted_out', false)
+      .eq('last_message_direction', 'inbound').eq('last_message_at', lastMessageAt)
+    throwIfError(result.error, 'Não foi possível registrar a indisponibilidade do Gemini.')
   }
 
   async markConversationOptedOut(userId: string, conversationId: string) {
@@ -358,7 +368,45 @@ export class WhatsAppStore {
     }, { onConflict: 'phone_number_id,inbound_provider_message_id', ignoreDuplicates: true })
       .select('id').maybeSingle()
     throwIfError(result.error, 'Não foi possível reservar a resposta automática.')
-    return result.data?.id as string | undefined
+    if (result.data?.id) return { id: result.data.id as string, attempt: 1 }
+    const existing = await admin.from('whatsapp_automation_runs')
+      .select('id, status, reason, completed_at, reply_provider_message_id')
+      .eq('user_id', userId).eq('phone_number_id', phoneNumberId)
+      .eq('inbound_provider_message_id', inboundProviderMessageId).maybeSingle()
+    throwIfError(existing.error, 'Não foi possível verificar a nova tentativa de resposta.')
+    if (!existing.data) return undefined
+    const attempt = nextGenerationRetryAttempt(existing.data as AutomationRunState)
+    if (!attempt) return undefined
+    const retried = await admin.from('whatsapp_automation_runs')
+      .update({ status: 'processing', reason: null, completed_at: null })
+      .eq('id', existing.data.id).eq('status', 'failed')
+      .is('reply_provider_message_id', null)
+      .eq('reason', existing.data.reason).eq('completed_at', existing.data.completed_at)
+      .select('id').maybeSingle()
+    throwIfError(retried.error, 'Não foi possível reservar a nova tentativa de resposta.')
+    return retried.data?.id ? { id: retried.data.id as string, attempt } : undefined
+  }
+
+  async queueLatestUnansweredReply(userId: string, conversationId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const latest = await admin.from('whatsapp_messages').select('provider_message_id, direction')
+      .eq('user_id', userId).eq('conversation_id', conversationId)
+      .order('occurred_at', { ascending: false }).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    throwIfError(latest.error)
+    if (!latest.data || latest.data.direction !== 'inbound') return
+    const run = await admin.from('whatsapp_automation_runs')
+      .select('id, status, reason, completed_at, reply_provider_message_id')
+      .eq('user_id', userId).eq('conversation_id', conversationId)
+      .eq('inbound_provider_message_id', latest.data.provider_message_id).maybeSingle()
+    throwIfError(run.error)
+    if (!run.data || !canManuallyRetryGeneration(run.data as AutomationRunState & { reply_provider_message_id: string | null })) return
+    let query = admin.from('whatsapp_automation_runs').update({
+      status: 'failed', reason: 'gemini_generation_requested', completed_at: new Date().toISOString(),
+    }).eq('id', run.data.id).eq('status', run.data.status).is('reply_provider_message_id', null)
+    query = run.data.reason === null ? query.is('reason', null) : query.eq('reason', run.data.reason)
+    const updated = await query.select('id').maybeSingle()
+    throwIfError(updated.error, 'Não foi possível preparar a resposta pendente para nova tentativa.')
+    return updated.data ? 'queued' : 'conflict'
   }
 
   async completeAutomationRun(runId: string, status: 'sent' | 'skipped' | 'needs_human' | 'failed', reason?: string, replyMessageId?: string) {
@@ -370,6 +418,21 @@ export class WhatsAppStore {
       completed_at: new Date().toISOString(),
     }).eq('id', runId)
     throwIfError(result.error, 'Não foi possível registrar o resultado da resposta automática.')
+  }
+
+  async markAutomationRunSending(runId: string) {
+    const result = await createWhatsAppWebhookSupabaseClient().from('whatsapp_automation_runs')
+      .update({ reason: 'sending' }).eq('id', runId).eq('status', 'processing')
+      .is('reason', null).is('reply_provider_message_id', null).select('id').maybeSingle()
+    throwIfError(result.error, 'Não foi possível reservar o envio da resposta.')
+    if (!result.data) throw new Error('automation_send_claim_lost')
+  }
+
+  async recordAutomationReplyAccepted(runId: string, replyId: string) {
+    const result = await createWhatsAppWebhookSupabaseClient().from('whatsapp_automation_runs')
+      .update({ reply_provider_message_id: replyId, reason: 'delivery_accepted' })
+      .eq('id', runId).eq('status', 'processing')
+    throwIfError(result.error, 'Não foi possível registrar a resposta aceita pelo WhatsApp.')
   }
 
   async persistAutomatedReply(input: {
@@ -664,11 +727,14 @@ export class WhatsAppStore {
 
       const ids = rows.map((row) => row.provider_message_id)
       const runs = await admin.from('whatsapp_automation_runs')
-        .select('inbound_provider_message_id')
+        .select('phone_number_id, inbound_provider_message_id, status, reason, completed_at, reply_provider_message_id')
+        .in('phone_number_id', [...new Set(rows.map((row) => row.phone_number_id))])
         .in('inbound_provider_message_id', ids)
       throwIfError(runs.error, 'Não foi possível verificar quais respostas já foram processadas.')
-      const processed = new Set(((runs.data ?? []) as Array<{ inbound_provider_message_id: string }>).map((row) => row.inbound_provider_message_id))
-      pendingRows.push(...rows.filter((row) => !processed.has(row.provider_message_id)).slice(0, limit - pendingRows.length))
+      const processed = new Set(((runs.data ?? []) as Array<AutomationRunState & { phone_number_id: string; inbound_provider_message_id: string }>)
+        .filter((run) => !nextGenerationRetryAttempt(run))
+        .map((run) => `${run.phone_number_id}:${run.inbound_provider_message_id}`))
+      pendingRows.push(...rows.filter((row) => !processed.has(`${row.phone_number_id}:${row.provider_message_id}`)).slice(0, limit - pendingRows.length))
 
       offset += rows.length
       if (rows.length < pageSize) break
