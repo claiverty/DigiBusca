@@ -118,9 +118,9 @@
 
 .whatsapp-inbox-layout {
   display: grid;
-  height: clamp(360px, calc(100dvh - 460px), 720px);
+  height: clamp(360px, calc(100dvh - 400px), 780px);
   min-height: 0;
-  grid-template-columns: minmax(235px, 0.72fr) minmax(0, 1.55fr);
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.55fr);
   gap: 14px;
 }
 
@@ -237,8 +237,8 @@
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 12px;
-  padding: 15px 12px;
+  gap: 11px;
+  padding: 12px 10px;
   border: 0;
   border-radius: 12px;
   background: transparent;
@@ -253,9 +253,9 @@
 
 .whatsapp-contact-avatar {
   display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
   place-items: center;
   border-radius: 50%;
   color: #2c7046;
@@ -399,8 +399,8 @@
 }
 
 .whatsapp-message-bubble {
-  max-width: min(84%, 560px);
-  padding: 14px 16px 10px;
+  max-width: min(78%, 520px);
+  padding: 11px 13px 8px;
   border: 1px solid #e9ece9;
   border-radius: 14px 14px 14px 5px;
   color: var(--color-text);
