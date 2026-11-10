@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, Send, ShieldCheck } from 'lucide-react'
 import {
   connectWhatsAppEvolution,
@@ -108,6 +108,8 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<WhatsAppMessage[]>([])
   const threadMessagesRef = useRef<HTMLDivElement | null>(null)
+  const loadedThreadConversationIdRef = useRef<string | null>(null)
+  const lastScrolledConversationIdRef = useRef<string | null>(null)
   const [inboxState, setInboxState] = useState<LoadState>('loading')
   const [messagesState, setMessagesState] = useState<LoadState>('ready')
   const [inboxError, setInboxError] = useState('')
@@ -307,6 +309,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     void getWhatsAppConversationMessages(selectedConversationId)
       .then((page) => {
         if (!active) return
+        loadedThreadConversationIdRef.current = selectedConversationId
         setMessages([...page.data].reverse())
         setMessagesState('ready')
       })
@@ -357,6 +360,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
             ? getWhatsAppConversationMessages(selectedConversationId)
               .then((page) => {
                 if (!active) return
+                loadedThreadConversationIdRef.current = selectedConversationId
                 setMessages([...page.data].reverse())
                 setMessagesError('')
                 setMessagesState('ready')
@@ -390,12 +394,22 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const connectionReady = connections.some((connection) => connection.connectionState?.toLowerCase() === 'open')
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!selectedConversationId) {
+      lastScrolledConversationIdRef.current = null
+      return
+    }
     const container = threadMessagesRef.current
     if (!container) return
+    if (lastScrolledConversationIdRef.current !== selectedConversationId) {
+      if (loadedThreadConversationIdRef.current !== selectedConversationId) return
+      container.scrollTop = container.scrollHeight
+      lastScrolledConversationIdRef.current = selectedConversationId
+      return
+    }
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
     if (distanceFromBottom < 96) container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
-  }, [messages.at(-1)?.id, selectedConversationId])
+  }, [messages.at(-1)?.id, messagesState, selectedConversationId])
 
   function updateAutomationContent(key: 'businessName' | 'senderIdentity' | 'serviceSummary' | 'approvedFacts' | 'escalationContact', value: string) {
     setAutomationForm((current) => ({ ...current, [key]: value, contentApproved: false, automationEnabled: false }))
