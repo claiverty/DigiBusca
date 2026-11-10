@@ -23,9 +23,9 @@ const context: WhatsAppAutoReplyContext = {
   businessName: 'DigiUP', senderIdentity: 'Cristhian', serviceSummary: 'Sites profissionais',
   approvedFacts: 'Escopo definido conforme o projeto.', escalationContact: 'este WhatsApp',
   stage: 'qualify_interest', inboundProjectInquiry: true,
-  messages: [{ direction: 'inbound', body: 'Gostaria de conversar sobre um projeto.' }],
+  messages: [{ direction: 'inbound', body: 'Quero um sistema para organizar os agendamentos da clínica.' }],
 }
-const safeReply = { action: 'reply', replyText: 'Claro! Que tipo de projeto você tem em mente?', nextStage: 'qualify_interest' }
+const safeReply = { action: 'reply', replyText: 'Claro! Como vocês organizam os agendamentos hoje?', nextStage: 'qualify_interest' }
 function replyResponse(reply = safeReply) {
   return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(reply) }] }, finishReason: 'STOP' }] })
 }
@@ -73,4 +73,19 @@ test('resposta inválida tenta outro modelo e falha de credencial não dispara c
   const denied = new WhatsAppAutoReplyProvider(async () => { calls += 1; return Response.json({}, { status: 403 }) })
   await assert.rejects(denied.generate('test-key', context), /gemini_reply_unavailable/)
   assert.equal(calls, 1)
+})
+
+test('pedido genérico confirma serviço anterior e não chama o modelo para presumir o escopo', async () => {
+  let calls = 0
+  const provider = new WhatsAppAutoReplyProvider(async () => { calls += 1; return replyResponse() })
+  const reply = await provider.generate('test-key', {
+    ...context,
+    messages: [
+      { direction: 'inbound', body: 'Gostaria de uma landing page para meu escritório.' },
+      { direction: 'outbound', body: 'Certo, vamos conversar sobre a estrutura.' },
+      { direction: 'inbound', body: 'Olá! Vim pelo site da DigiUP e gostaria de conversar sobre um projeto.' },
+    ],
+  })
+  assert.deepEqual(reply, { action: 'reply', replyText: 'Claro! É sobre a landing page que você comentou antes ou é outro projeto?', nextStage: 'understand_scenario' })
+  assert.equal(calls, 0)
 })

@@ -7,6 +7,7 @@ import { logWarning } from '../observability/logger.js'
 import { asksForCristhian, asksForHumanHandoff, asksForUnapprovedCommercialTerms, requiresHumanReview } from './whatsappEscalationRules.js'
 import { sanitizeWhatsAppHistoryForGemini } from './whatsappConversationPrivacy.js'
 import { generationFailureReason } from './whatsappAutomationRetry.js'
+import { isProjectServiceCorrection, resolveWhatsAppProjectContext } from './whatsappProjectContext.js'
 import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWebhook.js'
 
@@ -36,6 +37,7 @@ function hasOptOutRequest(text: string) {
 }
 
 function hasRefusal(text: string) {
+  if (isProjectServiceCorrection(text)) return false
   const repeatComplaintRefusalPattern = /\bnao (?:quero|vou) (?:repetir|responder(?: isso)? de novo|falar disso de novo)\b/i
   const refusalMentionPattern = /\b(?:nao tenho interesse|nao quero|sem interesse)\b/i
   return messageClauses(text).some((clause) => refusalMentionPattern.test(clause) && !repeatComplaintRefusalPattern.test(clause))
@@ -130,8 +132,8 @@ function keepStageFromMovingBackward(current: WhatsAppAutomationStage, next: Wha
 }
 
 function distinctFollowUpQuestion(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>) {
-  const transcript = normalizeMessage(messages.map(({ body }) => body ?? '').join(' '))
-  if (/\b(?:pagina|landing page|site)\b/.test(transcript)) {
+  const project = resolveWhatsAppProjectContext(messages)
+  if (project.currentService === 'landing page' || project.currentService === 'site') {
     return 'Entendi. Vocês já têm algum site ou referência visual para o estilo dessa página?'
   }
   return 'Entendi. Já existe algum exemplo ou material que represente o que vocês imaginam para esse projeto?'
@@ -275,6 +277,10 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       const shouldHandoff = requiresHumanHandoff(handoffMessages)
       const leadAskedIdentity = isDirectIdentityQuestion(message.body ?? '')
       const inboundProjectInquiry = isInboundProjectInquiry(message.body ?? '')
+      const projectContext = resolveWhatsAppProjectContext(context.messages)
+      const requestStage = projectContext.startsNewRequest || projectContext.clarificationReply
+        || (inboundProjectInquiry && context.automationStage === 'identify_responsible')
+        ? 'understand_scenario' : context.automationStage
       const apiKey = getGeminiApiKey()
       const replyPlan = selectWhatsAppAutomationReplyPlan({
         responseMode: profile.responseMode,
@@ -309,7 +315,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
             serviceSummary: profile.serviceSummary,
             approvedFacts: profile.approvedFacts,
             escalationContact: profile.escalationContact,
-            stage: inboundProjectInquiry ? 'qualify_interest' : context.automationStage,
+            stage: requestStage,
             inboundProjectInquiry,
             messages: sanitizeWhatsAppHistoryForGemini(context.messages),
           })
@@ -347,14 +353,13 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       }
 
       if (generated.action === 'reply') {
-        const currentFlowStage = inboundProjectInquiry ? 'qualify_interest' : context.automationStage
-        generated = { ...generated, nextStage: keepStageFromMovingBackward(currentFlowStage, generated.nextStage) }
+        generated = { ...generated, nextStage: keepStageFromMovingBackward(requestStage, generated.nextStage) }
       }
 
-      if (generated.action === 'reply' && getRepeatedQuestionTopic(generated.replyText, context.messages)) {
+      if (generated.action === 'reply' && getRepeatedQuestionTopic(generated.replyText, projectContext.messages)) {
         generated = {
           ...generated,
-          replyText: distinctFollowUpQuestion(context.messages),
+          replyText: distinctFollowUpQuestion(projectContext.messages),
         }
       }
 
@@ -374,7 +379,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         generated = {
           action: 'reply',
           replyText: 'Oi! Claro, vamos conversar. Qual é o objetivo principal do projeto?',
-          nextStage: 'qualify_interest',
+          nextStage: 'understand_scenario',
         }
       }
 

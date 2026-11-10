@@ -1,5 +1,6 @@
 import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 import { logWarning } from '../observability/logger.js'
+import { resolveWhatsAppProjectContext } from '../application/whatsappProjectContext.js'
 
 const models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
 const modelCooldownMs = 60_000
@@ -60,7 +61,7 @@ function parseReply(value: unknown): WhatsAppAutoReply | undefined {
   }
 }
 
-function buildPrompt(context: WhatsAppAutoReplyContext) {
+function buildPrompt(context: WhatsAppAutoReplyContext, project: ReturnType<typeof resolveWhatsAppProjectContext>) {
   return `Você é Cristhian, agente de atendimento da DigiUP no WhatsApp. Continue a conversa que já existe e avance uma etapa por vez, com foco em entender a necessidade, orientar e chegar a um próximo passo claro.
 
 REGRAS
@@ -68,6 +69,9 @@ REGRAS
 - Cristhian é o nome deste agente. Não diga espontaneamente que é IA, bot ou resposta automática. Se perguntarem diretamente se você é uma pessoa ou IA, responda com transparência: “Sou o Cristhian, agente virtual da DigiUP.” Nunca afirme ser humano. Não diga que “vai encaminhar para o Cristhian”, porque você é o Cristhian.
 - Não conte ao lead que a conversa foi encaminhada, transferida ou pausada. Quando uma situação exigir decisão humana, retorne action=handoff com replyText vazio; o sistema pausa e sinaliza o atendimento na caixa de entrada para o responsável da DigiUP.
 - Responda primeiro ao conteúdo da mensagem recebida mais recente. O estágio comercial não deve fazer você ignorar um pedido explícito do lead.
+- Entenda o pedido atual antes de nomear ou sugerir uma solução. “Quero conversar sobre um projeto” não significa landing page, site, sistema ou automação. O site pelo qual a pessoa chegou é a origem do contato, não o serviço desejado.
+- Um serviço mencionado em atendimento anterior é apenas uma hipótese até a pessoa confirmar que está retomando esse projeto. Pergunte se é sobre o serviço anterior ou outro projeto; não afirme “como você quer uma landing page” nem marque diagnóstico com esse escopo sem confirmação. Menções feitas somente pela DigiUP não comprovam a necessidade do cliente.
+- Se a pessoa corrigir o serviço ou disser que é outro projeto, acolha a correção e descubra a necessidade atual. Use as informações históricas apenas depois de confirmar que ainda se aplicam. Após a confirmação, aproveite o que já foi respondido para não repetir perguntas.
 - Conduza a conversa nesta ordem, pulando etapas que o lead já respondeu: reconhecer a pessoa e o motivo do contato; entender o projeto e o objetivo; descobrir uma prioridade ou detalhe ainda desconhecido; relacionar a necessidade a um serviço da DigiUP; esclarecer dúvidas; propor o próximo passo concreto; confirmar a decisão e encerrar com educação. Não transforme a sequência em um questionário.
 - Revise todo o histórico recente e as perguntas anteriores da DigiUP. Não repita a mesma pergunta nem a mesma lacuna com outras palavras. Se a pessoa já informou tipo de projeto, objetivo, áreas, conteúdo, canais, referências ou prioridade, considere isso respondido e avance para uma informação diferente ou faça uma síntese breve.
 - Se INBOUND_PROJECT_INQUIRY=true, acolha quem procurou o negócio identificado em BUSINESS_FACTS: não faça abordagem fria, não se apresente como prospecção, não pergunte se cuida da presença digital e não peça permissão para conversar. Use o que a pessoa já contou e pergunte somente o detalhe mais útil que ainda falta.
@@ -96,10 +100,12 @@ ${JSON.stringify({ businessName: context.businessName, serviceSummary: context.s
 
 CURRENT_STAGE: ${context.stage}
 INBOUND_PROJECT_INQUIRY: ${context.inboundProjectInquiry}
+CURRENT_REQUEST_CONTEXT:
+${JSON.stringify({ priorServiceHint: project.priorService ?? null, priorProjectConfirmed: project.previousProjectConfirmed, serviceMentionedByLeadInCurrentRequest: project.currentService ?? null })}
 PREVIOUS_OUTBOUND_QUESTIONS:
-${JSON.stringify(context.messages.filter((message) => message.direction === 'outbound' && message.body?.includes('?')).map((message) => message.body).slice(-5))}
+${JSON.stringify(project.messages.filter((message) => message.direction === 'outbound' && message.body?.includes('?')).map((message) => message.body).slice(-5))}
 RECENT_CONVERSATION:
-${JSON.stringify(context.messages.slice(-30))}`
+${JSON.stringify(project.messages.slice(-30))}`
 }
 
 export class WhatsAppAutoReplyError extends Error {
@@ -127,12 +133,12 @@ function shouldUseFallback(error: unknown) {
   return typeof status === 'number' && (status === 404 || status === 408 || status === 429 || status >= 500)
 }
 
-async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyContext, selectedModel: string, fetcher: typeof fetch): Promise<WhatsAppAutoReply> {
+async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyContext, selectedModel: string, fetcher: typeof fetch, project: ReturnType<typeof resolveWhatsAppProjectContext>): Promise<WhatsAppAutoReply> {
   const response = await fetcher(endpointFor(selectedModel), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: buildPrompt(context) }] }],
+      contents: [{ role: 'user', parts: [{ text: buildPrompt(context, project) }] }],
       generationConfig: {
         maxOutputTokens: 1024,
         thinkingConfig: { thinkingLevel: 'low' },
@@ -169,12 +175,16 @@ export class WhatsAppAutoReplyProvider {
   constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args), private readonly now = Date.now) {}
 
   async generate(apiKey: string, context: WhatsAppAutoReplyContext): Promise<WhatsAppAutoReply> {
+    const project = resolveWhatsAppProjectContext(context.messages)
+    if (project.clarificationReply) {
+      return { action: 'reply', replyText: project.clarificationReply, nextStage: 'understand_scenario' }
+    }
     const available = models.filter((model) => (this.unavailableUntil.get(model) ?? 0) <= this.now())
     if (available.length === 0) throw new WhatsAppAutoReplyError('gemini_models_cooling_down', 503)
     let lastError: unknown
     for (const model of available) {
       try {
-        const reply = await generateWithModel(apiKey, context, model, this.fetcher)
+        const reply = await generateWithModel(apiKey, context, model, this.fetcher, project)
         this.unavailableUntil.delete(model)
         return reply
       } catch (error) {
