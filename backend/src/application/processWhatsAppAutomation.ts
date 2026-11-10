@@ -15,6 +15,7 @@ const cristhianHandoffPattern = /\b(?:(?:quero|gostaria|preciso|prefiro) (?:fala
 const commercialHandoffPattern = /\b(?:precos?|valores?|custos?|quanto (?:custa|fica|ficaria|sai|seria|e|voc[eê]s cobram|voc[eê]s cobrariam)|orcamentos?|descontos?|prazos?|formas? de pagamento|condicoes?(?: comerciais| de pagamento)?|pagamento (?:do|pelo) (?:projeto|servico|orcamento|contrato)|(?:voces )?aceitam (?:pix|cartao|parcelamento)|pagamento (?:mensal|recorrente)|(?:voces )?parcelam|quantas parcelas|parcelamento (?:do projeto|da proposta|do servico)|contratos?|garantias?|escopos?|propostas?|resultados?|investimentos?|quanto tempo (?:demora|leva|fica|seria)|quando (?:fica pronto|entrega|comeca)|qual (?:e )?o prazo|tem prazo)\b/i
 const sensitiveHandoffPattern = /\b(?:consulta juridica pessoal|aconselhamento juridico pessoal|meu problema juridico|minha situacao juridica|cpf\s*(?:e|:)?\s*\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[-\s]?\d{2}|rg\s*(?:e|:)?\s*\d{1,2}[.\s-]?\d{3}[.\s-]?\d{3}[-\s]?\d?|(?:minha )?senha\s*(?:e|:|=)\s*\S+|senha\s*[:=]\s*\S+|(?:meu )?codigo(?: de autenticacao| de seguranca| sms| 2fa)?\s*(?:e|:|=)\s*\S+|meus dados bancarios\s*(?:sao|e|:|=)\s*\S+|dados bancarios\s*[:=]\s*\S+|(?:numero|agencia) da minha conta(?: bancaria)?\s*(?:e|:|=)\s*\d+|(?:meu cartao|numero do cartao|dados do cartao)\s*(?:e|:|=)\s*(?:\d{4}(?:[ -]?\d{4}){2,3}|final \d{4})|minha saude|meu estado de saude|problema de saude pessoal|condicao de saude pessoal|meu diagnostico|meus sintomas|meu tratamento|diagnostico medico pessoal|tratamento medico pessoal|minha doenca|aconselhamento financeiro pessoal|orientacao financeira pessoal|minhas financas pessoais|minha situacao financeira pessoal|estou endividado[oa]?|minha divida pessoal|fui vitima de fraud\w*|sofri fraud\w*|denunciar fraud\w*|fraude na minha conta|cai (?:em|num) (?:um )?golpe|me aplicaram (?:um )?golpe|sofri ameaca|fui ameacad\w*|me ameacaram|estou sendo ameacad\w*|ameaca contra mim|sofri assedio|fui vitima de assedio|fui assediad\w*|estou sendo assediad\w*|sofri violencia|fui vitima de violencia|sofri discriminacao|fui discriminad\w*)\b/i
 const repeatedQuestionFeedbackPattern = /\b(?:(?:nao (?:quero|vou) (?:repetir|responder(?: isso)? de novo|falar disso de novo))|(?:(?:eu\s+)?(?:ja\s+)?(?:te\s+)?(?:respondi|respondeu|respondemos|respondido|falei|falado|disse|dizia|informei|informado|passei|contei|expliquei|mencionei)(?:\s+(?:isso|essa pergunta|a mesma coisa|sobre isso|essas informacoes|disso|aquilo))?)|(?:essa pergunta|essa questao)\s+ja\s+foi\s+respondida|(?:voce|vc)\s+(?:perguntou|repetiu)\s+(?:isso|a mesma coisa)(?:\s+(?:de novo|novamente))?|(?:pergunta|questao)\s+repetida|(?:perguntou|repetiu)\s+(?:isso|a mesma coisa)\s+(?:de novo|novamente))\b/i
+const explicitOptOutPattern = /\b(?:nao entre(?: mais)? em contato(?: comigo)?(?: nunca mais| de novo| novamente)?|nao quero(?: mais)? contato|nao quero(?: mais)? receber (?:mensagens?|contato|comunicacoes?)|nao quero que (?:voces? )?(?:me )?(?:procurem?|contatem?|liguem?|chamem?)|nao quero ser contatad[oa]|nao me (?:envie|mande|contate|procure|ligue|chame)(?: mais| de novo| novamente)?|nunca mais (?:me )?(?:procure|contate|ligue|chame|mande|envie))\b/i
 const identityQuestionPattern = /\b(?:quem (?:esta|ta) (?:me )?(?:respondendo|falando|atendendo)|quem (?:responde|atende)|com quem (?:eu )?(?:estou|to) falando|quem (?:e|eh) voce|voce (?:e|eh) (?:o )?(?:proprio )?cristhian|voce (?:esta|ta) falando com (?:o )?(?:proprio )?cristhian|e voce (?:o )?(?:proprio )?cristhian|estou falando com (?:o )?(?:proprio )?cristhian|cristhian (?:esta|ta) respondendo|e (?:o )?cristhian que (?:esta|ta) (?:respondendo|falando|atendendo)|voce (?:e|eh) (?:uma? )?(?:pessoa|humano|ia|inteligencia artificial|bot|robo|assistente(?: virtual)?)|(?:essa|esta) (?:e )?(?:uma? )?mensagem automatica|e (?:uma? )?mensagem automatica|isso (?:e|eh) (?:uma? )?(?:mensagem|resposta) automatica|(?:suas|essas) respostas? (?:sao )?automaticas?|(?:esse|este|seu) atendimento (?:e|eh) automatizado|(?:essa|sua) resposta (?:foi )?gerada por (?:uma? )?ia)\b/i
 
 function normalizeMessage(text: string) {
@@ -26,12 +27,14 @@ function messageClauses(text: string) {
 }
 
 function hasOptOutRequest(text: string) {
-  return messageClauses(text).some((clause) => optOutPattern.test(clause))
+  const normalized = normalizeMessage(text)
+  return explicitOptOutPattern.test(normalized) || messageClauses(normalized).some((clause) => optOutPattern.test(clause))
 }
 
 function hasRefusal(text: string) {
-  const repeatComplaintRefusalPattern = /^nao (?:quero|vou) (?:repetir|responder(?: isso)? de novo|falar disso de novo)\b/i
-  return messageClauses(text).some((clause) => refusalPattern.test(clause) && !repeatComplaintRefusalPattern.test(clause))
+  const repeatComplaintRefusalPattern = /\bnao (?:quero|vou) (?:repetir|responder(?: isso)? de novo|falar disso de novo)\b/i
+  const refusalMentionPattern = /\b(?:nao tenho interesse|nao quero|sem interesse)\b/i
+  return messageClauses(text).some((clause) => refusalMentionPattern.test(clause) && !repeatComplaintRefusalPattern.test(clause))
 }
 
 function hasStopOrRefusal(text: string) {
