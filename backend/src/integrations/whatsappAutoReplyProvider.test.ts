@@ -25,7 +25,7 @@ const context: WhatsAppAutoReplyContext = {
   stage: 'qualify_interest', inboundProjectInquiry: true,
   messages: [{ direction: 'inbound', body: 'Quero um sistema para organizar os agendamentos da clínica.' }],
 }
-const safeReply = { action: 'reply', replyText: 'Claro! Como vocês organizam os agendamentos hoje?', nextStage: 'qualify_interest' }
+const safeReply = { action: 'reply', replyText: 'Como vocês organizam os agendamentos hoje?', nextStage: 'qualify_interest' }
 function replyResponse(reply = safeReply) {
   return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(reply) }] }, finishReason: 'STOP' }] })
 }
@@ -86,7 +86,7 @@ test('pedido genérico confirma serviço anterior e não chama o modelo para pre
       { direction: 'inbound', body: 'Olá! Vim pelo site da DigiUP e gostaria de conversar sobre um projeto.' },
     ],
   })
-  assert.deepEqual(reply, { action: 'reply', replyText: 'Claro! É sobre a landing page que você comentou antes ou é outro projeto?', nextStage: 'understand_scenario' })
+  assert.deepEqual(reply, { action: 'reply', replyText: 'Você quer retomar a landing page que comentou antes ou está pensando em outro projeto?', nextStage: 'understand_scenario' })
   assert.equal(calls, 0)
 })
 
@@ -101,7 +101,7 @@ test('responde a uma saudação simples sem esperar pelo Gemini', async () => {
   })
   assert.deepEqual(reply, {
     action: 'reply',
-    replyText: 'Opa, boa tarde! Aqui é o Cristhian, da DigiUP. Como posso te ajudar?',
+    replyText: 'Opa, aqui é o Cristhian da DigiUP. Como posso te ajudar?',
     nextStage: 'identify_responsible',
   })
   assert.equal(calls, 0)
@@ -127,5 +127,5 @@ test('uma saudação que ficou pendente recebe um pedido de desculpas pela demor
     inboundReceivedAt: new Date(now - 5 * 60_000).toISOString(),
     messages: [{ direction: 'inbound', body: 'Opa boa tarde' }],
   })
-  assert.equal(reply.replyText, 'Desculpa a demora! Opa, boa tarde! Aqui é o Cristhian, da DigiUP. Como posso te ajudar?')
+  assert.equal(reply.replyText, 'Desculpa a demora. Aqui é o Cristhian da DigiUP. Como posso te ajudar?')
 })

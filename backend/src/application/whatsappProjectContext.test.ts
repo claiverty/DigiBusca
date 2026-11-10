@@ -8,14 +8,14 @@ const prior: ProjectMessage[] = [
   { direction: 'outbound', body: 'Entendi.' },
 ]
 const opening: ProjectMessage = { direction: 'inbound', body: 'Olá! Vim pelo site da DigiUP e gostaria de conversar sobre um projeto.' }
-const confirmation: ProjectMessage = { direction: 'outbound', body: 'Claro! É sobre a landing page que você comentou antes ou é outro projeto?' }
+const confirmation: ProjectMessage = { direction: 'outbound', body: 'Você quer retomar a landing page que comentou antes ou está pensando em outro projeto?' }
 
 test('usa serviço anterior como hipótese a confirmar sem reutilizar o escopo antigo', () => {
   const result = resolveWhatsAppProjectContext([...prior, opening])
   assert.equal(result.priorService, 'landing page')
   assert.equal(result.currentService, undefined)
   assert.equal(result.previousProjectConfirmed, false)
-  assert.match(result.clarificationReply!, /É sobre a landing page.*ou é outro projeto\?/)
+  assert.match(result.clarificationReply!, /quer retomar a landing page.*outro projeto\?/)
   assert.deepEqual(result.messages, [opening])
 })
 
@@ -53,7 +53,7 @@ test('outro projeto ou negativa sem detalhes leva a uma pergunta neutra', () => 
   for (const body of ['Não, é outro projeto.', 'Não quero landing page.', 'Quero conversar sobre um novo projeto.']) {
     const result = resolveWhatsAppProjectContext([...prior, opening, confirmation, { direction: 'inbound', body }])
     assert.equal(result.currentService, undefined)
-    assert.match(result.clarificationReply!, /o que você quer criar ou melhorar/)
+    assert.match(result.clarificationReply!, /o que você está pensando/)
   }
 })
 
@@ -74,7 +74,7 @@ test('uma correção posterior revoga até um serviço que já havia sido confir
   ])
   assert.equal(result.previousProjectConfirmed, false)
   assert.equal(result.currentService, undefined)
-  assert.match(result.clarificationReply!, /o que você quer criar ou melhorar/)
+  assert.match(result.clarificationReply!, /o que você está pensando/)
 })
 
 test('outro projeto do mesmo tipo não herda o escopo anterior mesmo começando com sim', () => {

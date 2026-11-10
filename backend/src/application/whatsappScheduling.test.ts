@@ -9,7 +9,7 @@ test('reconhece pedido para marcar a conversa e não confirma a disponibilidade'
   ])
 
   assert.deepEqual(result, {
-    replyText: 'Vou conferir se temos disponibilidade nesse horário e te confirmo por aqui.',
+    replyText: 'Vou conferir esse horário e te confirmo por aqui',
     requiresAvailabilityCheck: true,
   })
 })
@@ -20,7 +20,7 @@ test('pede dia e horário quando a pessoa aceita conversar sem sugerir uma data'
     { direction: 'inbound', body: 'Podemos sim, vamos marcar.' },
   ])
 
-  assert.equal(result?.replyText, 'Claro! Qual dia e horário ficam melhores para você? Vou conferir a agenda e te confirmo por aqui.')
+  assert.equal(result?.replyText, 'Que dia e horário seriam melhores? Vou conferir e te confirmo por aqui')
 })
 
 test('não confunde pedido de sistema de agendamento com pedido de reunião', () => {

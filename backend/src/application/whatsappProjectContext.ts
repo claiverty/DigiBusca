@@ -43,8 +43,8 @@ function isProjectOpening(text: string) {
   return /\b(?:vim pelo site|(?:novo|outro) projeto|(?:gostaria|quero|queria|preciso)(?: de)? (?:conversar|falar)(?: com voces)? sobre (?:um |o )?projeto)\b/.test(normalized)
 }
 
-const confirmationQuestion = /\be sobre (?:a |o )?.+que voce comentou antes ou e outro projeto\b/
-const neutralDiscoveryReply = 'Claro! Me conta o que você quer criar ou melhorar no seu negócio?'
+const confirmationQuestion = /\b(?:e sobre (?:a |o )?.+que voce comentou antes ou e outro projeto|voce quer retomar (?:a |o )?.+que comentou antes ou esta pensando em outro projeto)\b/
+const neutralDiscoveryReply = 'Me conta um pouco do que você está pensando para esse projeto'
 
 export function isProjectServiceCorrection(text: string) {
   const normalized = normalize(text)
@@ -90,7 +90,7 @@ export function resolveWhatsAppProjectContext(messages: ProjectMessage[]) {
   let clarificationReply: string | undefined
   if (latestIsOpening && !currentService) {
     clarificationReply = priorService && !wantsDifferentProject
-      ? `Claro! É sobre ${priorService === 'landing page' || priorService === 'loja virtual' || priorService === 'automação' ? 'a' : 'o'} ${priorService} que você comentou antes ou é outro projeto?`
+      ? `Você quer retomar ${priorService === 'landing page' || priorService === 'loja virtual' || priorService === 'automação' ? 'a' : 'o'} ${priorService} que comentou antes ou está pensando em outro projeto?`
       : neutralDiscoveryReply
   } else if (!currentService && ((answeredConfirmation && !previousProjectConfirmed && /^(?:nao|outro|e outro|na verdade)(?:[.! ,]|$)/.test(latestText)) || isProjectServiceCorrection(latestInbound?.body ?? ''))) {
     clarificationReply = neutralDiscoveryReply

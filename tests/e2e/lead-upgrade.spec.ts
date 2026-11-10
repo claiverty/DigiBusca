@@ -60,7 +60,7 @@ test('cold chat começa curto, identifica responsável e usa resposta na IA', as
   await page.getByRole('button', { name: 'Gerar abordagem', exact: true }).click()
   await page.getByLabel('Saudação').selectOption('Boa tarde')
   await page.getByRole('button', { name: 'Usar modelo sem IA' }).click()
-  await expect(page.locator('.ai-outreach-results')).toContainText('Falo com quem cuida da presença digital da empresa?')
+  await expect(page.locator('.ai-outreach-results')).toContainText('Você cuida da presença digital da empresa?')
   await page.getByLabel('Etapa da conversa').selectOption('Identificar responsável')
   await page.getByLabel('Nome de quem atende').fill('Guilherme, da DigiUP')
   await page.getByLabel('O que a pessoa respondeu?').fill('Boa tarde, tudo sim! Sou eu quem cuido da presença digital.')
@@ -69,7 +69,7 @@ test('cold chat começa curto, identifica responsável e usa resposta na IA', as
   expect(await page.evaluate(() => (window as any).lastGenerationInput.lastReply)).toBe('Boa tarde, tudo sim! Sou eu quem cuido da presença digital.')
   await page.screenshot({ path: testInfo.outputPath('assistant.png'), fullPage: true })
   await page.getByRole('button', { name: 'Usar na abordagem' }).click()
-  await expect(page.locator('#used-message')).toContainText('Prazer!')
+  await expect(page.locator('#used-message')).toContainText('Queria entender como vocês apresentam os serviços online hoje')
   expect(await page.evaluate(() => (window as any).usedStage)).toBe('Identificar responsável')
 })
 

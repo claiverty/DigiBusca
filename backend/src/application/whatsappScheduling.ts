@@ -45,8 +45,8 @@ export function getWhatsAppSchedulingReply(messages: WhatsAppConversationText[])
   const hasRequestedTime = dateOrTimePattern.test(latestInbound)
   return {
     replyText: hasRequestedTime
-      ? 'Vou conferir se temos disponibilidade nesse horário e te confirmo por aqui.'
-      : 'Claro! Qual dia e horário ficam melhores para você? Vou conferir a agenda e te confirmo por aqui.',
+      ? 'Vou conferir esse horário e te confirmo por aqui'
+      : 'Que dia e horário seriam melhores? Vou conferir e te confirmo por aqui',
     requiresAvailabilityCheck: true,
   }
 }

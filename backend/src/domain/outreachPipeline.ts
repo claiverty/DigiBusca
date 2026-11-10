@@ -102,6 +102,7 @@ export function chooseApproachStrategy(analysis: LeadAnalysis): ApproachStrategy
 export function buildOutreachContext(input: GenerateOutreachInput): OutreachContext {
   const leadData = normalizeLeadData(input)
   const leadAnalysis = analyzeLead(leadData)
+  const senderName = (input.senderName ?? '').replace(/(?:,\s*|\s+)da DigiUP$/i, '').trim()
   return {
     leadData,
     leadAnalysis,
@@ -110,7 +111,7 @@ export function buildOutreachContext(input: GenerateOutreachInput): OutreachCont
     conversation: {
       stage: hasExplicitRefusal(input.lastReply ?? '') ? 'Encerrar' : input.stage ?? 'Abertura',
       lastReply: input.lastReply ?? '',
-      senderName: input.senderName ?? '',
+      senderName,
       greeting: input.greeting ?? 'Oi',
       offerDetails: input.offerDetails?.trim() ?? '',
     },
@@ -144,7 +145,7 @@ export function validateGeneratedOutreach(
     context.conversation.stage === 'Abertura' && context.conversation.senderName &&
     !initial.includes(normalizedText(context.conversation.senderName))
   ) issues.push('A abertura deve apresentar o nome informado para quem envia.')
-  const personalizedGreeting = initial.match(/^(?:oi|ola),\s+([\p{Letter}]+)/u)?.[1]
+  const personalizedGreeting = initial.match(/^(?:oi|ola),\s+(?!aqui\b)([\p{Letter}]+)/u)?.[1]
   const knownNames = [normalizedText(context.conversation.senderName), normalizedText(context.leadData.companyName)]
   if (
     context.conversation.stage === 'Abertura' && personalizedGreeting && !['bom', 'boa'].includes(personalizedGreeting) &&
@@ -153,8 +154,8 @@ export function validateGeneratedOutreach(
   if (context.conversation.stage === 'Abertura' && /\b(?:proposta|oferta|preco|valor|desconto|orcamento|parcelamento)\b/.test(initial)) {
     issues.push('A abertura antecipa condições comerciais.')
   }
-  if (context.conversation.stage !== 'Encerrar' && !hasExplicitRefusal(context.conversation.lastReply) && !copy.whatsappMessage.trim().endsWith('?')) issues.push('A mensagem inicial não termina com uma pergunta.')
-  if ((copy.whatsappMessage.match(/\?/g)?.length ?? 0) > (context.conversation.stage === 'Abertura' ? 2 : 1)) issues.push('A mensagem deve fazer no máximo uma pergunta principal por vez.')
+  if (context.conversation.stage === 'Abertura' && !hasExplicitRefusal(context.conversation.lastReply) && !copy.whatsappMessage.trim().endsWith('?')) issues.push('A abertura deve confirmar o responsável com uma pergunta.')
+  if ((copy.whatsappMessage.match(/\?/g)?.length ?? 0) > 1) issues.push('A mensagem deve fazer no máximo uma pergunta por vez.')
   if (/https?:\/\/|www\./i.test(allText)) issues.push('A resposta contém uma URL.')
   if (/\b(vimos|encontramos|trabalhamos|nossa equipe)\b/.test(allText)) {
     issues.push('A resposta usa voz de equipe.')
@@ -193,33 +194,33 @@ export function validateGeneratedOutreach(
 export function createSafeOutreachTemplate(context: OutreachContext): GeneratedOutreachCopy {
   const { service } = context.campaignConfig
   const { stage, senderName, greeting, offerDetails } = context.conversation
-  const introduction = senderName ? `Aqui é ${senderName}, da DigiUP. ` : 'Aqui é da DigiUP. '
+  const introduction = senderName ? `Aqui é o ${senderName} da DigiUP. ` : 'Aqui é da DigiUP. '
   const lastReply = normalizedText(context.conversation.lastReply)
   const redirectedToOtherResponsible = /\b(?:nao sou eu|nao sou (?:a )?pessoa responsavel|nao sou responsavel|nao cuido|outra pessoa|minha socia|meu socio|fale com|procure (?:o|a))\b/.test(lastReply)
   const confirmedResponsible = !redirectedToOtherResponsible
     && /\b(?:sou eu|eu que cuido|comigo|sim[,! ]|sou responsavel|sou a responsavel|sou o responsavel)\b/.test(lastReply)
-  const openingGreeting = greeting === 'Oi' ? 'Oi' : `Oi, ${greeting.toLocaleLowerCase('pt-BR')}`
+  const openingGreeting = greeting === 'Oi' ? 'Oi' : greeting
   const messages: Record<typeof stage, string> = {
-    'Abertura': `${openingGreeting}! Tudo bem? ${introduction}Falo com quem cuida da presença digital da empresa?`,
+    'Abertura': `${openingGreeting}, ${senderName ? `aqui é o ${senderName} da DigiUP` : 'aqui é da DigiUP'}. Você cuida da presença digital da empresa?`,
     'Identificar responsável': confirmedResponsible
-      ? `Prazer! ${introduction}Vi o perfil de vocês no Google e queria entender como apresentam os serviços online hoje. Posso te fazer uma pergunta rápida?`
+      ? `${introduction}Queria entender como vocês apresentam os serviços online hoje`
       : redirectedToOtherResponsible
-        ? 'Entendi. Você consegue me indicar quem cuida dessa parte?'
+        ? 'Entendi, você consegue me indicar quem cuida dessa parte?'
         : `${introduction}Você cuida da divulgação e da presença digital da empresa?`,
-    'Pedir permissão': `${introduction}Queria entender como vocês apresentam os serviços e recebem contatos hoje. Posso te fazer uma pergunta rápida?`,
+    'Pedir permissão': `${introduction}Queria entender como vocês apresentam os serviços e recebem contatos hoje. Posso te perguntar uma coisa?`,
     'Entender cenário': 'Hoje vocês usam mais o Instagram e o WhatsApp para apresentar os serviços e receber contatos ou também usam um site?',
-    'Explorar necessidade': 'Entendi. Esse formato atende bem vocês hoje ou tem alguma coisa nessa parte que gostariam de facilitar?',
-    'Apresentar ideia': `Pelo que você contou, ${service} parece um caminho possível para atender esse objetivo. Quer que eu explique como eu pensaria a estrutura?`,
-    'Qualificar interesse': 'Para eu pensar em algo que faça sentido para vocês, o que seria mais importante nesse projeto?',
-    'Responder dúvida': 'Posso esclarecer. Qual ponto você gostaria de entender melhor?',
+    'Explorar necessidade': 'Esse formato funciona bem para vocês ou tem alguma coisa que gostariam de mudar?',
+    'Apresentar ideia': `Pelo que você contou, ${service} pode fazer sentido para esse objetivo. Quer que eu explique como poderia funcionar?`,
+    'Qualificar interesse': 'O que seria mais importante para esse projeto?',
+    'Responder dúvida': 'Qual ponto você quer entender melhor?',
     'Apresentar condições': offerDetails
-      ? `A opção que tenho definida é: ${offerDetails}. Isso funciona para vocês?`
-      : 'Para te passar as condições corretas, preciso confirmar o escopo. O que deve entrar nesta opção?',
+      ? `A opção definida é ${offerDetails}. Faz sentido para vocês?`
+      : 'O que deve entrar nessa opção para eu confirmar as condições?',
     'Confirmar decisão': offerDetails
-      ? `As condições combinadas são: ${offerDetails}. Quer seguir com essa opção?`
-      : 'Antes de avançarmos, falta definir as condições da opção. Qual ponto ainda precisa de confirmação?',
-    'Retomar contato': 'Oi! Podemos continuar a conversa por aqui?',
-    'Encerrar': 'Tudo bem, obrigado por me responder. Bom trabalho por aí!',
+      ? `Combinamos estas condições: ${offerDetails}. Quer seguir com essa opção?`
+      : 'Qual ponto ainda precisa de confirmação?',
+    'Retomar contato': 'Oi, podemos continuar a conversa por aqui?',
+    'Encerrar': 'Tudo bem, obrigado por responder. Não vou insistir',
   }
   const salesArgument = stage === 'Apresentar condições'
     ? 'Apresente somente o escopo e as condições informadas. Não invente preço, prazo, desconto ou forma de pagamento.'

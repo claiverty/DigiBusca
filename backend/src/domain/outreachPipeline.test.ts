@@ -106,16 +106,16 @@ test('rejeita nome pessoal na saudação, voz de equipe e afirmação sem evidê
 
 test('abertura apresenta Cristhian e confirma o responsável sem antecipar a oferta', () => {
   const copy = createSafeOutreachTemplate(buildOutreachContext(baseInput))
-  assert.match(copy.whatsappMessage, /Cristhian, da DigiUP/)
-  assert.match(copy.whatsappMessage, /quem cuida da presença digital/)
+  assert.match(copy.whatsappMessage, /Cristhian da DigiUP/)
+  assert.match(copy.whatsappMessage, /Você cuida da presença digital/)
   assert.doesNotMatch(copy.whatsappMessage, /site|Google|proposta|clientes/)
 })
 
 test('etapa de identificação avança se o lead já confirmou que é responsável', () => {
   const context = buildOutreachContext({ ...baseInput, stage: 'Identificar responsável', lastReply: 'Sim, sou eu.' })
   const copy = createSafeOutreachTemplate(context)
-  assert.match(copy.whatsappMessage, /Prazer!/)
-  assert.match(copy.whatsappMessage, /perfil de vocês no Google/)
+  assert.match(copy.whatsappMessage, /Aqui é o Cristhian da DigiUP/)
+  assert.match(copy.whatsappMessage, /como vocês apresentam os serviços online hoje/)
   assert.doesNotMatch(copy.whatsappMessage, /Você cuida da divulgação/)
   assert.deepEqual(validateGeneratedOutreach(copy, context), [])
 })
@@ -125,7 +125,7 @@ test('etapa de identificação respeita resposta que direciona para outra pessoa
     const context = buildOutreachContext({ ...baseInput, stage: 'Identificar responsável', lastReply })
     const copy = createSafeOutreachTemplate(context)
     assert.match(copy.whatsappMessage, /me indicar quem cuida/, lastReply)
-    assert.doesNotMatch(copy.whatsappMessage, /Prazer!/, lastReply)
+    assert.doesNotMatch(copy.whatsappMessage, /!/, lastReply)
     assert.deepEqual(validateGeneratedOutreach(copy, context), [], lastReply)
   }
 })
@@ -133,7 +133,7 @@ test('etapa de identificação respeita resposta que direciona para outra pessoa
 test('apresentação da ideia não promete uma prévia que não foi aprovada', () => {
   const context = buildOutreachContext({ ...baseInput, stage: 'Apresentar ideia', lastReply: 'Preciso organizar melhor as informações do escritório.' })
   const copy = createSafeOutreachTemplate(context)
-  assert.match(copy.whatsappMessage, /caminho possível/)
+  assert.match(copy.whatsappMessage, /pode fazer sentido/)
   assert.doesNotMatch(copy.whatsappMessage, /mostrar um exemplo|enviar uma prévia|criar uma amostra/)
   assert.deepEqual(validateGeneratedOutreach(copy, context), [])
 })

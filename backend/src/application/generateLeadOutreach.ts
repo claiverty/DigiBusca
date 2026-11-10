@@ -9,6 +9,7 @@ import {
   createSafeOutreachTemplate,
   validateGeneratedOutreach,
 } from '../domain/outreachPipeline.js'
+import { normalizeWhatsAppReplyText } from '../domain/whatsappTextStyle.js'
 import {
   generateOutreachWithGemini,
   GeminiOutreachError,
@@ -39,6 +40,11 @@ export async function generateLeadOutreach(
     }
   }
 
+  generatedCopy = {
+    ...generatedCopy,
+    whatsappMessage: normalizeWhatsAppReplyText(generatedCopy.whatsappMessage),
+    followUpMessage: normalizeWhatsAppReplyText(generatedCopy.followUpMessage),
+  }
   const validationIssues = validateGeneratedOutreach(generatedCopy, context)
 
   if (validationIssues.length > 0) {

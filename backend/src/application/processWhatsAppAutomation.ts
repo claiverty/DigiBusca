@@ -1,6 +1,7 @@
 import { getEvolutionApiConfig, getGeminiApiKey, isWhatsAppAutomationRuntimeEnabled } from '../config/supabase.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
 import { autoReplyFailureDetails, generateWhatsAppAutoReply, WhatsAppAutoReplyError } from '../integrations/whatsappAutoReplyProvider.js'
+import { normalizeWhatsAppReplyText } from '../domain/whatsappTextStyle.js'
 import { selectWhatsAppAutomationReplyPlan } from './whatsappAutomationPolicy.js'
 import { getEvolutionConnectionState, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
 import { logWarning } from '../observability/logger.js'
@@ -135,9 +136,9 @@ function keepStageFromMovingBackward(current: WhatsAppAutomationStage, next: Wha
 function distinctFollowUpQuestion(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>) {
   const project = resolveWhatsAppProjectContext(messages)
   if (project.currentService === 'landing page' || project.currentService === 'site') {
-    return 'Entendi. Vocês já têm algum site ou referência visual para o estilo dessa página?'
+    return 'Vocês já têm alguma referência visual para essa página?'
   }
-  return 'Entendi. Já existe algum exemplo ou material que represente o que vocês imaginam para esse projeto?'
+  return 'Já existe algum exemplo ou material que represente o que vocês imaginam para esse projeto?'
 }
 
 function requiresHumanHandoff(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null; occurredAt?: string }>) {
@@ -299,7 +300,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         generated = {
           action: 'reply',
           replyText: [
-            repeatedQuestionRecovery ? 'Você tem razão, desculpa por repetir. Vou considerar o que você já me contou e seguir daqui.' : undefined,
+            repeatedQuestionRecovery ? 'Você tem razão, desculpa por repetir. Vou seguir com o que você já me contou' : undefined,
             identityDisclosureResponse ? identityReply(message.body ?? '') : undefined,
           schedulingReply?.replyText,
           ].filter(Boolean).join(' '),
@@ -351,7 +352,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       if (assistantRequestedClosure) {
         generated = {
           action: 'reply',
-          replyText: 'Perfeito! Se surgir mais alguma dúvida, pode me chamar por aqui.',
+          replyText: 'Se surgir outra dúvida, pode me chamar por aqui',
           nextStage: 'closed',
         }
       }
@@ -371,7 +372,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       if (generated.action === 'reply' && inboundSignalsClosure && !assistantRequestedClosure) {
         generated = {
           action: 'reply',
-          replyText: 'Perfeito! Se precisar de algo, fico à disposição por aqui.',
+          replyText: 'Imagina, se precisar é só me chamar por aqui',
           nextStage: 'closed',
         }
       }
@@ -382,7 +383,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       if (inboundProjectInquiry && generated.action === 'reply' && isColdProspectingReply(generated.replyText)) {
         generated = {
           action: 'reply',
-          replyText: 'Oi! Claro, vamos conversar. Qual é o objetivo principal do projeto?',
+          replyText: 'Oi, me conta um pouco do que você está pensando para o projeto',
           nextStage: 'understand_scenario',
         }
       }
@@ -401,7 +402,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         }
       }
 
-      const body = generated.replyText.trim()
+      const body = normalizeWhatsAppReplyText(generated.replyText)
       await store.markAutomationRunSending(runId)
       sendingStarted = true
       const replyId = await sendEvolutionTextMessage(message.phoneNumberId, message.contactWaId, body)
