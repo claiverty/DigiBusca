@@ -510,6 +510,20 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
 
+  if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/conversations/pending-count') {
+    response.setHeader('Cache-Control', 'no-store')
+    const count = await new WhatsAppStore().countHumanPendingConversations(accessToken, user.id)
+    sendJson(response, 200, { data: count })
+    return
+  }
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/conversations/pending') {
+    response.setHeader('Cache-Control', 'no-store')
+    const data = await new WhatsAppStore().listHumanPendingConversations(accessToken, user.id)
+    sendJson(response, 200, { data })
+    return
+  }
+
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/conversations') {
     const options = parseWhatsAppPageOptions(requestUrl.searchParams)
     if (!options) {

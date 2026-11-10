@@ -134,15 +134,27 @@ export function validateGeneratedOutreach(
   if (copy.followUpMessage.length > 320) issues.push('O follow-up ultrapassa 320 caracteres.')
   if (copy.salesArgument.length > 350) issues.push('O argumento ultrapassa 350 caracteres.')
   const opening = initial
-  const isSimpleGreeting = /^(?:(?:oi|ola)(?:, (?:bom dia|boa tarde|boa noite))?|bom dia|boa tarde|boa noite)[!, .]+tudo (?:bem|certo)\?$/.test(opening)
-  if (context.conversation.stage === 'Abertura' && (!isSimpleGreeting || copy.whatsappMessage.length > 140)) {
-    issues.push('A abertura deve conter somente uma saudação curta, sem identificação.')
+  if (context.conversation.stage === 'Abertura' && (!/^(?:oi|ola|bom dia|boa tarde|boa noite)\b/.test(opening) || copy.whatsappMessage.length > 220)) {
+    issues.push('A abertura deve começar com uma saudação natural e ter no máximo 220 caracteres.')
   }
-  if (context.conversation.stage === 'Abertura' && /\b(site|google|proposta|servico|clientes|vendas|trabalho|oportunidade)\b/.test(initial)) {
-    issues.push('A abertura antecipa uma oferta comercial.')
+  if (context.conversation.stage === 'Abertura' && !/\b(?:falo com|voce cuida|quem cuida|responsavel pela)\b/.test(initial)) {
+    issues.push('A abertura deve confirmar se o contato cuida da presença digital.')
+  }
+  if (
+    context.conversation.stage === 'Abertura' && context.conversation.senderName &&
+    !initial.includes(normalizedText(context.conversation.senderName))
+  ) issues.push('A abertura deve apresentar o nome informado para quem envia.')
+  const personalizedGreeting = initial.match(/^(?:oi|ola),\s+([\p{Letter}]+)/u)?.[1]
+  const knownNames = [normalizedText(context.conversation.senderName), normalizedText(context.leadData.companyName)]
+  if (
+    context.conversation.stage === 'Abertura' && personalizedGreeting && !['bom', 'boa'].includes(personalizedGreeting) &&
+    !knownNames.some((name) => name && name.split(/\s+/).includes(personalizedGreeting))
+  ) issues.push('A abertura usa um nome que não foi fornecido.')
+  if (context.conversation.stage === 'Abertura' && /\b(?:proposta|oferta|preco|valor|desconto|orcamento|parcelamento)\b/.test(initial)) {
+    issues.push('A abertura antecipa condições comerciais.')
   }
   if (context.conversation.stage !== 'Encerrar' && !hasExplicitRefusal(context.conversation.lastReply) && !copy.whatsappMessage.trim().endsWith('?')) issues.push('A mensagem inicial não termina com uma pergunta.')
-  if ((copy.whatsappMessage.match(/\?/g)?.length ?? 0) > 1) issues.push('A mensagem deve fazer no máximo uma pergunta por vez.')
+  if ((copy.whatsappMessage.match(/\?/g)?.length ?? 0) > (context.conversation.stage === 'Abertura' ? 2 : 1)) issues.push('A mensagem deve fazer no máximo uma pergunta principal por vez.')
   if (/https?:\/\/|www\./i.test(allText)) issues.push('A resposta contém uma URL.')
   if (/\b(vimos|encontramos|trabalhamos|nossa equipe)\b/.test(allText)) {
     issues.push('A resposta usa voz de equipe.')
@@ -181,14 +193,23 @@ export function validateGeneratedOutreach(
 export function createSafeOutreachTemplate(context: OutreachContext): GeneratedOutreachCopy {
   const { service } = context.campaignConfig
   const { stage, senderName, greeting, offerDetails } = context.conversation
-  const introduction = senderName ? `Sou ${senderName}. ` : ''
+  const introduction = senderName ? `Aqui é ${senderName}, da DigiUP. ` : 'Aqui é da DigiUP. '
+  const lastReply = normalizedText(context.conversation.lastReply)
+  const redirectedToOtherResponsible = /\b(?:nao sou eu|nao sou (?:a )?pessoa responsavel|nao sou responsavel|nao cuido|outra pessoa|minha socia|meu socio|fale com|procure (?:o|a))\b/.test(lastReply)
+  const confirmedResponsible = !redirectedToOtherResponsible
+    && /\b(?:sou eu|eu que cuido|comigo|sim[,! ]|sou responsavel|sou a responsavel|sou o responsavel)\b/.test(lastReply)
+  const openingGreeting = greeting === 'Oi' ? 'Oi' : `Oi, ${greeting.toLocaleLowerCase('pt-BR')}`
   const messages: Record<typeof stage, string> = {
-    'Abertura': `${greeting === 'Oi' ? 'Oi' : `Oi, ${greeting.toLocaleLowerCase('pt-BR')}`}! Tudo bem?`,
-    'Identificar responsável': `${introduction}Queria falar com quem cuida da divulgação e da presença digital da empresa. É você?`,
-    'Pedir permissão': `${introduction}Trabalho com ${service}. Queria entender como vocês cuidam dessa parte hoje. Posso te fazer uma pergunta rápida?`,
+    'Abertura': `${openingGreeting}! Tudo bem? ${introduction}Falo com quem cuida da presença digital da empresa?`,
+    'Identificar responsável': confirmedResponsible
+      ? `Prazer! ${introduction}Vi o perfil de vocês no Google e queria entender como apresentam os serviços online hoje. Posso te fazer uma pergunta rápida?`
+      : redirectedToOtherResponsible
+        ? 'Entendi. Você consegue me indicar quem cuida dessa parte?'
+        : `${introduction}Você cuida da divulgação e da presença digital da empresa?`,
+    'Pedir permissão': `${introduction}Queria entender como vocês apresentam os serviços e recebem contatos hoje. Posso te fazer uma pergunta rápida?`,
     'Entender cenário': 'Hoje vocês usam mais o Instagram e o WhatsApp para apresentar os serviços e receber contatos ou também usam um site?',
     'Explorar necessidade': 'Entendi. Esse formato atende bem vocês hoje ou tem alguma coisa nessa parte que gostariam de facilitar?',
-    'Apresentar ideia': `Se fizer sentido para vocês, posso mostrar um exemplo de ${service} para avaliarmos juntos se ajuda no que precisam. Quer ver?`,
+    'Apresentar ideia': `Pelo que você contou, ${service} parece um caminho possível para atender esse objetivo. Quer que eu explique como eu pensaria a estrutura?`,
     'Qualificar interesse': 'Para eu pensar em algo que faça sentido para vocês, o que seria mais importante nesse projeto?',
     'Responder dúvida': 'Posso esclarecer. Qual ponto você gostaria de entender melhor?',
     'Apresentar condições': offerDetails

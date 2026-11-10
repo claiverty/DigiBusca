@@ -30,6 +30,7 @@ export type WhatsAppAutomationRuntimeContext = {
   conversationId: string
   automationPaused: boolean
   automationOptedOut: boolean
+  automationPauseReason: string | null
   automationStage: WhatsAppAutomationStage
   lastMessageAt: string | null
   lastMessageDirection: 'inbound' | 'outbound' | null
@@ -249,6 +250,18 @@ export class WhatsAppStore {
     return Boolean(result.data)
   }
 
+  async resumeClosedConversationAutomation(userId: string, conversationId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_conversations')
+      .update({ automation_paused: false, automation_pause_reason: null })
+      .eq('id', conversationId).eq('user_id', userId)
+      .eq('automation_paused', true).eq('automation_opted_out', false)
+      .eq('automation_pause_reason', 'assistant_closed')
+      .select('id').maybeSingle()
+    throwIfError(result.error, 'Não foi possível retomar a conversa encerrada.')
+    return Boolean(result.data)
+  }
+
   async markConversationOptedOut(userId: string, conversationId: string) {
     const admin = createWhatsAppWebhookSupabaseClient()
     const result = await admin.from('whatsapp_conversations')
@@ -293,7 +306,7 @@ export class WhatsAppStore {
 
     const [conversationResult, profileResult] = await Promise.all([
       admin.from('whatsapp_conversations')
-        .select('id, automation_paused, automation_opted_out, automation_stage, last_message_at, last_message_direction')
+        .select('id, automation_paused, automation_opted_out, automation_pause_reason, automation_stage, last_message_at, last_message_direction')
         .eq('user_id', connection.user_id).eq('phone_number_id', phoneNumberId)
         .eq('contact_wa_id', contactWaId).maybeSingle(),
       admin.from('whatsapp_automation_profiles')
@@ -304,7 +317,7 @@ export class WhatsAppStore {
     throwIfError(profileResult.error, 'Não foi possível carregar as regras de atendimento automático.')
     if (!conversationResult.data) return undefined
     const conversation = conversationResult.data as {
-      id: string; automation_paused: boolean | null; automation_opted_out: boolean | null; automation_stage: string | null;
+      id: string; automation_paused: boolean | null; automation_opted_out: boolean | null; automation_pause_reason: string | null; automation_stage: string | null;
       last_message_at: string | null; last_message_direction: 'inbound' | 'outbound' | null
     }
     const stage = validAutomationStages.includes(conversation.automation_stage as WhatsAppAutomationStage)
@@ -313,7 +326,7 @@ export class WhatsAppStore {
     const messagesResult = await admin.from('whatsapp_messages')
       .select('provider_message_id, direction, body, occurred_at').eq('user_id', connection.user_id)
       .eq('phone_number_id', phoneNumberId).eq('conversation_id', conversation.id)
-      .order('occurred_at', { ascending: false }).order('created_at', { ascending: false }).limit(12)
+      .order('occurred_at', { ascending: false }).order('created_at', { ascending: false }).limit(40)
     throwIfError(messagesResult.error, 'Não foi possível carregar o contexto recente da conversa.')
 
     return {
@@ -323,6 +336,7 @@ export class WhatsAppStore {
       conversationId: conversation.id,
       automationPaused: conversation.automation_paused === true,
       automationOptedOut: conversation.automation_opted_out === true,
+      automationPauseReason: conversation.automation_pause_reason,
       automationStage: stage,
       lastMessageAt: conversation.last_message_at,
       lastMessageDirection: conversation.last_message_direction,
@@ -709,6 +723,43 @@ export class WhatsAppStore {
       })),
       nextCursor: page.nextCursor,
     }
+  }
+
+  async countHumanPendingConversations(accessToken: string, userId: string) {
+    const result = await this.userClient(accessToken)
+      .from('whatsapp_conversations')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .in('automation_pause_reason', ['handoff', 'handoff_send_failed'])
+    throwIfError(result.error, 'Não foi possível consultar os atendimentos humanos pendentes.')
+    return result.count ?? 0
+  }
+
+  async listHumanPendingConversations(accessToken: string, userId: string) {
+    const result = await this.userClient(accessToken)
+      .from('whatsapp_conversations')
+      .select('id, user_id, phone_number_id, contact_wa_id, contact_name, last_message_at, last_message_preview, last_message_direction, automation_paused, automation_opted_out, automation_pause_reason, created_at, updated_at')
+      .eq('user_id', userId)
+      .in('automation_pause_reason', ['handoff', 'handoff_send_failed'])
+      .not('last_message_at', 'is', null)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .limit(1000)
+    throwIfError(result.error, 'Não foi possível carregar os atendimentos humanos pendentes.')
+    return ((result.data ?? []) as ConversationRow[]).map((row) => ({
+      id: row.id,
+      phoneNumberId: row.phone_number_id,
+      contactWaId: row.contact_wa_id,
+      contactName: row.contact_name ?? undefined,
+      lastMessageAt: row.last_message_at ?? undefined,
+      lastMessagePreview: row.last_message_preview ?? undefined,
+      lastMessageDirection: row.last_message_direction ?? undefined,
+      automationPaused: row.automation_paused === true,
+      automationOptedOut: row.automation_opted_out === true,
+      automationPauseReason: row.automation_pause_reason ?? undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
   }
 
   async listConversationMessages(

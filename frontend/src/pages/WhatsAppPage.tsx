@@ -7,6 +7,8 @@ import {
   getWhatsAppConnections,
   getWhatsAppConversationMessages,
   getWhatsAppConversations,
+  getWhatsAppHumanPendingCount,
+  getWhatsAppHumanPendingConversations,
   getWhatsAppAutomationProfile,
   saveWhatsAppAutomationProfile,
   setWhatsAppConversationAutomationPaused,
@@ -23,21 +25,34 @@ type PageTab = 'inbox' | 'settings' | 'prospecting'
 type LoadState = 'loading' | 'ready' | 'error'
 const inboxRefreshIntervalMs = 5_000
 
+function mergeInboxConversations(latest: WhatsAppConversation[], pending: WhatsAppConversation[]) {
+  const byId = new Map<string, WhatsAppConversation>()
+  for (const conversation of [...pending, ...latest]) {
+    if (!byId.has(conversation.id)) byId.set(conversation.id, conversation)
+  }
+  return [...byId.values()].sort((left, right) => {
+    const leftPending = left.automationPauseReason === 'handoff' || left.automationPauseReason === 'handoff_send_failed'
+    const rightPending = right.automationPauseReason === 'handoff' || right.automationPauseReason === 'handoff_send_failed'
+    if (leftPending !== rightPending) return leftPending ? -1 : 1
+    return Date.parse(right.lastMessageAt ?? right.updatedAt) - Date.parse(left.lastMessageAt ?? left.updatedAt)
+  })
+}
+
 function newAutomationProfileDraft(phoneNumberId: string): WhatsAppAutomationProfileInput {
   return {
     phoneNumberId,
     businessName: 'DigiUP',
-    senderIdentity: 'Atendimento da DigiUP, no tom do Cristhian.',
+    senderIdentity: 'Cristhian, agente de atendimento da DigiUP.',
     serviceSummary: 'A DigiUP desenvolve sites profissionais e presença digital, sistemas e plataformas sob medida, integrações e APIs, automações com IA, além de manutenção e evolução de sites e sistemas. Atende empresas online em todo o Brasil. O primeiro contato é uma conversa de diagnóstico.',
     approvedFacts: [
       'A DigiUP cria sites profissionais e presença digital, sistemas e plataformas sob medida, soluções de IA e automação, integrações e APIs, além de manutenção, evolução e suporte.',
       'Atende empresas online em todo o Brasil.',
       'O primeiro contato começa com o desafio, o objetivo e o momento do negócio; a DigiUP organiza uma conversa de diagnóstico e indica o caminho adequado.',
       'Escopo, etapas, canais de acompanhamento e prazos dependem de cada projeto e são definidos em proposta. O site não publica preços.',
-      'Não prometa valores, prazos, resultados, disponibilidade, escopo fechado ou condições comerciais. Encaminhe essas perguntas ao atendimento humano pelo mesmo WhatsApp.',
+      'Os valores, prazos, escopo e condições comerciais são definidos conforme cada projeto e precisam ser confirmados antes de informar ao cliente.',
     ].join('\n'),
     escalationContact: 'este mesmo WhatsApp',
-    responseMode: 'handoff_only',
+    responseMode: 'gemini',
     automationEnabled: false,
     channelApproved: false,
     contentApproved: false,
@@ -79,6 +94,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [status, setStatus] = useState<WhatsAppEvolutionSetupStatus | null>(null)
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [conversations, setConversations] = useState<WhatsAppConversation[]>([])
+  const [humanPendingCount, setHumanPendingCount] = useState(0)
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<WhatsAppMessage[]>([])
   const threadMessagesRef = useRef<HTMLDivElement | null>(null)
@@ -106,7 +122,6 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [automationNotice, setAutomationNotice] = useState('')
   const [pauseBusy, setPauseBusy] = useState(false)
   const [pauseError, setPauseError] = useState('')
-
   const loadStatus = useCallback(async () => {
     setLoadState('loading')
 
@@ -239,10 +254,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     setInboxState('loading')
     setInboxError('')
 
-    void getWhatsAppConversations()
-      .then((page) => {
+    void Promise.all([
+      getWhatsAppConversations(),
+      getWhatsAppHumanPendingConversations().catch(() => []),
+    ])
+      .then(([page, pending]) => {
         if (!active) return
-        const items = Array.isArray(page?.data) ? page.data : []
+        const items = mergeInboxConversations(Array.isArray(page?.data) ? page.data : [], pending)
         setConversations(items)
         setSelectedConversationId((current) => (
           current && items.some((conversation) => conversation.id === current)
@@ -256,6 +274,11 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         setInboxError(error instanceof Error ? error.message : 'Não foi possível carregar as conversas.')
         setInboxState('error')
       })
+    void getWhatsAppHumanPendingCount()
+      .then((count) => {
+        if (active) setHumanPendingCount(count)
+      })
+      .catch(() => undefined)
 
     return () => { active = false }
   }, [refreshKey])
@@ -297,9 +320,10 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
       try {
         await Promise.all([
           getWhatsAppConversations()
-            .then((page) => {
+            .then(async (page) => {
               if (!active) return
-              const items = Array.isArray(page?.data) ? page.data : []
+              const pending = await getWhatsAppHumanPendingConversations().catch(() => [])
+              const items = mergeInboxConversations(Array.isArray(page?.data) ? page.data : [], pending)
               setConversations(items)
               setSelectedConversationId((current) => (
                 current && items.some((conversation) => conversation.id === current)
@@ -314,6 +338,11 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               setInboxError(error instanceof Error ? error.message : 'Não foi possível atualizar as conversas.')
               setInboxState('error')
             }),
+          getWhatsAppHumanPendingCount()
+            .then((count) => {
+              if (active) setHumanPendingCount(count)
+            })
+            .catch(() => undefined),
           selectedConversationId
             ? getWhatsAppConversationMessages(selectedConversationId)
               .then((page) => {
@@ -473,6 +502,11 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               </div>
               <span className="whatsapp-message-count">{conversations.length}</span>
             </div>
+            {humanPendingCount > 0 && (
+              <p className="whatsapp-inbox-handoff-alert" role="status">
+                {humanPendingCount === 1 ? '1 conversa precisa da sua resposta.' : `${humanPendingCount} conversas precisam da sua resposta.`}
+              </p>
+            )}
             <div className="whatsapp-conversation-items" aria-live="polite">
               {inboxState === 'loading' && <p className="whatsapp-inline-state">Carregando conversas…</p>}
               {inboxState === 'error' && <p className="whatsapp-inline-state is-error" role="alert">{inboxError}</p>}
@@ -502,7 +536,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     <span className="whatsapp-conversation-preview">{conversation.lastMessagePreview || 'Mensagem recebida'}</span>
                     {(conversation.automationPauseReason === 'handoff' || conversation.automationPauseReason === 'handoff_send_failed') && (
                       <span className="whatsapp-conversation-handoff">
-                        {conversation.automationPauseReason === 'handoff_send_failed' ? 'Aviso automático não confirmado' : 'Atendimento humano pendente'}
+                        {conversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior' : 'Atendimento humano pendente'}
                       </span>
                     )}
                   </span>
@@ -525,7 +559,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </header>
                 <div className="whatsapp-thread-automation">
                   <span className={selectedConversation.automationPaused ? 'is-paused' : 'is-running'}>
-                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'handoff_send_failed' ? 'Aviso automático não confirmado; automação pausada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
+                    {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior; automação pausada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
                   </span>
                   <button className="secondary-button" type="button" onClick={() => void toggleConversationAutomation()} disabled={pauseBusy || selectedConversation.automationOptedOut === true}>
                     {selectedConversation.automationPaused ? <Play size={14} /> : <Pause size={14} />}
@@ -536,7 +570,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <p className="whatsapp-thread-note" role="status">A automação foi pausada para esta conversa. Revise o histórico e responda manualmente pelo WhatsApp conectado; retome a automação quando estiver pronto.</p>
                 )}
                 {selectedConversation.automationPauseReason === 'handoff_send_failed' && (
-                  <p className="whatsapp-thread-note" role="alert">Não foi possível confirmar o envio do aviso automático. A automação foi pausada; confira o WhatsApp conectado e responda por lá.</p>
+                  <p className="whatsapp-thread-note" role="alert">Uma tentativa de envio anterior falhou. A automação permanece pausada; confira o WhatsApp conectado e responda por lá.</p>
                 )}
                 {pauseError && <p className="whatsapp-connect-state is-error" role="alert">{pauseError}</p>}
                 <div className="whatsapp-thread-messages" aria-live="polite" ref={threadMessagesRef}>
@@ -670,12 +704,12 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                       setAutomationForm((current) => ({ ...current, responseMode, contentApproved: false, automationEnabled: false }))
                     }}
                   >
-                    <option value="handoff_only">Só encaminhar para atendimento humano</option>
+                    <option value="handoff_only">Somente atendimento humano</option>
                     <option value="gemini">Responder com Gemini dentro dos fatos aprovados</option>
                   </select>
                   <small>{automationForm.responseMode === 'handoff_only'
-                    ? 'O texto da conversa não é enviado ao Gemini. A primeira mensagem elegível recebe um aviso e a automação pausa para você assumir pelo WhatsApp.'
-                    : 'O Gemini recebe as mensagens recentes para preparar respostas com base nos fatos aprovados. Perguntas comerciais e pedidos de humano são encaminhados.'}</small>
+                    ? 'O texto da conversa não é enviado ao Gemini. Quando precisar de você, a conversa pausa e aparece como atendimento humano pendente na caixa de entrada; o lead não recebe aviso de transferência.'
+                    : 'O Gemini recebe o histórico recente para responder com base nos fatos aprovados. Pedidos comerciais sem condições aprovadas, pedidos de atendimento humano e assuntos sensíveis ficam pendentes para você, sem aviso de transferência ao lead.'}</small>
                 </label>
                 <label className="whatsapp-form-field">
                   <span>Nome do negócio</span>
@@ -683,7 +717,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </label>
                 <label className="whatsapp-form-field">
                   <span>Como o atendente se apresenta</span>
-                  <input value={automationForm.senderIdentity} maxLength={120} onChange={(event) => updateAutomationContent('senderIdentity', event.target.value)} placeholder="Ex.: Seu nome, da sua empresa" />
+                  <input value={automationForm.senderIdentity} maxLength={120} onChange={(event) => updateAutomationContent('senderIdentity', event.target.value)} placeholder="Ex.: Cristhian, agente de atendimento da DigiUP" />
                 </label>
                 <label className="whatsapp-form-field is-wide">
                   <span>Serviço e problema que resolve</span>
@@ -707,7 +741,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 <label className="whatsapp-check-row">
                   <input type="checkbox" checked={automationForm.contentApproved} onChange={(event) => setAutomationForm((current) => ({ ...current, contentApproved: event.target.checked, automationEnabled: event.target.checked && current.channelApproved ? current.automationEnabled : false }))} />
                   <span>{automationForm.responseMode === 'handoff_only'
-                    ? 'Aprovo o aviso de encaminhamento e a rota humana configurada para este número.'
+                    ? 'Aprovo a pausa da automação e o aviso interno de atendimento humano pendente.'
                     : 'Aprovo os fatos acima e o envio das mensagens recentes ao Gemini para preparar respostas.'}</span>
                 </label>
                 <label className="whatsapp-check-row is-enable">
@@ -726,8 +760,8 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </p>
               )}
               <p className="whatsapp-automation-privacy">{automationForm.responseMode === 'handoff_only'
-                ? 'No modo de encaminhamento humano, o bot não usa Gemini: após uma mensagem elegível, envia um aviso de recebimento, pausa a automação e deixa a conversa para você continuar pelo WhatsApp conectado.'
-                : 'No modo Gemini, o texto recente da conversa é enviado ao modelo para preparar cada resposta. Fora da janela de 24 horas, com recusa, pausa ou falta de dados aprovados, o bot não responde; dúvidas fora do escopo são encaminhadas ao contato humano indicado.'}</p>
+                ? 'Neste modo, o bot não usa Gemini. Quando uma conversa precisar de atendimento humano, ela pausa e fica marcada na caixa de entrada para você responder pelo WhatsApp conectado; o lead não recebe um aviso de transferência.'
+                : 'No modo Gemini, o histórico recente é enviado ao modelo para preparar respostas. Pedidos para falar com uma pessoa, condições comerciais não aprovadas e assuntos sensíveis pausam a automação e ficam marcados na caixa de entrada, sem aviso de transferência ao lead.'}</p>
               {automationError && <p className="whatsapp-connect-state is-error" role="alert">{automationError}</p>}
               {automationNotice && <p className="whatsapp-connect-state is-ready" role="status">{automationNotice}</p>}
               <div className="whatsapp-automation-actions">

@@ -250,6 +250,14 @@ export async function getWhatsAppConversations(before?: string): Promise<WhatsAp
   return getWhatsAppData<WhatsAppPage<WhatsAppConversation>>(`/whatsapp/conversations?${params.toString()}`)
 }
 
+export async function getWhatsAppHumanPendingCount(): Promise<number> {
+  return getWhatsAppData<number>('/whatsapp/conversations/pending-count')
+}
+
+export async function getWhatsAppHumanPendingConversations(): Promise<WhatsAppConversation[]> {
+  return getWhatsAppData<WhatsAppConversation[]>('/whatsapp/conversations/pending')
+}
+
 export async function getWhatsAppConversationMessages(
   conversationId: string,
   before?: string,

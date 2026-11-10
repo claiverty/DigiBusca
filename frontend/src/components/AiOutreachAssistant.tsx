@@ -48,7 +48,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
   const generatorChosenByUser = useRef(false)
   const [stage, setStage] = useState<ConversationStage>(conversationStages.find((item) => item === (currentStage ?? lead.conversationStage)) ?? 'Abertura')
   const [lastReply, setLastReply] = useState('')
-  const [senderName, setSenderName] = useState('')
+  const [senderName, setSenderName] = useState('Cristhian')
   const [greeting, setGreeting] = useState<OutreachGreeting>(() => {
     const hour = new Date().getHours()
     return hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
@@ -146,8 +146,8 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
   }
 
   function hasRequiredSenderIdentity() {
-    if (stage !== 'Identificar responsável' || senderName.trim() || hasExplicitRefusal(lastReply)) return true
-    setError('Informe como você se apresenta antes de perguntar quem cuida da presença digital.')
+    if (!['Abertura', 'Identificar responsável'].includes(stage) || senderName.trim() || hasExplicitRefusal(lastReply)) return true
+    setError('Informe como você se apresenta antes de iniciar a conversa.')
     return false
   }
 
@@ -243,7 +243,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
               A resposta informada entra no contexto da IA junto com os dados comerciais e a etapa. Inclua apenas o necessário.
             </p>
 
-            <p className="ai-outreach-note">Comece com um cumprimento breve e espere a resposta. Depois, conduza a conversa com uma pergunta por vez. Informe escopo e condições antes de apresentar ou confirmar uma oferta; o DigiBusca só cria rascunhos.</p>
+            <p className="ai-outreach-note">Cumprimente, apresente-se como Cristhian e confirme se falou com a pessoa responsável. Depois, entenda a necessidade e avance com uma pergunta principal por vez. O DigiBusca cria rascunhos para você revisar.</p>
             <div className="ai-outreach-form">
               <label><span>Gerar com</span><select value={generator} disabled={isGenerating} onChange={(event) => { generatorChosenByUser.current = true; setGenerator(event.target.value as OutreachGenerator); setResult(undefined); setError('') }}>
                 <option value="gemini">Gemini</option>
@@ -260,7 +260,7 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
               <label><span>Etapa da conversa</span><select value={stage} disabled={isGenerating} onChange={(event) => { setStage(event.target.value as ConversationStage); setResult(undefined); setError('') }}>
                 {conversationStages.map((item) => <option key={item}>{item}</option>)}
               </select></label>
-              {(stage === 'Identificar responsável' || stage === 'Pedir permissão') && <label><span>Como você se apresenta{stage === 'Identificar responsável' ? '' : ' (opcional)'}</span><input value={senderName} required={stage === 'Identificar responsável'} maxLength={80} disabled={isGenerating} onChange={(event) => { setSenderName(event.target.value); setResult(undefined) }} placeholder="Ex.: Seu nome, da sua empresa" /></label>}
+              {(stage === 'Abertura' || stage === 'Identificar responsável' || stage === 'Pedir permissão') && <label><span>Nome de quem atende</span><input value={senderName} required={stage !== 'Pedir permissão'} maxLength={80} disabled={isGenerating} onChange={(event) => { setSenderName(event.target.value); setResult(undefined) }} placeholder="Ex.: Cristhian" /></label>}
               {stage === 'Abertura' ? <label><span>Saudação</span><select value={greeting} disabled={isGenerating} onChange={(event) => { setGreeting(event.target.value as OutreachGreeting); setResult(undefined) }}>
                 {greetingOptions.map((item) => <option key={item}>{item}</option>)}
               </select></label> : <label><span>O que a pessoa respondeu?</span><textarea value={lastReply} disabled={isGenerating} maxLength={2000} onChange={(event) => { setLastReply(event.target.value); setResult(undefined) }} placeholder="Cole ou resuma a resposta para contextualizar a próxima mensagem" /></label>}
