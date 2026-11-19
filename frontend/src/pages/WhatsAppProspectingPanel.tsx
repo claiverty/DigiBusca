@@ -166,11 +166,11 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
         <div className="prospecting-overview-copy">
           <span className="eyebrow">NOVOS CONTATOS</span>
           <h2>Fila de prospecção</h2>
-          <p>O DigiBusca envia mensagens de texto pela Evolution API, em horário comercial e com intervalo entre os contatos.</p>
+          <p>Em dias úteis, os contatos da fila são distribuídos entre 9h e 14h, com intervalo de pelo menos 10 minutos. O total depende da fila elegível e da conexão do WhatsApp.</p>
         </div>
         <div className="prospecting-today-count">
           <strong>{dashboard?.dailyCount ?? '—'}<span> / {dashboard?.settings.dailyNewLeadLimit ?? dailyLimit}</span></strong>
-          <small>vagas usadas hoje</small>
+          <small>envios contabilizados hoje</small>
         </div>
 
         <div className="prospecting-controls">
@@ -208,7 +208,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
             </select>
           </label>
         )}
-        <p className="prospecting-policy-note">Só entram na fila leads salvos com consentimento registrado e status Novo. O envio roda de segunda a sexta, entre 9h e 18h, no fuso de São Paulo. Respostas de conversas ativas seguem o controle de automação da aba Conexão.</p>
+        <p className="prospecting-policy-note">A fila envia em dias úteis, entre 9h e 14h (horário de São Paulo), até o limite diário selecionado. Só entram leads novos com autorização explícita registrada; pedidos de descadastro permanecem bloqueados. Os resultados do Google Maps não informam autorização para WhatsApp.</p>
       </section>
 
       {(error || notice) && <div className={`prospecting-feedback${error ? ' is-error' : ''}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
@@ -222,7 +222,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
           {loadState === 'loading' && <p className="prospecting-empty">Carregando seus leads…</p>}
           {loadState === 'error' && <p className="prospecting-empty is-error">Não foi possível carregar os leads.</p>}
           {loadState === 'ready' && eligibleLeads.length === 0 && (
-            <div className="prospecting-empty-state"><CheckCircle2 size={22} /><strong>Nenhum lead elegível agora</strong><span>Salve leads novos e registre o consentimento antes de adicioná-los à fila.</span></div>
+            <div className="prospecting-empty-state"><CheckCircle2 size={22} /><strong>Nenhum lead elegível agora</strong><span>Leads novos aparecem aqui quando há autorização explícita de WhatsApp registrada.</span></div>
           )}
           <div className="prospecting-lead-list">
             {eligibleLeads.map((savedLead) => (

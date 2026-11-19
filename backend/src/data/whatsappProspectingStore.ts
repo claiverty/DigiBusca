@@ -144,6 +144,7 @@ export class WhatsAppProspectingStore {
     const result = await admin.from('whatsapp_prospecting_queue')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
+      .in('status', ['sending', 'sent', 'unknown'])
       .gte('claimed_at', start)
       .lt('claimed_at', end)
     throwIfError(result.error, 'Não foi possível consultar o limite diário de prospecção.')
