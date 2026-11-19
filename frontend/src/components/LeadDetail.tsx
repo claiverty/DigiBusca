@@ -324,7 +324,7 @@ export function LeadDetail({
           <div className="panel whatsapp-consent-panel">
             <span className="eyebrow">PERMISSÃO DE CONTATO</span>
             <h2>Consentimento para WhatsApp</h2>
-            <p>O DigiBusca só coloca o lead na fila quando a autorização e a origem estão registradas.</p>
+            <p>Leads retornados pela busca DigiBusca já recebem a origem de autorização. Se o contato pedir para parar, marque o descadastro para bloquear novos envios.</p>
             {!isSaved && (
               <div className="consent-save-prompt">
                 <span>Salve este lead antes de registrar a autorização.</span>

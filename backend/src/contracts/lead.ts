@@ -1,6 +1,7 @@
 export const opportunityTypes = ['Sem site', 'Site identificado', 'Perfil incompleto'] as const
 export type OpportunityType = (typeof opportunityTypes)[number]
 export type LeadStatus = 'Novo' | 'Contatado' | 'Respondeu' | 'Proposta' | 'Ganhou' | 'Perdeu'
+export const authorizedGoogleSearchSource = 'Busca DigiBusca/Google configurada pelo titular para retornar leads autorizados ao contato por WhatsApp'
 
 export type Lead = {
   id: string

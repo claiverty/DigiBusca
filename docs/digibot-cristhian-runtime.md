@@ -13,6 +13,8 @@ O runtime DigiBusca executa o Cristhian dentro do backend já hospedado na VPS. 
 
 A prospecção continua usando a fila existente do DigiBusca e suas validações. OpenBot permanece opcional para a geração de respostas; não é necessário para o runtime DigiBusca.
 
+O titular da conta confirmou que os leads retornados pela busca do DigiBusca são autorizados para contato. O backend grava essa origem quando salva resultados Google Maps e atualiza leads antigos dessa origem ainda marcados como `unknown`. Registros `opted_out` nunca são promovidos. A fila ainda precisa que um lead e sua mensagem sejam adicionados pela tela; o worker só despacha itens enfileirados.
+
 ## Configuração
 
 1. A migration `supabase/migrations/019_digibot_agent_runtime.sql` já foi aplicada ao Supabase de produção em 19/11/2026. Ela adiciona o modo, a configuração do provedor e a tabela de qualificação com acesso de leitura limitado ao dono da conta.

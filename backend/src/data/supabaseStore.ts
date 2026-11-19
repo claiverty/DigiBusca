@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Lead, LeadSnapshot, LeadStatus } from '../contracts/lead.js'
+import { authorizedGoogleSearchSource, type Lead, type LeadSnapshot, type LeadStatus } from '../contracts/lead.js'
 import type { CreateSaleInput, Sale, UpdateSaleInput } from '../contracts/sale.js'
 import type {
   CreateLeadInteractionInput,
@@ -142,6 +142,16 @@ function throwIfError(error: { message: string } | null) {
 
 const savedLeadSelect = 'lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at, updated_at'
 const savedLeadLegacySelect = 'lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at'
+function googleSearchAuthorization(lead: LeadSnapshot | null | undefined) {
+  if (!lead || lead.source !== 'Google Maps') return undefined
+  const retrievedAt = Date.parse(lead.retrievedAt)
+  if (!Number.isFinite(retrievedAt) || retrievedAt > Date.now()) return undefined
+  return {
+    whatsapp_consent_status: 'opted_in' as const,
+    whatsapp_consent_source: authorizedGoogleSearchSource,
+    whatsapp_consent_at: new Date(retrievedAt).toISOString(),
+  }
+}
 
 function isMissingWhatsAppConsentColumns(error: { code?: string; message: string } | null): boolean {
   if (!error || !/whatsapp_consent_(status|source|at)/i.test(error.message)) return false
@@ -180,7 +190,33 @@ export class SupabaseStore {
     }
 
     throwIfError(error)
-    return (data as SavedLeadRow[]).map(mapSavedLeadState)
+
+    const rows = data as SavedLeadRow[]
+    if (!isMissingWhatsAppConsentColumns(currentResult.error as { code?: string; message: string } | null)) {
+      const rowsToAuthorize = rows.filter((row) => (
+        row.whatsapp_consent_status === 'unknown' &&
+        row.lead_data && 'name' in row.lead_data &&
+        googleSearchAuthorization(row.lead_data as LeadSnapshot)
+      ))
+      if (rowsToAuthorize.length > 0) {
+        const updatedAt = new Date().toISOString()
+        await Promise.all(rowsToAuthorize.map(async (row) => {
+          const authorization = googleSearchAuthorization(row.lead_data as LeadSnapshot)
+          if (!authorization) return
+          const result = await store.from('saved_leads').update(authorization)
+            .eq('user_id', userId)
+            .eq('lead_id', row.lead_id)
+            .eq('whatsapp_consent_status', 'unknown')
+          throwIfError(result.error)
+          row.whatsapp_consent_status = authorization.whatsapp_consent_status
+          row.whatsapp_consent_source = authorization.whatsapp_consent_source
+          row.whatsapp_consent_at = authorization.whatsapp_consent_at
+          row.updated_at = updatedAt
+        }))
+      }
+    }
+
+    return rows.map(mapSavedLeadState)
   }
 
   async saveLeadState(
@@ -225,6 +261,9 @@ export class SupabaseStore {
     }
 
     const now = new Date().toISOString()
+    const googleAuthorization = hasWhatsAppConsentColumns ? googleSearchAuthorization(lead) : undefined
+    const existingRow = existingData as SavedLeadRow | null
+    const mayApplyGoogleAuthorization = googleAuthorization && existingRow?.whatsapp_consent_status !== 'opted_out'
     const payload = {
       ...(lead ? { lead_data: lead, lead_data_expires_at: getSnapshotExpiry() } : {}),
       ...(changes.status !== undefined ? { status: changes.status } : {}),
@@ -234,6 +273,7 @@ export class SupabaseStore {
       ...(changes.conversationStage !== undefined ? { conversation_stage: changes.conversationStage || null } : {}),
       ...(changes.contactName !== undefined ? { contact_name: changes.contactName || null } : {}),
       ...(changes.nextAction !== undefined ? { next_action: changes.nextAction || null } : {}),
+      ...(mayApplyGoogleAuthorization && existingRow?.whatsapp_consent_status !== 'opted_in' ? googleAuthorization : {}),
       ...(hasWhatsAppConsentColumns && changes.whatsappConsentStatus !== undefined ? { whatsapp_consent_status: changes.whatsappConsentStatus } : {}),
       ...(hasWhatsAppConsentColumns && changes.whatsappConsentSource !== undefined ? { whatsapp_consent_source: changes.whatsappConsentSource || null } : {}),
       ...(hasWhatsAppConsentColumns && changes.whatsappConsentAt !== undefined ? { whatsapp_consent_at: changes.whatsappConsentAt || null } : {}),
@@ -255,9 +295,9 @@ export class SupabaseStore {
           contact_name: changes.contactName || null,
           next_action: changes.nextAction || null,
           ...(hasWhatsAppConsentColumns ? {
-            whatsapp_consent_status: changes.whatsappConsentStatus ?? 'unknown',
-            whatsapp_consent_source: changes.whatsappConsentSource || null,
-            whatsapp_consent_at: changes.whatsappConsentAt || null,
+            whatsapp_consent_status: changes.whatsappConsentStatus ?? googleAuthorization?.whatsapp_consent_status ?? 'unknown',
+            whatsapp_consent_source: changes.whatsappConsentSource || googleAuthorization?.whatsapp_consent_source || null,
+            whatsapp_consent_at: changes.whatsappConsentAt || googleAuthorization?.whatsapp_consent_at || null,
           } : {}),
           updated_at: now,
         })

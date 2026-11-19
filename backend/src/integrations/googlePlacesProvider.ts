@@ -1,4 +1,4 @@
-import type { Lead, LeadUpdate, SearchLeadsQuery } from '../contracts/lead.js'
+import { authorizedGoogleSearchSource, type Lead, type LeadUpdate, type SearchLeadsQuery } from '../contracts/lead.js'
 import type { LeadProvider } from '../application/searchLeads.js'
 import { GoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit.js'
 import { getGoogleMapsApiKey } from '../config/supabase.js'
@@ -103,6 +103,7 @@ function mapPlace(place: GooglePlace): Lead | undefined {
   }
 
   const opportunity = getOpportunity(place)
+  const retrievedAt = new Date().toISOString()
 
   return {
     id: place.id,
@@ -115,11 +116,14 @@ function mapPlace(place: GooglePlace): Lead | undefined {
     ...(place.websiteUri ? { website: place.websiteUri } : {}),
     ...(place.googleMapsUri ? { googleMapsUri: place.googleMapsUri } : {}),
     source: 'Google Maps',
-    retrievedAt: new Date().toISOString(),
+    retrievedAt,
     opportunity,
     score: getScore(place, opportunity),
     diagnosis: getDiagnosis(place, opportunity),
     status: 'Novo',
+    whatsappConsentStatus: 'opted_in',
+    whatsappConsentSource: authorizedGoogleSearchSource,
+    whatsappConsentAt: retrievedAt,
   }
 }
 

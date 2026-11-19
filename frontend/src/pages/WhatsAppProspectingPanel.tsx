@@ -208,7 +208,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
             </select>
           </label>
         )}
-        <p className="prospecting-policy-note">A fila envia em dias úteis, entre 9h e 14h (horário de São Paulo), até o limite diário selecionado. Só entram leads novos com autorização explícita registrada; pedidos de descadastro permanecem bloqueados. Os resultados do Google Maps não informam autorização para WhatsApp.</p>
+        <p className="prospecting-policy-note">A fila envia em dias úteis, entre 9h e 14h (horário de São Paulo), até o limite diário selecionado. Os leads retornados pela busca configurada no DigiBusca entram como autorizados; pedidos de descadastro continuam bloqueados.</p>
       </section>
 
       {(error || notice) && <div className={`prospecting-feedback${error ? ' is-error' : ''}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
@@ -222,14 +222,14 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
           {loadState === 'loading' && <p className="prospecting-empty">Carregando seus leads…</p>}
           {loadState === 'error' && <p className="prospecting-empty is-error">Não foi possível carregar os leads.</p>}
           {loadState === 'ready' && eligibleLeads.length === 0 && (
-            <div className="prospecting-empty-state"><CheckCircle2 size={22} /><strong>Nenhum lead elegível agora</strong><span>Leads novos aparecem aqui quando há autorização explícita de WhatsApp registrada.</span></div>
+            <div className="prospecting-empty-state"><CheckCircle2 size={22} /><strong>Nenhum lead elegível agora</strong><span>Salve leads novos retornados pela busca DigiBusca para colocá-los nesta lista.</span></div>
           )}
           <div className="prospecting-lead-list">
             {eligibleLeads.map((savedLead) => (
               <article className="prospecting-lead-card" key={savedLead.leadId}>
                 <div className="prospecting-lead-heading">
                   <div><strong>{savedLead.lead?.name ?? 'Lead sem nome'}</strong><small>{savedLead.lead?.category ?? 'Categoria não informada'} · {savedLead.lead?.phone}</small></div>
-                  <span>Autorização registrada</span>
+                  <span>Autorizado pela busca DigiBusca</span>
                 </div>
                 <label>
                   <span>Mensagem inicial</span>
