@@ -15,7 +15,7 @@
 ## Arquivos
 
 - `compose.yaml`: backend, Evolution, Postgres Evolution e Cloudflared; serviços com perfis opcionais, volumes persistentes novos e rede de saída do backend para Supabase.
-- O CI publica imagens do backend e da Evolution no GitHub Container Registry usando o SHA do commit. Use a referência `@sha256` impressa no resumo do workflow; configure o acesso do Dokploy ao GHCR antes de implantar os pacotes privados.
+- O CI publica imagens privadas do backend e da Evolution no GitHub Container Registry usando o SHA do commit e guarda cópias compactadas como artefatos privados por 1 dia. A instalação carrega esses artefatos diretamente no Docker da VPS; os serviços não precisam de credencial do GHCR. Use as referências com SHA no `compose.env` e confira o SHA-256 antes de transferir cada arquivo.
 - `openbot-whatsapp.compose.yaml`: override exclusivo da instância OpenBot WhatsApp para executar a ponte privada ao lado do agente, compartilhando o loopback do OpenBot e expondo o serviço somente pela overlay privada.
 - `openbot-ops.network.compose.yaml` e `openbot-whatsapp-network.compose.yaml`: reservam endereços estáveis para que a política do MCP não atinja outro contêiner quando um serviço for recriado.
 - `pin-openbot-network.sh`: instala esses overrides e fixa os endereços das duas instâncias OpenBot.
@@ -39,7 +39,7 @@
 
 ## Próximas etapas
 
-1. Publicar as imagens do backend e da Evolution pelo workflow do GitHub, aplicar as migrations de WhatsApp até `017_whatsapp_contact_opt_out_dedupe.sql` e criar os arquivos privados de configuração.
+1. Publicar as imagens do backend e da Evolution pelo workflow do GitHub, baixar os artefatos privados de imagem, aplicar as migrations de WhatsApp até `017_whatsapp_contact_opt_out_dedupe.sql` e criar os arquivos privados de configuração.
 2. Criar os serviços do backend e da Evolution na VPS, com os runtimes de resposta, prospecção e OpenBot desligados.
 3. Instalar `install-evolution-backup.sh` quando o banco, os arquivos de serviço e os dados dos dois agentes OpenBot estiverem ativos. O timer roda diariamente às 03:00 (horário de São Paulo), mantém 14 dias locais, inclui as sessões e as configurações essenciais em arquivos criptografados e valida os artefatos.
 4. O Portal do Cliente HostGator mostra **Backup VPS Free — Protegido**, frequência semanal, com primeira cópia prevista para 25/11/2026 às 05:00. Para incluir os dumps, configure `/var/backups/digibusca/evolution` como diretório SFTP do backup; o plano informa limite de 3 GB e não faz dump de PostgreSQL em execução. O dump criptografado criado pelo timer é o que permite copiar o banco como arquivo.

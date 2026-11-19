@@ -3,7 +3,7 @@ name: digibusca-hostgator
 services:
   digibusca-backend:
     image: ${DIGIBUSCA_BACKEND_IMAGE:?Set an immutable DIGIBUSCA_BACKEND_IMAGE in Dokploy}
-    pull_policy: always
+    pull_policy: never
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -59,7 +59,7 @@ services:
   evolution-api:
     profiles: ["evolution"]
     image: ${DIGIBUSCA_EVOLUTION_IMAGE:?Set a reviewed DIGIBUSCA_EVOLUTION_IMAGE digest}
-    pull_policy: always
+    pull_policy: never
     restart: unless-stopped
     env_file:
       - /etc/digibusca/hostgator/evolution-api.env

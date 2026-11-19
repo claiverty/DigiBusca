@@ -149,6 +149,29 @@ jobs:
         run: |
           echo "Backend da VPS: \`${IMAGE_NAME}@${IMAGE_DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Preparar imagem privada para instalação na VPS
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+        run: |
+          image_tag="${IMAGE_NAME}:${GITHUB_SHA}"
+          archive="$RUNNER_TEMP/digibusca-backend-image.tar.gz"
+          docker pull "$image_tag"
+          docker save "$image_tag" | gzip -1 > "$archive"
+          gzip -t "$archive"
+          printf '%s\n' "$image_tag" > "$RUNNER_TEMP/image-ref.txt"
+          sha256sum "$archive" > "$RUNNER_TEMP/image-sha256.txt"
+
+      - name: Guardar imagem privada por 1 dia
+        uses: actions/upload-artifact@v4
+        with:
+          name: digibusca-backend-vps-image
+          path: |
+            ${{ runner.temp }}/digibusca-backend-image.tar.gz
+            ${{ runner.temp }}/image-ref.txt
+            ${{ runner.temp }}/image-sha256.txt
+          if-no-files-found: error
+          retention-days: 1
+
   evolution-image:
     name: Publicar imagem Evolution fixada para a VPS
     needs: quality
@@ -190,6 +213,28 @@ jobs:
             exit 1
           fi
           echo "Evolution VPS: \`${IMAGE_NAME}${digest}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preparar imagem privada para instalação na VPS
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+        run: |
+          image_tag="${IMAGE_NAME}:${GITHUB_SHA}"
+          archive="$RUNNER_TEMP/digibusca-evolution-image.tar.gz"
+          docker save "$image_tag" | gzip -1 > "$archive"
+          gzip -t "$archive"
+          printf '%s\n' "$image_tag" > "$RUNNER_TEMP/image-ref.txt"
+          sha256sum "$archive" > "$RUNNER_TEMP/image-sha256.txt"
+
+      - name: Guardar imagem privada por 1 dia
+        uses: actions/upload-artifact@v4
+        with:
+          name: digibusca-evolution-vps-image
+          path: |
+            ${{ runner.temp }}/digibusca-evolution-image.tar.gz
+            ${{ runner.temp }}/image-ref.txt
+            ${{ runner.temp }}/image-sha256.txt
+          if-no-files-found: error
+          retention-days: 1
 
   deploy:
     name: Publicar na Cloudflare
