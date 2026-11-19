@@ -1,6 +1,6 @@
 import { getEvolutionApiConfig } from '../config/supabase.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
-import { configureEvolutionWebhook, createEvolutionInstance, getEvolutionConnectionState, getEvolutionQrCode } from '../integrations/evolutionApi.js'
+import { configureEvolutionWebhook, createEvolutionInstance, EvolutionApiError, getEvolutionConnectionState, getEvolutionQrCode } from '../integrations/evolutionApi.js'
 
 function qrFromPayload(payload: unknown) {
   if (typeof payload !== 'object' || payload === null) return undefined
@@ -19,31 +19,44 @@ function newInstanceName(userId: string) {
   return `digibot_${userId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 24)}`
 }
 
+async function createOrReuseEvolutionInstance(instanceName: string) {
+  try {
+    return await createEvolutionInstance(instanceName)
+  } catch (createError) {
+    // A prior request may have created the instance even if its response was lost.
+    try {
+      await getEvolutionConnectionState(instanceName)
+      return undefined
+    } catch {
+      throw createError
+    }
+  }
+}
+
+async function restoreMissingEvolutionInstance(instanceName: string) {
+  try {
+    await getEvolutionConnectionState(instanceName)
+    return undefined
+  } catch (error) {
+    if (!(error instanceof EvolutionApiError) || error.status !== 404) throw error
+    return createOrReuseEvolutionInstance(instanceName)
+  }
+}
+
 export async function startEvolutionConnection(userId: string) {
   if (!getEvolutionApiConfig()) throw new Error('Configure a URL e as credenciais da Evolution API no ambiente do backend antes de conectar.')
   const store = new WhatsAppStore()
   if (!(await store.isEvolutionStorageReady())) {
     throw new Error('Aplique as migrations 009_whatsapp_webhook.sql e 010_whatsapp_coexistence.sql no Supabase antes de conectar.')
   }
-  const instanceName = await store.getEvolutionInstanceName(userId) ?? newInstanceName(userId)
   const alreadySaved = await store.getEvolutionInstanceName(userId)
-  let createdPayload: unknown
-  if (!alreadySaved) {
-    try {
-      createdPayload = await createEvolutionInstance(instanceName)
-    } catch (error) {
-      // A previous connection attempt may have created the instance before DigiBusca saved it.
-      try {
-        await getEvolutionConnectionState(instanceName)
-      } catch {
-        throw error
-      }
-    }
-    await configureEvolutionWebhook(instanceName)
-    await store.saveEvolutionInstance(userId, instanceName)
-  } else {
-    await configureEvolutionWebhook(instanceName)
-  }
+  const instanceName = alreadySaved ?? newInstanceName(userId)
+  let createdPayload: unknown = alreadySaved
+    ? await restoreMissingEvolutionInstance(instanceName)
+    : await createOrReuseEvolutionInstance(instanceName)
+
+  await configureEvolutionWebhook(instanceName)
+  if (!alreadySaved) await store.saveEvolutionInstance(userId, instanceName)
 
   let state = await getEvolutionConnectionState(instanceName)
   let qrCode = state.state.toLowerCase() === 'open' ? undefined : qrFromPayload(createdPayload)
