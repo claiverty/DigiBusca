@@ -63,5 +63,12 @@ install -o root -g root -m 0644 "$source_dir/digibusca-evolution-backup.service"
 install -o root -g root -m 0644 "$source_dir/digibusca-evolution-backup.timer" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now digibusca-evolution-backup.timer
-systemctl start digibusca-evolution-backup.service
-systemctl --no-pager --full status digibusca-evolution-backup.service
+if ! systemctl start digibusca-evolution-backup.service; then
+  systemctl --no-pager --full status digibusca-evolution-backup.service || true
+  exit 1
+fi
+if [ "$(systemctl show --property=Result --value digibusca-evolution-backup.service)" != "success" ]; then
+  systemctl --no-pager --full status digibusca-evolution-backup.service || true
+  exit 1
+fi
+systemctl --no-pager --full show --property=ActiveState --property=SubState --property=ExecMainStatus digibusca-evolution-backup.service

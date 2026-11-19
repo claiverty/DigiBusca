@@ -7,9 +7,11 @@
 - Foi criada uma chave Dokploy Member com validade de 90 dias. Ela está fora do Git em `/etc/digibusca/hostgator/dokploy-mcp.env`, `root:root`, modo `0600`; uma consulta de API somente leitura confirmou acesso ao projeto DigiBusca. Não copie a chave para o OpenBot nem para logs.
 - O MCP standalone `dokploy-mcp` está ativo sem portas publicadas, em `172.30.0.3` na bridge `openbot` e `10.0.3.10` na overlay interna `digibusca-dokploy-mcp-control`. O OpenBot Ops (`172.30.0.2`) é a única origem autorizada; 51 tools expostos e listagem de projetos somente leitura validados.
 - A instância `digibot-whatsapp` está online no OpenBot como **DigiBusca WhatsApp VPS**, v0.73.0, volume próprio, limite de 0,45 CPU/1.200 MiB e somente na bridge isolada `openbot`. O agente **Cristhian** foi criado em PT-BR. Não conecte essa instância ao MCP.
-- O backend DigiBusca, a Evolution API e seus volumes persistentes ainda não foram instalados na VPS. A Evolution local antiga não está disponível no Mac; a produção precisará de um novo pareamento QR depois que os serviços e o túnel estiverem prontos.
-- O agente Cristhian está criado, mas ainda falta habilitar `Local scripts` nele pelo OpenBot. Sem essa permissão, o backend não consegue enviar mensagens ao agente. O instalador da ponte agora falha sem alterar o gerenciador se essa permissão, os arquivos protegidos, o digest da imagem e as credenciais correspondentes não estiverem prontos.
-- A ponte OpenBot, o backend e a Evolution ainda não foram aplicados. A automação de resposta e a fila de prospecção permanecem desligadas. A implantação inicial usará volumes dedicados da HostGator, sem reaproveitar volumes locais inexistentes.
+- O backend DigiBusca, a Evolution API e o PostgreSQL estão ativos na VPS, com volumes persistentes dedicados. A verificação interna do backend e da Evolution retornou HTTP 200.
+- O túnel Cloudflare `ec5fc235-6aec-4f85-967c-16daca7b2507` está conectado em São Paulo e `whatsapp-api.digiuptech.com.br` já aponta para a VPS. O endpoint público `/api/health` retornou HTTP 200. O serviço antigo de túnel do Mac foi desativado; a definição local foi mantida para reversão.
+- O timer diário de backup está ativo para 03:00 (`America/Sao_Paulo`), com retenção de 14 dias. A primeira cópia criptografada foi criada e os três arquivos passaram por checksum e validação de descriptografia/restauração. A chave privada de recuperação permanece fora da VPS.
+- Ainda falta autenticar no Supabase e aplicar as migrations `016_whatsapp_openbot_replies.sql` e `017_whatsapp_contact_opt_out_dedupe.sql` antes de habilitar o atendimento automatizado. A Evolution ainda precisa de um novo pareamento QR na VPS.
+- O agente Cristhian está criado, mas `Local scripts` ainda está desligado. A ponte OpenBot não foi habilitada; a automação de resposta e a fila de prospecção continuam desligadas.
 - A rotina local do DigiBot Ops e a rotina remota do agente Ops estão ativas diariamente às 09:00 (`America/Sao_Paulo`). A rotina remota avisa 14, 7, 3 e 1 dia antes e no dia do vencimento previsto para 16/02/2027; se o OpenBot for interrompido no horário, roda uma vez quando reabrir. Ela não lê nem armazena a chave.
 
 ## Arquivos
@@ -39,10 +41,8 @@
 
 ## Próximas etapas
 
-1. Publicar as imagens do backend e da Evolution pelo workflow do GitHub, baixar os artefatos privados de imagem, aplicar as migrations de WhatsApp até `017_whatsapp_contact_opt_out_dedupe.sql` e criar os arquivos privados de configuração.
-2. Criar os serviços do backend e da Evolution na VPS, com os runtimes de resposta, prospecção e OpenBot desligados.
-3. Instalar `install-evolution-backup.sh` quando o banco, os arquivos de serviço e os dados dos dois agentes OpenBot estiverem ativos. O timer roda diariamente às 03:00 (horário de São Paulo), mantém 14 dias locais, inclui as sessões e as configurações essenciais em arquivos criptografados e valida os artefatos.
-4. O Portal do Cliente HostGator mostra **Backup VPS Free — Protegido**, frequência semanal, com primeira cópia prevista para 25/11/2026 às 05:00. Para incluir os dumps, configure `/var/backups/digibusca/evolution` como diretório SFTP do backup; o plano informa limite de 3 GB e não faz dump de PostgreSQL em execução. O dump criptografado criado pelo timer é o que permite copiar o banco como arquivo.
-5. Criar a rota do novo túnel Cloudflare, testar status/webhook sem enviar para leads e só então trocar o hostname de produção.
-6. Parear o WhatsApp por QR na Evolution da VPS e validar ida/volta em número de teste.
-7. Antes de habilitar o envio via Cristhian, aprovar a permissão `Local scripts` somente para o agente Cristhian e validar a ponte. Ativar primeiro respostas; manter prospecção desligada até confirmar consentimento explícito em cada lead da fila.
+1. Aplicar as duas migrations pendentes no Supabase depois da autenticação do proprietário.
+2. Parear o WhatsApp com o QR da Evolution na VPS e validar ida/volta usando um número de teste.
+3. Concluir a ponte do agente Cristhian; `Local scripts` continua exigindo habilitação no agente específico.
+4. Validar o atendimento sem ativar a fila de prospecção. Os três runtimes seguem desligados até revisão explícita do fluxo.
+5. Configurar uma cópia externa para os arquivos `.age`. O backup diário atual fica criptografado na VPS; o plano gratuito cWatch aparece semanal e ainda precisa ser configurado/verificado para incluir essa pasta.

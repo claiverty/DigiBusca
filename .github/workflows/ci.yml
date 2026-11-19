@@ -159,7 +159,7 @@ jobs:
           docker save "$image_tag" | gzip -1 > "$archive"
           gzip -t "$archive"
           printf '%s\n' "$image_tag" > "$RUNNER_TEMP/image-ref.txt"
-          sha256sum "$archive" > "$RUNNER_TEMP/image-sha256.txt"
+          (cd "$RUNNER_TEMP" && sha256sum "$(basename "$archive")" > image-sha256.txt)
 
       - name: Guardar imagem privada por 1 dia
         uses: actions/upload-artifact@v4
@@ -223,7 +223,7 @@ jobs:
           docker save "$image_tag" | gzip -1 > "$archive"
           gzip -t "$archive"
           printf '%s\n' "$image_tag" > "$RUNNER_TEMP/image-ref.txt"
-          sha256sum "$archive" > "$RUNNER_TEMP/image-sha256.txt"
+          (cd "$RUNNER_TEMP" && sha256sum "$(basename "$archive")" > image-sha256.txt)
 
       - name: Guardar imagem privada por 1 dia
         uses: actions/upload-artifact@v4
