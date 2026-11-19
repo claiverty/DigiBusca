@@ -18,8 +18,12 @@
     "preview": "vite preview --config frontend/vite.config.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.106",
+    "@ai-sdk/google": "^4.0.122",
+    "@ai-sdk/openai-compatible": "^3.0.93",
     "@supabase/supabase-js": "^2.115.0",
     "@vitejs/plugin-react": "latest",
+    "ai": "^7.0.177",
     "country-state-city-data": "^1.2.0",
     "dotenv": "^17.4.2",
     "lucide-react": "latest",
@@ -27,7 +31,8 @@
     "react-dom": "latest",
     "react-icons": "^5.7.0",
     "typescript": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

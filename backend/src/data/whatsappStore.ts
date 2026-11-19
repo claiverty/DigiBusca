@@ -3,6 +3,7 @@ import { createUserSupabaseClient, createWhatsAppWebhookSupabaseClient } from '.
 import type { WhatsAppPageOptions } from '../contracts/whatsapp.js'
 import type { WhatsAppWebhookEvents } from '../application/whatsappWebhook.js'
 import type { WhatsAppAutomationProfile, WhatsAppAutomationProfileInput, WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
+import type { WhatsAppAgentQualification } from '../integrations/whatsappDigiBuscaAgent.js'
 import { canManuallyRetryGeneration, nextGenerationRetryAttempt, type AutomationRunState } from '../application/whatsappAutomationRetry.js'
 
 type ConnectionRow = { phone_number_id: string; user_id: string }
@@ -53,8 +54,10 @@ function mapAutomationProfile(row: Record<string, unknown>): WhatsAppAutomationP
     serviceSummary: row.service_summary as string,
     approvedFacts: row.approved_facts as string,
     escalationContact: row.escalation_contact as string,
-    responseMode: row.response_mode === 'gemini' || row.response_mode === 'openbot' ? row.response_mode : 'handoff_only',
+    responseMode: row.response_mode === 'gemini' || row.response_mode === 'openbot' || row.response_mode === 'digibot_agent' ? row.response_mode : 'handoff_only',
     openBotAgentId: typeof row.openbot_agent_id === 'string' ? row.openbot_agent_id : '',
+    agentProvider: row.agent_provider === 'anthropic' || row.agent_provider === 'openai-compatible' ? row.agent_provider : 'google',
+    agentModel: typeof row.agent_model === 'string' && row.agent_model ? row.agent_model : 'gemini-3.8-flash',
     automationEnabled: row.automation_enabled === true,
     channelApprovedAt: row.channel_approved_at as string | null,
     contentApprovedAt: row.content_approved_at as string | null,
@@ -89,7 +92,7 @@ export type WhatsAppAutomationRunRecord = {
   status: 'processing' | 'sent' | 'skipped' | 'needs_human' | 'failed'
   reason: string | null
   replyProviderMessageId: string | null
-  responseProvider: 'gemini' | 'openbot' | null
+  responseProvider: 'gemini' | 'openbot' | 'digibot_agent' | null
   openBotAgentId: string | null
   openBotClientMessageId: string | null
   openBotPrompt: string | null
@@ -231,10 +234,20 @@ export class WhatsAppStore {
   async isAutomationStorageReady() {
     try {
       const admin = createWhatsAppWebhookSupabaseClient()
-      const result = await admin.from('whatsapp_automation_profiles').select('phone_number_id, response_mode, openbot_agent_id').limit(0)
+      const result = await admin.from('whatsapp_automation_profiles').select('phone_number_id, response_mode, openbot_agent_id, agent_provider, agent_model').limit(0)
       if (result.error) return false
       const runs = await admin.from('whatsapp_automation_runs').select('id, response_provider, openbot_delivery_id').limit(0)
       return !runs.error
+    } catch {
+      return false
+    }
+  }
+
+  async isDigiBuscaAgentStorageReady() {
+    try {
+      const admin = createWhatsAppWebhookSupabaseClient()
+      const result = await admin.from('whatsapp_agent_qualifications').select('conversation_id, fields').limit(0)
+      return !result.error
     } catch {
       return false
     }
@@ -248,7 +261,7 @@ export class WhatsAppStore {
     if (!ownership.data) return undefined
 
     const result = await admin.from('whatsapp_automation_profiles')
-      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, response_mode, openbot_agent_id, automation_enabled, channel_approved_at, content_approved_at, updated_at')
+      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, response_mode, openbot_agent_id, agent_provider, agent_model, automation_enabled, channel_approved_at, content_approved_at, updated_at')
       .eq('user_id', userId).eq('phone_number_id', phoneNumberId).maybeSingle()
     throwIfError(result.error, 'Não foi possível carregar as regras de atendimento automático.')
     return result.data ? mapAutomationProfile(result.data as Record<string, unknown>) : undefined
@@ -262,12 +275,14 @@ export class WhatsAppStore {
     if (!ownership.data) throw new Error('O número WhatsApp não está conectado a esta conta.')
 
     const existingProfile = await admin.from('whatsapp_automation_profiles')
-      .select('response_mode, openbot_agent_id')
+      .select('response_mode, openbot_agent_id, agent_provider, agent_model')
       .eq('user_id', userId).eq('phone_number_id', input.phoneNumberId).maybeSingle()
     throwIfError(existingProfile.error, 'Não foi possível validar o modo de atendimento salvo.')
     const responseModeChanged = Boolean(existingProfile.data && existingProfile.data.response_mode !== input.responseMode)
     const openBotAgentChanged = Boolean(existingProfile.data && existingProfile.data.openbot_agent_id !== input.openBotAgentId)
-    const providerSettingsChanged = responseModeChanged || openBotAgentChanged
+    const agentProviderChanged = Boolean(existingProfile.data && existingProfile.data.agent_provider !== input.agentProvider)
+    const agentModelChanged = Boolean(existingProfile.data && existingProfile.data.agent_model !== input.agentModel)
+    const providerSettingsChanged = responseModeChanged || openBotAgentChanged || agentProviderChanged || agentModelChanged
 
     const approvedAt = new Date().toISOString()
     const values = {
@@ -280,6 +295,8 @@ export class WhatsAppStore {
       escalation_contact: input.escalationContact,
       response_mode: input.responseMode,
       openbot_agent_id: input.openBotAgentId,
+      agent_provider: input.agentProvider,
+      agent_model: input.agentModel,
       automation_enabled: providerSettingsChanged ? false : input.automationEnabled,
       channel_approved_at: input.channelApproved ? approvedAt : null,
       content_approved_at: input.contentApproved && !providerSettingsChanged ? approvedAt : null,
@@ -287,7 +304,7 @@ export class WhatsAppStore {
     }
     const result = await admin.from('whatsapp_automation_profiles')
       .upsert(values, { onConflict: 'phone_number_id,user_id' })
-      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, response_mode, openbot_agent_id, automation_enabled, channel_approved_at, content_approved_at, updated_at')
+      .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, response_mode, openbot_agent_id, agent_provider, agent_model, automation_enabled, channel_approved_at, content_approved_at, updated_at')
       .single()
     throwIfError(result.error, 'Não foi possível salvar as regras de atendimento automático.')
     return mapAutomationProfile(result.data as Record<string, unknown>)
@@ -381,7 +398,14 @@ export class WhatsAppStore {
       .update({ automation_paused: true, automation_opted_out: true, automation_pause_reason: 'opt_out' })
       .eq('user_id', userId)
       .eq('contact_wa_id', contactWaId)
+      .select('id')
     throwIfError(conversationsResult.error, 'Não foi possível pausar as conversas deste contato.')
+    const conversationIds = (conversationsResult.data ?? []).map((row) => row.id as string)
+    if (conversationIds.length > 0) {
+      const qualificationCleanup = await admin.from('whatsapp_agent_qualifications').delete()
+        .eq('user_id', userId).in('conversation_id', conversationIds)
+      throwIfError(qualificationCleanup.error, 'Não foi possível remover os dados de qualificação após o descadastro.')
+    }
 
     const leadsResult = await admin.from('saved_leads')
       .select('lead_id, lead_data')
@@ -427,7 +451,7 @@ export class WhatsAppStore {
         .eq('user_id', connection.user_id).eq('phone_number_id', phoneNumberId)
         .eq('contact_wa_id', contactWaId).maybeSingle(),
       admin.from('whatsapp_automation_profiles')
-        .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, response_mode, openbot_agent_id, automation_enabled, channel_approved_at, content_approved_at, updated_at')
+        .select('phone_number_id, business_name, sender_identity, service_summary, approved_facts, escalation_contact, response_mode, openbot_agent_id, agent_provider, agent_model, automation_enabled, channel_approved_at, content_approved_at, updated_at')
         .eq('user_id', connection.user_id).eq('phone_number_id', phoneNumberId).maybeSingle(),
     ])
     throwIfError(conversationResult.error, 'Não foi possível carregar a conversa para responder.')
@@ -469,7 +493,7 @@ export class WhatsAppStore {
     phoneNumberId: string,
     conversationId: string,
     inboundProviderMessageId: string,
-    responseProvider?: 'gemini' | 'openbot',
+    responseProvider?: 'gemini' | 'openbot' | 'digibot_agent',
     openBotAgentId?: string,
     profileUpdatedAt?: string,
   ) {
@@ -789,6 +813,50 @@ export class WhatsAppStore {
     const admin = createWhatsAppWebhookSupabaseClient()
     const result = await admin.from('whatsapp_conversations').update({ automation_stage: stage }).eq('id', conversationId)
     throwIfError(result.error, 'Não foi possível atualizar a etapa do atendimento automático.')
+  }
+
+  async saveAgentQualification(userId: string, conversationId: string, fields: WhatsAppAgentQualification) {
+    const allowedKeys = ['projectType', 'objective', 'priority', 'timeline', 'serviceInterest'] as const
+    const safeFields: WhatsAppAgentQualification = {}
+    for (const key of allowedKeys) {
+      const value = fields[key]
+      if (typeof value === 'string' && value.trim() && value.trim().length <= 180) safeFields[key] = value.trim()
+    }
+    if (Object.keys(safeFields).length === 0) return
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const conversation = await admin.from('whatsapp_conversations')
+      .select('automation_opted_out').eq('id', conversationId).eq('user_id', userId).maybeSingle()
+    throwIfError(conversation.error, 'Não foi possível validar a conversa antes de salvar a qualificação.')
+    if (!conversation.data || conversation.data.automation_opted_out === true) return
+    const result = await admin.rpc('merge_whatsapp_agent_qualification', {
+      p_user_id: userId,
+      p_conversation_id: conversationId,
+      p_fields: safeFields,
+    })
+    throwIfError(result.error, 'Não foi possível salvar os dados do projeto informados pelo lead.')
+  }
+
+  async getConversationQualification(accessToken: string, userId: string, conversationId: string): Promise<WhatsAppAgentQualification | undefined> {
+    const result = await this.userClient(accessToken).from('whatsapp_agent_qualifications')
+      .select('fields').eq('conversation_id', conversationId).eq('user_id', userId).gt('expires_at', new Date().toISOString()).maybeSingle()
+    throwIfError(result.error, 'Não foi possível carregar o resumo do projeto desta conversa.')
+    if (!result.data || typeof result.data.fields !== 'object' || result.data.fields === null || Array.isArray(result.data.fields)) return undefined
+    return result.data.fields as WhatsAppAgentQualification
+  }
+
+  async getAgentQualification(userId: string, conversationId: string): Promise<WhatsAppAgentQualification | undefined> {
+    const result = await createWhatsAppWebhookSupabaseClient().from('whatsapp_agent_qualifications')
+      .select('fields').eq('conversation_id', conversationId).eq('user_id', userId)
+      .gt('expires_at', new Date().toISOString()).maybeSingle()
+    throwIfError(result.error, 'Não foi possível carregar as informações já declaradas pelo lead.')
+    if (!result.data || typeof result.data.fields !== 'object' || result.data.fields === null || Array.isArray(result.data.fields)) return undefined
+    return result.data.fields as WhatsAppAgentQualification
+  }
+
+  async purgeExpiredAgentQualifications() {
+    const result = await createWhatsAppWebhookSupabaseClient().rpc('purge_expired_whatsapp_agent_qualifications')
+    throwIfError(result.error, 'Não foi possível remover dados de qualificação expirados.')
+    return typeof result.data === 'number' ? result.data : 0
   }
 
   async listConnections(userId: string) {

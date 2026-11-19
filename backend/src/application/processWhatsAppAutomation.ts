@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { getEvolutionApiConfig, getGeminiApiKey, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppOpenBotReplyRuntimeEnabled } from '../config/supabase.js'
+import { getEvolutionApiConfig, getGeminiApiKey, getWhatsAppAgentProviderConfig, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppOpenBotReplyRuntimeEnabled } from '../config/supabase.js'
 import { WhatsAppStore, type WhatsAppAutomationRunRecord } from '../data/whatsappStore.js'
 import { autoReplyFailureDetails, buildWhatsAppAutoReplyPrompt, generateWhatsAppAutoReply, isTransparentWhatsAppIdentityAnswer, parseWhatsAppAutoReplyAnswer, simpleWhatsAppGreetingReply, WhatsAppAutoReplyError, type WhatsAppAutoReplyContext } from '../integrations/whatsappAutoReplyProvider.js'
 import { clearOpenBotWhatsAppContext, getOpenBotWhatsAppDelivery, OpenBotWhatsAppBridgeError, sendOpenBotWhatsAppMessage } from '../integrations/openBotWhatsAppBridge.js'
@@ -12,6 +12,7 @@ import { sanitizeWhatsAppHistoryForGemini } from './whatsappConversationPrivacy.
 import { generationFailureReason } from './whatsappAutomationRetry.js'
 import { isProjectServiceCorrection, resolveWhatsAppProjectContext } from './whatsappProjectContext.js'
 import { getWhatsAppSchedulingReply } from './whatsappScheduling.js'
+import { generateWhatsAppDigiBuscaAgentReply } from '../integrations/whatsappDigiBuscaAgent.js'
 import type { WhatsAppAutomationProfile, WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWebhook.js'
 
@@ -683,7 +684,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
     await resumeOpenBotAutomationRun(store, message, events)
   }
 
-  const inboundMessages = allInboundMessages.filter((message) => !message.automationRunId)
+  const inboundMessages = allInboundMessages.filter((message) => !message.automationRunId && !message.contactWaId.startsWith('lid:'))
   const messages = newestInboundMessages(inboundMessages)
   if (messages.length === 0) return
   const newestByConversation = new Map(messages.map((message) => [
@@ -749,7 +750,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         message.phoneNumberId,
         context.conversationId,
         message.providerMessageId,
-        profile.responseMode === 'openbot' ? 'openbot' : profile.responseMode === 'gemini' ? 'gemini' : undefined,
+        profile.responseMode === 'openbot' ? 'openbot' : profile.responseMode === 'digibot_agent' ? 'digibot_agent' : profile.responseMode === 'gemini' ? 'gemini' : undefined,
         profile.responseMode === 'openbot' ? profile.openBotAgentId : undefined,
         profile.updatedAt,
       )
@@ -786,12 +787,15 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         || (inboundProjectInquiry && context.automationStage === 'identify_responsible')
         ? 'understand_scenario' : context.automationStage
       const apiKey = getGeminiApiKey()
+      const agentConfigured = isWhatsAppDigiBuscaAgentRuntimeEnabled()
+        && Boolean(getWhatsAppAgentProviderConfig(profile.agentProvider, profile.agentModel))
       const replyPlan = selectWhatsAppAutomationReplyPlan({
         responseMode: profile.responseMode,
         shouldHandoff,
         geminiConfigured: Boolean(apiKey),
+        agentConfigured,
       })
-      const repeatedQuestionRecovery = replyPlan === 'gemini'
+      const repeatedQuestionRecovery = (replyPlan === 'gemini' || replyPlan === 'digibot_agent')
         && !shouldHandoff
         && isRepeatedQuestionComplaint(message.body ?? '')
       const identityDisclosureResponse = leadAskedIdentity && !shouldHandoff && replyPlan !== 'openbot'
@@ -816,12 +820,11 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
               ? keepConversationActive(context.automationStage)
               : context.automationStage,
         }
-      } else if (shouldHandoff || profile.responseMode === 'handoff_only') {
+      } else if (shouldHandoff || replyPlan === 'handoff') {
         generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
       } else {
         try {
-          if (!apiKey) throw new WhatsAppAutoReplyError('gemini_not_configured', 401)
-          generated = await generateWhatsAppAutoReply(apiKey, {
+          const replyContext: WhatsAppAutoReplyContext = {
             businessName: profile.businessName,
             senderIdentity: profile.senderIdentity,
             serviceSummary: profile.serviceSummary,
@@ -831,7 +834,25 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
             inboundProjectInquiry,
             inboundReceivedAt: message.occurredAt,
             messages: sanitizeWhatsAppHistoryForGemini(context.messages),
-          })
+          }
+          if (replyPlan === 'digibot_agent') {
+            let verifiedLeadQualification: Awaited<ReturnType<typeof store.getAgentQualification>>
+            try {
+              verifiedLeadQualification = await store.getAgentQualification(context.userId, context.conversationId)
+            } catch {
+              verifiedLeadQualification = undefined
+              logWarning('whatsapp_digibot_qualification_load_failed', { reason: 'qualification_storage_unavailable' })
+            }
+            generated = await generateWhatsAppDigiBuscaAgentReply({
+              provider: profile.agentProvider,
+              model: profile.agentModel,
+              context: { ...replyContext, verifiedLeadQualification },
+              saveQualification: (fields) => store.saveAgentQualification(context!.userId, context!.conversationId, fields),
+            })
+          } else {
+            if (!apiKey) throw new WhatsAppAutoReplyError('gemini_not_configured', 401)
+            generated = await generateWhatsAppAutoReply(apiKey, replyContext)
+          }
         } catch (error) {
           const failureReason = generationFailureReason(run.attempt)
           await store.completeAutomationRun(runId, 'failed', failureReason)

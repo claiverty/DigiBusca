@@ -6,7 +6,7 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { opportunityTypes, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppAgentProviderConfig, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
@@ -588,6 +588,13 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         return
       }
     }
+    if (input.automationEnabled && input.responseMode === 'digibot_agent') {
+      const agentStorageReady = await new WhatsAppStore().isDigiBuscaAgentStorageReady()
+      if (!isWhatsAppDigiBuscaAgentRuntimeEnabled() || !getWhatsAppAgentProviderConfig(input.agentProvider, input.agentModel) || !agentStorageReady) {
+        sendJson(response, 503, { error: 'O agente DigiBusca ainda não está pronto. Confira a migration 019, a chave do provedor e o interruptor WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED no backend.' })
+        return
+      }
+    }
     const profile = await new WhatsAppStore().saveAutomationProfile(user.id, input)
     response.setHeader('Cache-Control', 'no-store')
     sendJson(response, 200, { data: profile })
@@ -663,10 +670,24 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
 
+  const whatsappQualificationMatch = requestUrl.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/qualification$/)
+  if (request.method === 'GET' && whatsappQualificationMatch) {
+    const conversationId = whatsappQualificationMatch[1]
+    if (!isUuid(conversationId)) {
+      sendJson(response, 400, { error: 'A conversa é inválida.' })
+      return
+    }
+    const data = await new WhatsAppStore().getConversationQualification(accessToken, user.id, conversationId)
+    response.setHeader('Cache-Control', 'no-store')
+    sendJson(response, 200, { data: data ?? null })
+    return
+  }
+
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/status') {
     const connectionStorageReady = await new WhatsAppStore().isEvolutionStorageReady()
     const automationStorageReady = await new WhatsAppStore().isAutomationStorageReady()
-    sendJson(response, 200, { data: { ...getWhatsAppEvolutionSetupStatus(), connectionStorageReady, automationStorageReady } })
+    const digiBuscaAgentStorageReady = await new WhatsAppStore().isDigiBuscaAgentStorageReady()
+    sendJson(response, 200, { data: { ...getWhatsAppEvolutionSetupStatus(), connectionStorageReady, automationStorageReady, digiBuscaAgentStorageReady } })
     return
   }
 
@@ -1234,3 +1255,19 @@ const whatsappScheduler = startLocalWhatsAppProspectingScheduler()
 if (whatsappScheduler) {
   logInfo('whatsapp_local_scheduler_started', { intervalSeconds: 30 })
 }
+
+async function cleanExpiredAgentQualifications() {
+  const store = new WhatsAppStore()
+  if (!await store.isDigiBuscaAgentStorageReady()) return
+  await store.purgeExpiredAgentQualifications()
+}
+
+const agentQualificationRetentionScheduler = setInterval(() => {
+  void cleanExpiredAgentQualifications().catch(() => {
+    logWarning('whatsapp_agent_qualification_retention_failed', { reason: 'retention_cleanup_unavailable' })
+  })
+}, 24 * 60 * 60 * 1_000)
+agentQualificationRetentionScheduler.unref()
+void cleanExpiredAgentQualifications().catch(() => {
+  logWarning('whatsapp_agent_qualification_retention_failed', { reason: 'retention_cleanup_unavailable' })
+})

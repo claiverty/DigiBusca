@@ -1,4 +1,5 @@
 import { createClient, type User } from '@supabase/supabase-js'
+import type { WhatsAppAgentProvider } from '../contracts/whatsappAutomation.js'
 
 export type RuntimeEnvironment = {
   SUPABASE_URL?: string
@@ -8,12 +9,16 @@ export type RuntimeEnvironment = {
   VITE_SUPABASE_ANON_KEY?: string
   GOOGLE_MAPS_API_KEY?: string
   GEMINI_API_KEY?: string
+  ANTHROPIC_API_KEY?: string
+  OPENAI_COMPATIBLE_API_KEY?: string
+  OPENAI_COMPATIBLE_BASE_URL?: string
   WHATSAPP_INTEGRATION_ENABLED?: string
   WHATSAPP_AUTOMATION_RUNTIME_ENABLED?: string
   WHATSAPP_PROSPECTING_RUNTIME_ENABLED?: string
   WHATSAPP_OPENBOT_REPLY_RUNTIME_ENABLED?: string
   WHATSAPP_OPENBOT_AGENT_SAFETY_CONFIRMED?: string
   WHATSAPP_OPENBOT_AGENT_ID?: string
+  WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED?: string
   WHATSAPP_OPENBOT_BRIDGE_URL?: string
   WHATSAPP_OPENBOT_BRIDGE_TOKEN?: string
   DIGIBUSCA_APP_ORIGINS?: string
@@ -48,6 +53,52 @@ export function getGoogleMapsApiKey() {
 
 export function getGeminiApiKey() {
   return environment().GEMINI_API_KEY
+}
+
+export type WhatsAppAgentProviderConfig = {
+  provider: WhatsAppAgentProvider
+  model: string
+  apiKey: string
+  baseUrl?: string
+}
+
+export function getWhatsAppAgentProviderConfig(provider: WhatsAppAgentProvider, model: string): WhatsAppAgentProviderConfig | undefined {
+  if (!/^[A-Za-z0-9_.:/-]{1,128}$/.test(model)) return undefined
+  const values = environment()
+  if (provider === 'google') {
+    const apiKey = values.GEMINI_API_KEY?.trim()
+    return apiKey ? { provider, model, apiKey } : undefined
+  }
+  if (provider === 'anthropic') {
+    const apiKey = values.ANTHROPIC_API_KEY?.trim()
+    return apiKey ? { provider, model, apiKey } : undefined
+  }
+
+  const apiKey = values.OPENAI_COMPATIBLE_API_KEY?.trim()
+  const rawBaseUrl = values.OPENAI_COMPATIBLE_BASE_URL?.trim().replace(/\/+$/, '')
+  if (!apiKey || !rawBaseUrl) return undefined
+  try {
+    const url = new URL(rawBaseUrl)
+    const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+    const localHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(host)
+    if ((url.protocol !== 'https:' && !localHttp) || url.username || url.password || url.search || url.hash) return undefined
+  } catch {
+    return undefined
+  }
+  return { provider, model, apiKey, baseUrl: rawBaseUrl }
+}
+
+export function getWhatsAppAgentProvidersStatus() {
+  return {
+    google: Boolean(getWhatsAppAgentProviderConfig('google', 'gemini-3.8-flash')),
+    anthropic: Boolean(getWhatsAppAgentProviderConfig('anthropic', 'claude-3-5-haiku-latest')),
+    openaiCompatible: Boolean(getWhatsAppAgentProviderConfig('openai-compatible', 'gpt-4o-mini')),
+  }
+}
+
+export function isWhatsAppDigiBuscaAgentRuntimeEnabled() {
+  return isWhatsAppAutomationRuntimeEnabled() &&
+    environment().WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
 }
 
 export function getEvolutionApiConfig() {
@@ -94,6 +145,8 @@ export function getWhatsAppEvolutionSetupStatus() {
     webhookConfigured: Boolean(config),
     persistenceConfigured: isWhatsAppWebhookPersistenceConfigured(),
     automationRuntimeEnabled: isWhatsAppAutomationRuntimeEnabled(),
+    digiBuscaAgentRuntimeEnabled: isWhatsAppDigiBuscaAgentRuntimeEnabled(),
+    agentProviders: getWhatsAppAgentProvidersStatus(),
     prospectingRuntimeEnabled: isWhatsAppProspectingRuntimeEnabled(),
     openBotReplyRuntimeEnabled: isWhatsAppOpenBotReplyRuntimeEnabled(),
     openBotBridgeConfigured: Boolean(getWhatsAppOpenBotBridgeConfig()),

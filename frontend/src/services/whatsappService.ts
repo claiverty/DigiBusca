@@ -8,6 +8,9 @@ export type WhatsAppEvolutionSetupStatus = {
   connectionStorageReady: boolean
   automationStorageReady: boolean
   automationRuntimeEnabled: boolean
+  digiBuscaAgentRuntimeEnabled: boolean
+  digiBuscaAgentStorageReady: boolean
+  agentProviders: { google: boolean; anthropic: boolean; openaiCompatible: boolean }
   prospectingRuntimeEnabled: boolean
   openBotReplyRuntimeEnabled: boolean
   openBotBridgeConfigured: boolean
@@ -51,8 +54,10 @@ export type WhatsAppAutomationProfile = {
   serviceSummary: string
   approvedFacts: string
   escalationContact: string
-  responseMode: 'handoff_only' | 'gemini' | 'openbot'
+  responseMode: 'handoff_only' | 'gemini' | 'openbot' | 'digibot_agent'
   openBotAgentId: string
+  agentProvider: 'google' | 'anthropic' | 'openai-compatible'
+  agentModel: string
   automationEnabled: boolean
   channelApprovedAt: string | null
   contentApprovedAt: string | null
@@ -63,6 +68,8 @@ export type WhatsAppAutomationProfileInput = Omit<WhatsAppAutomationProfile, 'ch
   channelApproved: boolean
   contentApproved: boolean
 }
+
+export type WhatsAppAgentQualification = Partial<Record<'projectType' | 'objective' | 'priority' | 'timeline' | 'serviceInterest', string>>
 
 export type WhatsAppOpenBotAgentStatus = {
   agentId: string
@@ -296,4 +303,8 @@ export async function getWhatsAppConversationMessages(
   return getWhatsAppData<WhatsAppPage<WhatsAppMessage>>(
     `/whatsapp/conversations/${encodeURIComponent(conversationId)}/messages?${params.toString()}`,
   )
+}
+
+export async function getWhatsAppConversationQualification(conversationId: string): Promise<WhatsAppAgentQualification | null> {
+  return getWhatsAppData<WhatsAppAgentQualification | null>(`/whatsapp/conversations/${encodeURIComponent(conversationId)}/qualification`)
 }

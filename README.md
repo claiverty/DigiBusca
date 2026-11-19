@@ -25,7 +25,7 @@ O Supabase Auth gerencia as contas. O backend valida cada sessão e acessa os da
 
 - Google Places: pesquisa de empresas e dados públicos de localização.
 - Gemini: geração de rascunhos de abordagem comercial.
-- Evolution API com Baileys/WhatsApp Web: pareamento por QR Code, caixa de entrada, histórico e fila de prospecção. O agente Cristhian no OpenBot conduz as respostas; Gemini continua como um modo separado, sem fallback automático entre os provedores. Os runtimes de envio e resposta começam desligados.
+- Evolution API com Baileys/WhatsApp Web: pareamento por QR Code, caixa de entrada, histórico e fila de prospecção. As respostas podem ser conduzidas pelo runtime DigiBusca do agente Cristhian (com provedor configurado no backend), por Gemini direto ou, opcionalmente, pelo OpenBot. O backend valida as ações e envia pela Evolution; os runtimes começam desligados.
 - Supabase: autenticação e persistência de leads, interações e vendas.
 
 ## Desenvolvimento
@@ -76,9 +76,9 @@ A carteira registra etapa da conversa, pessoa de contato e próximo passo. Permi
 
 ## Prospecção pelo WhatsApp
 
-A aba **WhatsApp → Conexão** pareia a Evolution API com um QR Code. A aba **WhatsApp → Prospecção** permite enfileirar leads salvos com consentimento registrado. O limite diário configurável fica entre 17 e 25 novos contatos; envios são espaçados entre 9h e 18h, de segunda a sexta, no fuso de São Paulo. Na implantação de produção, o backend e a Evolution rodam na VPS; o OpenBot encaminha as respostas do Cristhian ao backend, que valida o estado da conversa e envia mensagens. Os runtimes permanecem desligados até concluir a configuração e aprovar o perfil.
+A aba **WhatsApp → Conexão** pareia a Evolution API com um QR Code. A aba **WhatsApp → Prospecção** permite enfileirar leads salvos com consentimento registrado. O limite diário configurável fica entre 17 e 25 novos contatos; envios são espaçados entre 9h e 14h, de segunda a sexta, no fuso de São Paulo. Na implantação de produção, o backend e a Evolution rodam na VPS. O agente DigiBusca atende mensagens recebidas sob demanda no backend, sem manter um processo de agente pesado em execução contínua; OpenBot é opcional. O agente registra qualificações declaradas pelo lead por até 90 dias, e o backend continua responsável por pausa, descadastro, limites e envio pela Evolution. A fila de prospecção segue o fluxo já existente; este runtime não escolhe nem contata leads por conta própria.
 
-Para desenvolvimento local da Evolution, veja [backend/README.md](backend/README.md). Para implantação na HostGator, veja [ops/hostgator/README.md](ops/hostgator/README.md). A integração usa o webhook autenticado da Evolution; não usa a Cloud API para mensagens. Aplique as migrations de WhatsApp até `016_whatsapp_openbot_replies.sql` antes de habilitar respostas ou fila.
+Para desenvolvimento local da Evolution, veja [backend/README.md](backend/README.md). Para implantação na HostGator, veja [ops/hostgator/README.md](ops/hostgator/README.md). Para configurar o runtime do agente Cristhian, veja [docs/digibot-cristhian-runtime.md](docs/digibot-cristhian-runtime.md). A integração usa o webhook autenticado da Evolution; não usa a Cloud API para mensagens. Aplique as migrations necessárias até `019_digibot_agent_runtime.sql` antes de habilitar o novo runtime.
 
 Antes de executar esta versão contra um banco existente, aplique as migrations necessárias pelo fluxo autorizado.
 

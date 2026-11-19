@@ -7,6 +7,7 @@ import {
   getWhatsAppEvolutionSetupStatus,
   getWhatsAppConnections,
   getWhatsAppConversationMessages,
+  getWhatsAppConversationQualification,
   getWhatsAppConversations,
   getWhatsAppHumanPendingCount,
   getWhatsAppHumanPendingConversations,
@@ -17,6 +18,7 @@ import {
   type WhatsAppEvolutionSetupStatus,
   type WhatsAppAutomationProfileInput,
   type WhatsAppConnection,
+  type WhatsAppAgentQualification,
   type WhatsAppConversation,
   type WhatsAppMessage,
   type WhatsAppOpenBotAgentStatus,
@@ -64,8 +66,10 @@ function newAutomationProfileDraft(phoneNumberId: string): WhatsAppAutomationPro
       'Os valores, prazos, escopo e condições comerciais são definidos conforme cada projeto e precisam ser confirmados antes de informar ao cliente.',
     ].join('\n'),
     escalationContact: 'este mesmo WhatsApp',
-    responseMode: 'gemini',
+    responseMode: 'digibot_agent',
     openBotAgentId: '',
+    agentProvider: 'google',
+    agentModel: 'gemini-3.8-flash',
     automationEnabled: false,
     channelApproved: false,
     contentApproved: false,
@@ -129,8 +133,11 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
   const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(newAutomationProfileDraft(''))
   const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
-  const [automationPersistedResponseMode, setAutomationPersistedResponseMode] = useState<'handoff_only' | 'gemini' | 'openbot'>('handoff_only')
+  const [automationPersistedResponseMode, setAutomationPersistedResponseMode] = useState<'handoff_only' | 'gemini' | 'openbot' | 'digibot_agent'>('handoff_only')
   const [automationPersistedOpenBotAgentId, setAutomationPersistedOpenBotAgentId] = useState('')
+  const [automationPersistedAgentProvider, setAutomationPersistedAgentProvider] = useState<'google' | 'anthropic' | 'openai-compatible'>('google')
+  const [automationPersistedAgentModel, setAutomationPersistedAgentModel] = useState('gemini-3.8-flash')
+  const [conversationQualification, setConversationQualification] = useState<WhatsAppAgentQualification | null>(null)
   const [openBotAgentStatus, setOpenBotAgentStatus] = useState<WhatsAppOpenBotAgentStatus | null>(null)
   const [openBotAgentCheckBusy, setOpenBotAgentCheckBusy] = useState(false)
   const [automationProfileSaved, setAutomationProfileSaved] = useState(false)
@@ -246,6 +253,8 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         setAutomationPersistedEnabled(profile?.automationEnabled === true)
         setAutomationPersistedResponseMode(profile?.responseMode ?? 'handoff_only')
         setAutomationPersistedOpenBotAgentId(profile?.openBotAgentId ?? '')
+        setAutomationPersistedAgentProvider(profile?.agentProvider ?? 'google')
+        setAutomationPersistedAgentModel(profile?.agentModel ?? 'gemini-3.8-flash')
         setOpenBotAgentStatus(null)
         setAutomationProfileSaved(Boolean(profile))
         setAutomationForm(profile ? {
@@ -257,6 +266,8 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
           escalationContact: profile.escalationContact,
           responseMode: profile.responseMode,
           openBotAgentId: profile.openBotAgentId,
+          agentProvider: profile.agentProvider,
+          agentModel: profile.agentModel,
           automationEnabled: profile.automationEnabled,
           channelApproved: Boolean(profile.channelApprovedAt),
           contentApproved: Boolean(profile.contentApprovedAt),
@@ -268,6 +279,8 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         setAutomationPersistedEnabled(false)
         setAutomationPersistedResponseMode('handoff_only')
         setAutomationPersistedOpenBotAgentId('')
+        setAutomationPersistedAgentProvider('google')
+        setAutomationPersistedAgentModel('gemini-3.8-flash')
         setOpenBotAgentStatus(null)
         setAutomationProfileSaved(false)
         setAutomationError(error instanceof Error ? error.message : 'Não foi possível carregar as regras da automação.')
@@ -334,6 +347,20 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         setMessagesState('error')
       })
 
+    return () => { active = false }
+  }, [selectedConversationId, refreshKey])
+
+  useEffect(() => {
+    let active = true
+    setConversationQualification(null)
+    if (!selectedConversationId) return () => { active = false }
+    void getWhatsAppConversationQualification(selectedConversationId)
+      .then((qualification) => {
+        if (active) setConversationQualification(qualification)
+      })
+      .catch(() => {
+        if (active) setConversationQualification(null)
+      })
     return () => { active = false }
   }, [selectedConversationId, refreshKey])
 
@@ -454,6 +481,8 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   async function saveAutomationSettings() {
     const responseModeChanged = automationProfileSaved && automationPersistedResponseMode !== automationForm.responseMode
     const openBotAgentChanged = automationProfileSaved && automationPersistedOpenBotAgentId !== automationForm.openBotAgentId
+    const agentProviderChanged = automationProfileSaved && automationPersistedAgentProvider !== automationForm.agentProvider
+    const agentModelChanged = automationProfileSaved && automationPersistedAgentModel !== automationForm.agentModel
     setAutomationBusy(true)
     setAutomationError('')
     setAutomationNotice('')
@@ -463,6 +492,8 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         ...automationForm,
         responseMode: saved.responseMode,
         openBotAgentId: saved.openBotAgentId,
+        agentProvider: saved.agentProvider,
+        agentModel: saved.agentModel,
         automationEnabled: saved.automationEnabled,
         channelApproved: Boolean(saved.channelApprovedAt),
         contentApproved: Boolean(saved.contentApprovedAt),
@@ -470,10 +501,12 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
       setAutomationPersistedEnabled(saved.automationEnabled)
       setAutomationPersistedResponseMode(saved.responseMode)
       setAutomationPersistedOpenBotAgentId(saved.openBotAgentId)
+      setAutomationPersistedAgentProvider(saved.agentProvider)
+      setAutomationPersistedAgentModel(saved.agentModel)
       setAutomationProfileSaved(true)
       setAutomationNotice(saved.automationEnabled
         ? 'Regras salvas. A automação só responderá a novas mensagens recebidas dentro da janela permitida.'
-        : responseModeChanged || openBotAgentChanged
+        : responseModeChanged || openBotAgentChanged || agentProviderChanged || agentModelChanged
           ? 'Modo atualizado. As respostas foram pausadas e a aprovação do conteúdo precisa ser feita novamente antes de ativar.'
           : 'Rascunho salvo. A automação continua desativada.')
     } catch (error) {
@@ -540,6 +573,14 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     status.openBotAgentSafetyConfirmed &&
     openBotAgentStatus?.connected &&
     openBotAgentStatus.agentId === automationForm.openBotAgentId.trim(),
+  )
+  const digiBuscaAgentProviderConfigured = automationForm.agentProvider === 'google'
+    ? status?.agentProviders?.google === true
+    : automationForm.agentProvider === 'anthropic'
+      ? status?.agentProviders?.anthropic === true
+      : status?.agentProviders?.openaiCompatible === true
+  const digiBuscaAgentCanEnable = Boolean(
+    status?.digiBuscaAgentRuntimeEnabled && status.digiBuscaAgentStorageReady && digiBuscaAgentProviderConfigured,
   )
 
   return (
@@ -679,6 +720,18 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 {selectedConversation.automationPauseReason === 'handoff_send_failed' && (
                   <p className="whatsapp-thread-note" role="alert">Uma tentativa de envio anterior falhou. A automação permanece pausada; confira o WhatsApp conectado e responda por lá.</p>
                 )}
+                {conversationQualification && Object.keys(conversationQualification).length > 0 && (
+                  <aside className="whatsapp-agent-summary" aria-label="Informações de projeto identificadas pelo Cristhian">
+                    <span className="eyebrow">RESUMO DO PROJETO</span>
+                    {([
+                      ['projectType', 'Projeto'], ['objective', 'Objetivo'], ['priority', 'Prioridade'],
+                      ['timeline', 'Prazo mencionado'], ['serviceInterest', 'Serviço de interesse'],
+                    ] as const).filter(([key]) => conversationQualification[key]).map(([key, label]) => (
+                      <p key={key}><strong>{label}:</strong> {conversationQualification[key]}</p>
+                    ))}
+                    <small>Dados registrados a partir de mensagens recebidas do lead.</small>
+                  </aside>
+                )}
                 {pauseError && <p className="whatsapp-connect-state is-error" role="alert">{pauseError}</p>}
                 <div className="whatsapp-thread-messages" aria-live="polite" ref={threadMessagesRef}>
                   {messagesState === 'loading' && <p className="whatsapp-inline-state">Carregando mensagens…</p>}
@@ -790,7 +843,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               )}
               {connections.length === 0 && <p className="whatsapp-connect-state is-pending">Conecte um número WhatsApp antes de configurar as respostas automáticas.</p>}
               {status?.automationStorageReady === false && (
-                <p className="whatsapp-connect-state is-pending">A estrutura de atendimento ainda não está completa no Supabase. Aplique as migrations <code>011_whatsapp_reply_automation.sql</code>, <code>014_whatsapp_automation_response_mode.sql</code> e <code>016_whatsapp_openbot_replies.sql</code> antes de salvar.</p>
+                <p className="whatsapp-connect-state is-pending">A estrutura de atendimento ainda não está completa no Supabase. Aplique as migrations <code>011_whatsapp_reply_automation.sql</code>, <code>014_whatsapp_automation_response_mode.sql</code>, <code>016_whatsapp_openbot_replies.sql</code> e <code>019_digibot_agent_runtime.sql</code> antes de salvar.</p>
               )}
               {status?.automationRuntimeEnabled === false && (
                 <p className="whatsapp-connect-state is-pending">O interruptor global do servidor está desligado. Para disponibilizar ativação, configure <code>WHATSAPP_AUTOMATION_RUNTIME_ENABLED=true</code> após aprovar canal e conteúdo.</p>
@@ -807,13 +860,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <select
                     value={automationForm.responseMode}
                     onChange={(event) => {
-                      const responseMode = event.target.value === 'gemini' ? 'gemini' : 'handoff_only'
-                      const selectedMode = event.target.value === 'openbot' ? 'openbot' : responseMode
-                      setAutomationForm((current) => ({ ...current, responseMode: selectedMode, contentApproved: false, automationEnabled: false }))
+                      const responseMode = event.target.value as WhatsAppAutomationProfileInput['responseMode']
+                      setAutomationForm((current) => ({ ...current, responseMode, contentApproved: false, automationEnabled: false }))
                       setOpenBotAgentStatus(null)
                     }}
                   >
                     <option value="handoff_only">Somente atendimento humano</option>
+                    <option value="digibot_agent">Agente Cristhian gerenciado pelo DigiBusca</option>
                     <option value="gemini">Responder com Gemini dentro dos fatos aprovados</option>
                     <option value="openbot">Responder com o agente OpenBot Cristhian</option>
                   </select>
@@ -821,8 +874,37 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     ? 'O texto da conversa não é enviado ao Gemini. Quando precisar de você, a conversa pausa e aparece como atendimento humano pendente na caixa de entrada; o lead não recebe aviso de transferência.'
                     : automationForm.responseMode === 'openbot'
                       ? 'O agente dedicado redige a resposta em JSON com os fatos aprovados e o histórico recente sanitizado. O backend aplica as validações e é o único componente que pode enviar pela Evolution.'
-                      : 'O Gemini recebe o histórico recente para responder com base nos fatos aprovados. Pedidos comerciais sem condições aprovadas, pedidos de atendimento humano e assuntos sensíveis ficam pendentes para você, sem aviso de transferência ao lead.'}</small>
+                      : automationForm.responseMode === 'digibot_agent'
+                        ? 'O Cristhian roda no backend do DigiBusca, usa o histórico recente e fatos aprovados, pode registrar dados do projeto que o lead declarou e pedir sua entrada quando necessário. A chave do provedor fica somente na VPS.'
+                        : 'O Gemini recebe o histórico recente para responder com base nos fatos aprovados. Pedidos comerciais sem condições aprovadas, pedidos de atendimento humano e assuntos sensíveis ficam pendentes para você, sem aviso de transferência ao lead.'}</small>
                 </label>
+                {automationForm.responseMode === 'digibot_agent' && (
+                  <div className="whatsapp-form-field is-wide">
+                    <strong>Agente Cristhian · runtime do DigiBusca</strong>
+                    <label htmlFor="whatsapp-agent-provider">Provedor configurado no backend</label>
+                    <select
+                      id="whatsapp-agent-provider"
+                      value={automationForm.agentProvider}
+                      onChange={(event) => setAutomationForm((current) => ({ ...current, agentProvider: event.target.value as WhatsAppAutomationProfileInput['agentProvider'], contentApproved: false, automationEnabled: false }))}
+                    >
+                      <option value="google">Google Gemini {status?.agentProviders?.google ? '· configurado' : '· sem chave no backend'}</option>
+                      <option value="anthropic">Anthropic {status?.agentProviders?.anthropic ? '· configurado' : '· sem chave no backend'}</option>
+                      <option value="openai-compatible">OpenAI compatível {status?.agentProviders?.openaiCompatible ? '· configurado' : '· sem chave/base URL no backend'}</option>
+                    </select>
+                    <label htmlFor="whatsapp-agent-model">Modelo</label>
+                    <input
+                      id="whatsapp-agent-model"
+                      value={automationForm.agentModel}
+                      maxLength={128}
+                      autoComplete="off"
+                      onChange={(event) => setAutomationForm((current) => ({ ...current, agentModel: event.target.value.trim(), contentApproved: false, automationEnabled: false }))}
+                      placeholder="Ex.: gemini-3.8-flash"
+                    />
+                    {!status?.digiBuscaAgentStorageReady && <small>Aplique <code>019_digibot_agent_runtime.sql</code> para salvar qualificações do projeto.</small>}
+                    {!status?.digiBuscaAgentRuntimeEnabled && <small>O runtime está desligado no servidor. Configure <code>WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED=true</code> depois de revisar a configuração.</small>}
+                    {!digiBuscaAgentProviderConfigured && <small>Este provedor não tem credenciais completas na VPS. As chaves nunca são enviadas ao navegador.</small>}
+                  </div>
+                )}
                 {automationForm.responseMode === 'openbot' && (
                   <div className="whatsapp-form-field is-wide">
                     <label htmlFor="whatsapp-openbot-agent-id">Agent ID dedicado Cristhian</label>
@@ -878,19 +960,21 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     ? 'Aprovo a pausa da automação e o aviso interno de atendimento humano pendente.'
                     : automationForm.responseMode === 'openbot'
                       ? 'Aprovo o envio dos fatos e do histórico recente sanitizado ao agente OpenBot dedicado para redigir respostas.'
-                      : 'Aprovo os fatos acima e o envio das mensagens recentes ao Gemini para preparar respostas.'}</span>
+                      : automationForm.responseMode === 'digibot_agent'
+                        ? 'Aprovo o envio do histórico recente sanitizado ao agente Cristhian do DigiBusca e o registro das informações de projeto declaradas pelo lead.'
+                        : 'Aprovo os fatos acima e o envio das mensagens recentes ao Gemini para preparar respostas.'}</span>
                 </label>
                 <label className="whatsapp-check-row is-enable">
                   <input
                     type="checkbox"
                     checked={automationForm.automationEnabled}
-                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId))}
+                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel))}
                     onChange={(event) => setAutomationForm((current) => ({ ...current, automationEnabled: event.target.checked }))}
                   />
                   <span>Ativar respostas automáticas após salvar as aprovações.</span>
                 </label>
               </div>
-              {automationPersistedEnabled && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId) && (
+              {automationPersistedEnabled && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel) && (
                 <p className="whatsapp-connect-state is-pending" role="alert">
                   A mudança de modo ou agente está somente no rascunho. Salvar pausa as respostas e exige nova aprovação do conteúdo.
                 </p>
@@ -899,11 +983,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 ? 'Neste modo, o bot não usa Gemini. Quando uma conversa precisar de atendimento humano, ela pausa e fica marcada na caixa de entrada para você responder pelo WhatsApp conectado; o lead não recebe um aviso de transferência.'
                 : automationForm.responseMode === 'openbot'
                   ? 'No modo OpenBot, só o agente dedicado recebe o histórico recente sanitizado. As conversas são processadas uma por vez para o agente; contexto não confirmado como isolado mantém o runtime desativado. Opt-out, pedidos humanos, conteúdo, consentimento e envio continuam sob controle do backend.'
-                  : 'No modo Gemini, o histórico recente é enviado ao modelo para preparar respostas. Pedidos para falar com uma pessoa, condições comerciais não aprovadas e assuntos sensíveis pausam a automação e ficam marcados na caixa de entrada, sem aviso de transferência ao lead.'}</p>
+                  : automationForm.responseMode === 'digibot_agent'
+                    ? 'O runtime DigiBusca usa provedores configurados na VPS. Ferramentas são limitadas a registrar qualificações verificáveis com citações do lead (por até 90 dias) e sinalizar atendimento humano; o agente não envia mensagens nem chama serviços externos diretamente. O backend continua validando consentimento, descadastro, janela de 24 horas e envio pela Evolution.'
+                    : 'No modo Gemini, o histórico recente é enviado ao modelo para preparar respostas. Pedidos para falar com uma pessoa, condições comerciais não aprovadas e assuntos sensíveis pausam a automação e ficam marcados na caixa de entrada, sem aviso de transferência ao lead.'}</p>
               {automationError && <p className="whatsapp-connect-state is-error" role="alert">{automationError}</p>}
               {automationNotice && <p className="whatsapp-connect-state is-ready" role="status">{automationNotice}</p>}
               <div className="whatsapp-automation-actions">
-                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.automationEnabled && (!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable)))}>
+                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.automationEnabled && (!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable)))}>
                   <ShieldCheck size={15} />
                   {automationBusy ? 'Salvando…' : 'Salvar regras'}
                 </button>

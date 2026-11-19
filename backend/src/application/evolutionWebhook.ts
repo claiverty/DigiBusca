@@ -10,8 +10,9 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function phoneFromJid(value: unknown) {
   if (typeof value !== 'string' || value.length > 256) return undefined
-  if (value.endsWith('@g.us') || value.endsWith('@broadcast') || value.endsWith('@lid') || value === 'status@broadcast') return undefined
+  if (value.endsWith('@g.us') || value.endsWith('@broadcast') || value === 'status@broadcast') return undefined
   const user = value.split('@')[0]?.split(':')[0]
+  if (value.endsWith('@lid')) return user && /^[A-Za-z0-9._-]{1,64}$/.test(user) ? `lid:${user}` : undefined
   if (!user || !/^\+?\d{6,20}$/.test(user)) return undefined
   return user.replace(/^\+/, '')
 }
