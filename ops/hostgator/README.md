@@ -3,6 +3,7 @@
 ## Estado atual — 19/11/2026
 
 - VPS Ubuntu 22.04.5, Docker 29.10.0, Dokploy 0.31.2; 2 vCPU, 4 GB RAM e 100 GB NVMe.
+- O projeto DigiBusca no Dokploy está sem serviços registrados. Backend e Evolution seguem no Compose operacional em `/opt/digibusca/ops/hostgator/compose.yaml`; o deploy automático do backend é feito pelo GitHub Actions com SSH restrito, sem duplicar containers no Dokploy.
 - OpenBot `digibot-ops` v0.73.0 está online, autenticado em `claiverty14@gmail.com`, com o agente DigiBot Ops e acesso ao MCP Dokploy. A listagem somente leitura confirmou o projeto DigiBusca sem consultar variáveis ou segredos.
 - Foi criada uma chave Dokploy Member com validade de 90 dias. Ela está fora do Git em `/etc/digibusca/hostgator/dokploy-mcp.env`, `root:root`, modo `0600`; uma consulta de API somente leitura confirmou acesso ao projeto DigiBusca. Não copie a chave para o OpenBot nem para logs.
 - O MCP standalone `dokploy-mcp` está ativo sem portas publicadas, em `172.30.0.3` na bridge `openbot` e `10.0.3.10` na overlay interna `digibusca-dokploy-mcp-control`. O OpenBot Ops (`172.30.0.2`) é a única origem autorizada; 51 tools expostos e listagem de projetos somente leitura validados.
@@ -19,7 +20,8 @@
 ## Arquivos
 
 - `compose.yaml`: backend, Evolution, Postgres Evolution e Cloudflared; serviços com perfis opcionais, volumes persistentes novos e rede de saída do backend para Supabase.
-- O CI publica imagens privadas do backend e da Evolution no GitHub Container Registry usando o SHA do commit e guarda cópias compactadas como artefatos privados por 1 dia. A instalação carrega esses artefatos diretamente no Docker da VPS; os serviços não precisam de credencial do GHCR. Use as referências com SHA no `compose.env` e confira o SHA-256 antes de transferir cada arquivo.
+- O CI publica imagens privadas do backend e da Evolution no GitHub Container Registry usando o SHA do commit e guarda cópias compactadas como artefatos privados por 1 dia. Depois do CI verde, o job `Atualizar backend na VPS` transfere o artefato, valida o SHA-256 e a revisão da imagem e recria somente o backend; se o healthcheck falhar, restaura a referência anterior. A Evolution continua sendo atualizada separadamente após revisão.
+- `deploy-backend-from-ci.sh`: comando forçado da chave SSH de deploy; aceita apenas imagem do backend com tag SHA e artefato com checksum válido, atualiza `compose.env` e executa rollback automático se o healthcheck falhar.
 - `openbot-whatsapp.compose.yaml`: override exclusivo da instância OpenBot WhatsApp para executar a ponte privada ao lado do agente, compartilhando o loopback do OpenBot e expondo o serviço somente pela overlay privada.
 - `openbot-ops.network.compose.yaml` e `openbot-whatsapp-network.compose.yaml`: reservam endereços estáveis para que a política do MCP não atinja outro contêiner quando um serviço for recriado.
 - `pin-openbot-network.sh`: instala esses overrides e fixa os endereços das duas instâncias OpenBot.
@@ -37,6 +39,7 @@
 - Nunca adicionar `.env` preenchidos, tokens, senhas, QR codes, chaves Dokploy ou dados de clientes ao Git.
 - Os dumps, sessões do WhatsApp, dados do OpenBot e arquivos de configuração são sensíveis. O backup diário fica criptografado em `/var/backups/digibusca/evolution`, `root:root`, modo `0700`; a chave privada de recuperação fica fora da VPS. O backup diário local cobre falha de aplicativo/volume, mas não substitui uma cópia fora da VPS. O plano gratuito da HostGator aparece semanal no painel e pode ser configurado para guardar somente os arquivos `.age` criptografados; a retenção externa precisa ser verificada separadamente.
 - Não colocar service-role Supabase, token Cloudflare ou API key Dokploy no OpenBot.
+- A chave privada `HOSTGATOR_VPS_DEPLOY_KEY` e a chave pública pinada `HOSTGATOR_VPS_KNOWN_HOSTS` ficam somente nos secrets do GitHub. A chave autorizada na VPS usa `restrict` e `command=` para permitir apenas o script de deploy, sem shell ou encaminhamento SSH.
 - O MCP não publica porta e não recebe rota pública. O endpoint HTTP do MCP não autentica o cliente, portanto o acesso é limitado por firewall a um contêiner OpenBot Ops dedicado.
 - O agente Cristhian não recebe o MCP; Computer Use continua desligado e `Local scripts` fica habilitado somente nesse agente para a ponte privada, com aprovações de ferramenta mantidas. A instância segue isolada do endpoint de Dokploy.
 - Manter os runtimes ativos, mas só validar envios depois de parear a instância da VPS e confirmar a conexão `open`.

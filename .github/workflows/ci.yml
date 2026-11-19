@@ -172,6 +172,58 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  deploy-vps-backend:
+    name: Atualizar backend na VPS
+    needs: [quality, backend-image]
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main' && vars.HOSTGATOR_VPS_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar a imagem validada
+        uses: actions/download-artifact@v4
+        with:
+          name: digibusca-backend-vps-image
+          path: ${{ runner.temp }}/digibusca-backend
+
+      - name: Validar o artefato
+        working-directory: ${{ runner.temp }}/digibusca-backend
+        run: sha256sum -c image-sha256.txt
+
+      - name: Preparar acesso SSH restrito
+        env:
+          VPS_DEPLOY_KEY: ${{ secrets.HOSTGATOR_VPS_DEPLOY_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.HOSTGATOR_VPS_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$VPS_DEPLOY_KEY" ] || [ -z "$VPS_KNOWN_HOSTS" ]; then
+            echo '::error::Configure HOSTGATOR_VPS_DEPLOY_KEY e HOSTGATOR_VPS_KNOWN_HOSTS.'
+            exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$VPS_DEPLOY_KEY" > "$HOME/.ssh/digibusca-deploy"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/digibusca-deploy" "$HOME/.ssh/known_hosts"
+
+      - name: Enviar e ativar a imagem na VPS
+        env:
+          VPS_DEPLOY_HOST: 143.95.213.60
+          VPS_DEPLOY_PORT: '22022'
+        working-directory: ${{ runner.temp }}/digibusca-backend
+        run: |
+          image_ref="$(cat image-ref.txt)"
+          expected_sha="$(awk 'NR == 1 { print $1 }' image-sha256.txt)"
+          {
+            printf '%s\n%s\n' "$image_ref" "$expected_sha"
+            cat digibusca-backend-image.tar.gz
+          } | ssh -p "$VPS_DEPLOY_PORT" \
+            -i "$HOME/.ssh/digibusca-deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            "root@$VPS_DEPLOY_HOST"
+
   evolution-image:
     name: Publicar imagem Evolution fixada para a VPS
     needs: quality
