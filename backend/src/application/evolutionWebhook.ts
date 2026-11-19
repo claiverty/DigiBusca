@@ -1,5 +1,6 @@
 import type { WhatsAppWebhookEvents } from './whatsappWebhook.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
+import { persistWhatsAppStopRequests } from './processWhatsAppAutomation.js'
 
 type JsonRecord = Record<string, unknown>
 
@@ -38,7 +39,9 @@ function timestamp(value: unknown) {
     const parsed = new Date(millis)
     if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
   }
-  return new Date().toISOString()
+  // Fail closed: an invalid provider timestamp must never receive a fresh
+  // timestamp that could make an old message eligible for an automated reply.
+  return '1970-01-01T00:00:00.000Z'
 }
 
 function mapEvolutionMessages(instance: string, data: unknown): WhatsAppWebhookEvents['messages'] {
@@ -69,11 +72,16 @@ function mapEvolutionMessages(instance: string, data: unknown): WhatsAppWebhookE
 }
 
 export async function persistEvolutionWebhook(body: unknown) {
-  if (!isRecord(body)) return
+  if (!isRecord(body)) return false
   const event = typeof body.event === 'string' ? body.event.toLowerCase() : ''
   const instance = typeof body.instance === 'string' ? body.instance.trim() : ''
-  if (!instance || !/^[-_a-zA-Z0-9]{1,128}$/.test(instance) || event !== 'messages.upsert') return
+  if (!instance || !/^[-_a-zA-Z0-9]{1,128}$/.test(instance) || event !== 'messages.upsert') return false
   const messages = mapEvolutionMessages(instance, body.data)
-  if (messages.length === 0) return
-  await new WhatsAppStore().persistWebhookEvents({ messages, statuses: [], contacts: [] })
+  if (messages.length === 0) return false
+  const events = { messages, statuses: [], contacts: [] }
+  await new WhatsAppStore().persistWebhookEvents(events)
+  // Opt-outs are safety state and must be recorded even while reply automation
+  // and prospecting are disabled. This runs before acknowledging the webhook.
+  await persistWhatsAppStopRequests(events)
+  return messages.some((message) => message.direction === 'inbound' && message.messageType === 'text' && Boolean(message.body?.trim()))
 }

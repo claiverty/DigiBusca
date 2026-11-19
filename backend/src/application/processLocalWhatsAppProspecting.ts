@@ -1,6 +1,7 @@
 import {
   getEvolutionApiConfig,
   isWhatsAppAutomationRuntimeEnabled,
+  isWhatsAppOpenBotReplyRecoveryConfigured,
   isWhatsAppProspectingRuntimeEnabled,
 } from '../config/supabase.js'
 import { WhatsAppProspectingStore, type WhatsAppProspectingQueueItem } from '../data/whatsappProspectingStore.js'
@@ -10,11 +11,15 @@ import { logWarning } from '../observability/logger.js'
 import { processWhatsAppAutomation } from './processWhatsAppAutomation.js'
 
 let tickInProgress = false
+let tickRequestedWhileBusy = false
 
 async function processPendingRepliesLocally() {
-  if (!isWhatsAppAutomationRuntimeEnabled()) return
+  if (!isWhatsAppAutomationRuntimeEnabled() && !isWhatsAppOpenBotReplyRecoveryConfigured()) return
   try {
-    const events = await new WhatsAppStore().listPendingLiveInboundTextEvents()
+    const store = new WhatsAppStore()
+    await store.resolveUncertainAutomationDeliveries()
+    await store.reconcileAcceptedAutomationDeliveries()
+    const events = await store.listPendingLiveInboundTextEvents()
     if (events.messages.length > 0) await processWhatsAppAutomation(events)
   } catch {
     logWarning('whatsapp_local_reply_poll_failed', { reason: 'pending_replies_unavailable' })
@@ -82,25 +87,41 @@ async function processQueuedNewLeadContacts() {
 }
 
 export async function runLocalWhatsAppProspectingTick() {
-  if (tickInProgress) return
+  if (tickInProgress) {
+    tickRequestedWhileBusy = true
+    return
+  }
   tickInProgress = true
   try {
     await processPendingRepliesLocally()
     await processQueuedNewLeadContacts()
   } finally {
     tickInProgress = false
+    if (tickRequestedWhileBusy) {
+      tickRequestedWhileBusy = false
+      setTimeout(() => {
+        void runLocalWhatsAppProspectingTick().catch(() => {
+          logWarning('whatsapp_local_followup_tick_failed', { reason: 'followup_tick_unavailable' })
+        })
+      }, 0).unref()
+    }
   }
 }
 
 export function startLocalWhatsAppProspectingScheduler() {
   const replyRuntimeEnabled = isWhatsAppAutomationRuntimeEnabled()
+  const openBotRecoveryEnabled = isWhatsAppOpenBotReplyRecoveryConfigured()
   const prospectingRuntimeEnabled = isWhatsAppProspectingRuntimeEnabled()
-  if (!replyRuntimeEnabled && !prospectingRuntimeEnabled) return undefined
+  if (!replyRuntimeEnabled && !openBotRecoveryEnabled && !prospectingRuntimeEnabled) return undefined
 
   const timer = setInterval(() => {
-    void runLocalWhatsAppProspectingTick()
+    void runLocalWhatsAppProspectingTick().catch(() => {
+      logWarning('whatsapp_local_scheduler_tick_failed', { reason: 'scheduler_tick_unavailable' })
+    })
   }, 30_000)
   timer.unref()
-  void runLocalWhatsAppProspectingTick()
+  void runLocalWhatsAppProspectingTick().catch(() => {
+    logWarning('whatsapp_local_scheduler_start_failed', { reason: 'initial_tick_unavailable' })
+  })
   return timer
 }

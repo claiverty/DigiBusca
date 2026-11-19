@@ -1,0 +1,13 @@
+[Unit]
+Description=Restrict DigiBusca Dokploy MCP container networking
+Requires=docker.service
+After=network-online.target openbot-firewall.service docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/digibusca-dokploy-mcp-firewall
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

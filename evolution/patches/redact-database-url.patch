@@ -1,0 +1,10 @@
+diff --git a/Docker/scripts/deploy_database.sh b/Docker/scripts/deploy_database.sh
+--- a/Docker/scripts/deploy_database.sh
++++ b/Docker/scripts/deploy_database.sh
+@@ -10,5 +10,5 @@
+     export DATABASE_URL
+     echo "Deploying migrations for $DATABASE_PROVIDER"
+-    echo "Database URL: $DATABASE_URL"
++    echo "Database URL: [redacted]"
+     # rm -rf ./prisma/migrations
+     # cp -r ./prisma/$DATABASE_PROVIDER-migrations ./prisma/migrations

@@ -33,6 +33,7 @@ const stages: WhatsAppAutomationStage[] = [
 ]
 const automationDisclosurePattern = /\b(?:mensage(?:m|ns) (?:e |sao )?(?:uma? )?automaticas?|respostas? (?:e |sao )?(?:uma? )?automaticas?|assistente virtual|(?:atendimento|resposta|conversa) (?:e )?automatizad[oa]|sou (?:um |uma |a |o )?(?:ia|inteligencia artificial|bot|robo|assistente))\b/i
 const humanImpersonationPattern = /\b(?:sou (?:o )?proprio cristhian|cristhian(?: aqui)?[,]? (?:sou eu mesmo|estou falando pessoalmente|falando pessoalmente|em pessoa)|sou o cristhian[,]? (?:pessoalmente|em pessoa)|sou uma pessoa (?:real|humana|de verdade)(?: chamada cristhian)?)\b/i
+const humanHandoffDisclosurePattern = /\b(?:(?:vou|vamos|estou|estamos)\s+(?:encaminhar|transferir|passar|direcionar|chamar|avisar)\b|(?:sua|a) conversa (?:vai|sera|foi) (?:encaminhada|transferida|passada|direcionada)|(?:vou|vamos) pausar (?:as )?(?:respostas|atendimento)|respostas automaticas)\b/i
 
 function normalizePolicyText(text: string) {
   return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').trim()
@@ -52,6 +53,11 @@ export function isMisleadingHumanIdentityClaim(text: string) {
   return humanImpersonationPattern.test(normalizePolicyText(text))
 }
 
+export function isTransparentWhatsAppIdentityAnswer(text: string) {
+  const normalized = normalizePolicyText(text)
+  return /\b(?:sou|aqui e|meu nome e)\b.{0,80}\b(?:agente virtual|inteligencia artificial|ia|bot|assistente virtual)\b/.test(normalized)
+}
+
 function parseReply(value: unknown): WhatsAppAutoReply | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
   const result = value as Record<string, unknown>
@@ -62,7 +68,11 @@ function parseReply(value: unknown): WhatsAppAutoReply | undefined {
   ) return undefined
   const replyText = normalizeWhatsAppReplyText(result.replyText)
   if (result.action === 'reply' && (!replyText || (replyText.match(/\?/g) ?? []).length > 1)) return undefined
-  if (result.action === 'reply' && (isUnsolicitedAutomationDisclosure(replyText) || isMisleadingHumanIdentityClaim(replyText))) return undefined
+  if (result.action === 'reply' && (
+    isUnsolicitedAutomationDisclosure(replyText) ||
+    isMisleadingHumanIdentityClaim(replyText) ||
+    humanHandoffDisclosurePattern.test(normalizePolicyText(replyText))
+  )) return undefined
   if (result.action !== 'reply' && replyText) return undefined
   return {
     action: result.action,
@@ -71,7 +81,20 @@ function parseReply(value: unknown): WhatsAppAutoReply | undefined {
   }
 }
 
-function buildPrompt(context: WhatsAppAutoReplyContext, project: ReturnType<typeof resolveWhatsAppProjectContext>) {
+export function parseWhatsAppAutoReplyAnswer(answer: string): WhatsAppAutoReply | undefined {
+  const trimmed = answer.trim()
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
+  let value: unknown
+  try {
+    value = JSON.parse(fenced?.[1] ?? trimmed)
+  } catch {
+    return undefined
+  }
+  return parseReply(value)
+}
+
+export function buildWhatsAppAutoReplyPrompt(context: WhatsAppAutoReplyContext) {
+  const project = resolveWhatsAppProjectContext(context.messages)
   return `Você é Cristhian, agente de atendimento da DigiUP no WhatsApp. Continue a conversa que já existe e avance uma etapa por vez, com foco em entender a necessidade, orientar e chegar a um próximo passo claro.
 
 REGRAS
@@ -80,6 +103,7 @@ REGRAS
 - Use pontuação com leveza: faça uma pergunta apenas quando houver algo útil a perguntar, use interrogação só nessa pergunta e evite exclamações, reticências e combinações como “?!” ou “!!”. Em mensagens curtas, o ponto final é opcional.
 - Escreva como numa conversa tranquila, sem formalidade excessiva, pressão, urgência, intimidade inventada ou voz de roteiro. Responda diretamente quando uma resposta direta bastar. Faça uma pergunta só quando ela ajudar a conversa a avançar; não pergunte por hábito.
 - Cristhian é o nome deste agente. Não diga espontaneamente que é IA, bot ou resposta automática. Se perguntarem diretamente se você é uma pessoa ou IA, responda com transparência: “Sou o Cristhian, agente virtual da DigiUP.” Nunca afirme ser humano. Não diga que “vai encaminhar para o Cristhian”, porque você é o Cristhian.
+- Sua única tarefa é produzir o JSON abaixo. Não use ferramentas, não acione APIs, não faça prospecção e não envie mensagens. O backend valida a resposta e decide se pode enviá-la.
 - Não conte ao lead que a conversa foi encaminhada, transferida ou pausada. Quando uma situação exigir decisão humana, retorne action=handoff com replyText vazio; o sistema pausa e sinaliza o atendimento na caixa de entrada para o responsável da DigiUP.
 - Responda primeiro ao conteúdo da mensagem recebida mais recente. O estágio comercial não deve fazer você ignorar um pedido explícito do lead.
 - Entenda o pedido atual antes de nomear ou sugerir uma solução. “Quero conversar sobre um projeto” não significa landing page, site, sistema ou automação. O site pelo qual a pessoa chegou é a origem do contato, não o serviço desejado.
@@ -146,12 +170,12 @@ function shouldUseFallback(error: unknown) {
   return typeof status === 'number' && (status === 404 || status === 408 || status === 429 || status >= 500)
 }
 
-async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyContext, selectedModel: string, fetcher: typeof fetch, project: ReturnType<typeof resolveWhatsAppProjectContext>, timeoutMs: number): Promise<WhatsAppAutoReply> {
+async function generateWithModel(apiKey: string, context: WhatsAppAutoReplyContext, selectedModel: string, fetcher: typeof fetch, timeoutMs: number): Promise<WhatsAppAutoReply> {
   const response = await fetcher(endpointFor(selectedModel), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: buildPrompt(context, project) }] }],
+      contents: [{ role: 'user', parts: [{ text: buildWhatsAppAutoReplyPrompt(context) }] }],
       generationConfig: {
         maxOutputTokens: 1024,
         thinkingConfig: { thinkingLevel: 'low' },
@@ -213,7 +237,7 @@ export class WhatsAppAutoReplyProvider {
       const remainingMs = deadline - this.now()
       if (remainingMs <= 0) break
       try {
-        const reply = await generateWithModel(apiKey, context, model, this.fetcher, project, Math.min(modelRequestTimeoutMs, remainingMs))
+        const reply = await generateWithModel(apiKey, context, model, this.fetcher, Math.min(modelRequestTimeoutMs, remainingMs))
         this.unavailableUntil.delete(model)
         return reply
       } catch (error) {

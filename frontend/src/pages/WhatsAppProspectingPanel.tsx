@@ -197,8 +197,8 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
           </button>
         </div>
 
-        {!runtimeEnabled && <p className="prospecting-guidance"><AlertCircle size={15} /> O backend local ainda precisa de <code>WHATSAPP_PROSPECTING_RUNTIME_ENABLED=true</code> para processar envios.</p>}
-        {!evolutionConfigured && <p className="prospecting-guidance"><AlertCircle size={15} /> Configure a URL e a chave da Evolution API no backend local.</p>}
+        {!runtimeEnabled && <p className="prospecting-guidance"><AlertCircle size={15} /> O backend ainda precisa de <code>WHATSAPP_PROSPECTING_RUNTIME_ENABLED=true</code> para processar envios.</p>}
+        {!evolutionConfigured && <p className="prospecting-guidance"><AlertCircle size={15} /> Configure a URL e a chave da Evolution API no ambiente do backend.</p>}
         {readyConnections.length === 0 && <p className="prospecting-guidance"><AlertCircle size={15} /> Conecte o WhatsApp pela Evolution API na aba Conexão.</p>}
         {readyConnections.length > 1 && (
           <label className="prospecting-phone-field">

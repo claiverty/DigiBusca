@@ -11,6 +11,11 @@ export type RuntimeEnvironment = {
   WHATSAPP_INTEGRATION_ENABLED?: string
   WHATSAPP_AUTOMATION_RUNTIME_ENABLED?: string
   WHATSAPP_PROSPECTING_RUNTIME_ENABLED?: string
+  WHATSAPP_OPENBOT_REPLY_RUNTIME_ENABLED?: string
+  WHATSAPP_OPENBOT_AGENT_SAFETY_CONFIRMED?: string
+  WHATSAPP_OPENBOT_AGENT_ID?: string
+  WHATSAPP_OPENBOT_BRIDGE_URL?: string
+  WHATSAPP_OPENBOT_BRIDGE_TOKEN?: string
   DIGIBUSCA_APP_ORIGINS?: string
   EVOLUTION_API_URL?: string
   EVOLUTION_API_KEY?: string
@@ -63,7 +68,7 @@ export function getEvolutionApiConfig() {
 
     const webhookTarget = new URL(webhookUrl)
     const webhookHostname = webhookTarget.hostname.replace(/^\[|\]$/g, '').toLowerCase()
-    const isLocalWebhook = ['localhost', '127.0.0.1', '::1', 'host.docker.internal', 'digibusca-webhook'].includes(webhookHostname)
+    const isLocalWebhook = ['localhost', '127.0.0.1', '::1', 'host.docker.internal', 'digibusca-webhook', 'digibusca-backend'].includes(webhookHostname)
     if (webhookTarget.protocol !== 'https:' && !(webhookTarget.protocol === 'http:' && isLocalWebhook)) return undefined
     if (webhookTarget.username || webhookTarget.password || webhookTarget.search || webhookTarget.hash) return undefined
   } catch {
@@ -90,6 +95,9 @@ export function getWhatsAppEvolutionSetupStatus() {
     persistenceConfigured: isWhatsAppWebhookPersistenceConfigured(),
     automationRuntimeEnabled: isWhatsAppAutomationRuntimeEnabled(),
     prospectingRuntimeEnabled: isWhatsAppProspectingRuntimeEnabled(),
+    openBotReplyRuntimeEnabled: isWhatsAppOpenBotReplyRuntimeEnabled(),
+    openBotBridgeConfigured: Boolean(getWhatsAppOpenBotBridgeConfig()),
+    openBotAgentSafetyConfirmed: environment().WHATSAPP_OPENBOT_AGENT_SAFETY_CONFIRMED?.trim().toLowerCase() === 'true',
   }
 }
 
@@ -103,6 +111,46 @@ export function isWhatsAppAutomationRuntimeEnabled() {
 
 export function isWhatsAppProspectingRuntimeEnabled() {
   return isWhatsAppIntegrationEnabled() && environment().WHATSAPP_PROSPECTING_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
+}
+
+export function getWhatsAppOpenBotBridgeConfig() {
+  const values = environment()
+  const baseUrl = values.WHATSAPP_OPENBOT_BRIDGE_URL?.trim().replace(/\/+$/, '')
+  const token = values.WHATSAPP_OPENBOT_BRIDGE_TOKEN?.trim()
+  const agentId = getConfiguredWhatsAppOpenBotAgentId()
+  if (!baseUrl || !token || !agentId || !/^[a-f0-9]{64}$/.test(token)) return undefined
+
+  try {
+    const url = new URL(baseUrl)
+    const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+    const isLocalBridge = hostname === '127.0.0.1' && Boolean(url.port)
+    const isRemoteOpenBotBridge = hostname === '10.0.4.10' && url.port === '4181'
+    if (
+      url.protocol !== 'http:' || (!isLocalBridge && !isRemoteOpenBotBridge) ||
+      url.pathname !== '/' || url.username || url.password || url.search || url.hash
+    ) return undefined
+  } catch {
+    return undefined
+  }
+
+  return { baseUrl, token, agentId }
+}
+
+export function getConfiguredWhatsAppOpenBotAgentId() {
+  const agentId = environment().WHATSAPP_OPENBOT_AGENT_ID?.trim()
+  return agentId && !agentId.startsWith('REPLACE_') && /^[A-Za-z0-9_-]{1,128}$/.test(agentId) ? agentId : undefined
+}
+
+export function isWhatsAppOpenBotReplyRuntimeEnabled() {
+  const values = environment()
+  return isWhatsAppAutomationRuntimeEnabled() &&
+    values.WHATSAPP_OPENBOT_REPLY_RUNTIME_ENABLED?.trim().toLowerCase() === 'true' &&
+    values.WHATSAPP_OPENBOT_AGENT_SAFETY_CONFIRMED?.trim().toLowerCase() === 'true' &&
+    Boolean(getWhatsAppOpenBotBridgeConfig())
+}
+
+export function isWhatsAppOpenBotReplyRecoveryConfigured() {
+  return Boolean(getConfiguredWhatsAppOpenBotAgentId())
 }
 
 function getSupabaseConfig() {

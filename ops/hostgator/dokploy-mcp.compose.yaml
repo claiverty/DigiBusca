@@ -1,0 +1,42 @@
+name: digibusca-dokploy-mcp
+
+services:
+  dokploy-mcp:
+    image: digibusca-dokploy-mcp:0.30.7
+    pull_policy: never
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 96
+    mem_limit: 256m
+    cpus: 0.20
+    tmpfs:
+      - /tmp:size=96m,noexec,nosuid,nodev
+    env_file:
+      - /etc/digibusca/hostgator/dokploy-mcp.env
+    networks:
+      dokploy_mcp_control:
+        ipv4_address: 10.0.3.10
+      openbot:
+        ipv4_address: 172.30.0.3
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  dokploy_mcp_control:
+    external: true
+    name: digibusca-dokploy-mcp-control
+  openbot:
+    external: true
+    name: openbot

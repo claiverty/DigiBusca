@@ -1,6 +1,8 @@
-import { getEvolutionApiConfig, getGeminiApiKey, isWhatsAppAutomationRuntimeEnabled } from '../config/supabase.js'
-import { WhatsAppStore } from '../data/whatsappStore.js'
-import { autoReplyFailureDetails, generateWhatsAppAutoReply, WhatsAppAutoReplyError } from '../integrations/whatsappAutoReplyProvider.js'
+import { randomUUID } from 'node:crypto'
+import { getEvolutionApiConfig, getGeminiApiKey, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppOpenBotReplyRuntimeEnabled } from '../config/supabase.js'
+import { WhatsAppStore, type WhatsAppAutomationRunRecord } from '../data/whatsappStore.js'
+import { autoReplyFailureDetails, buildWhatsAppAutoReplyPrompt, generateWhatsAppAutoReply, isTransparentWhatsAppIdentityAnswer, parseWhatsAppAutoReplyAnswer, WhatsAppAutoReplyError, type WhatsAppAutoReplyContext } from '../integrations/whatsappAutoReplyProvider.js'
+import { clearOpenBotWhatsAppContext, getOpenBotWhatsAppDelivery, OpenBotWhatsAppBridgeError, sendOpenBotWhatsAppMessage } from '../integrations/openBotWhatsAppBridge.js'
 import { normalizeWhatsAppReplyText } from '../domain/whatsappTextStyle.js'
 import { selectWhatsAppAutomationReplyPlan } from './whatsappAutomationPolicy.js'
 import { getEvolutionConnectionState, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
@@ -10,7 +12,7 @@ import { sanitizeWhatsAppHistoryForGemini } from './whatsappConversationPrivacy.
 import { generationFailureReason } from './whatsappAutomationRetry.js'
 import { isProjectServiceCorrection, resolveWhatsAppProjectContext } from './whatsappProjectContext.js'
 import { getWhatsAppSchedulingReply } from './whatsappScheduling.js'
-import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
+import type { WhatsAppAutomationProfile, WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWebhook.js'
 
 const customerServiceWindowMs = 24 * 60 * 60 * 1_000
@@ -23,7 +25,7 @@ const automationStageOrder: WhatsAppAutomationStage[] = [
   'present_idea', 'qualify_interest', 'present_conditions', 'confirm_decision', 'closed',
 ]
 const explicitOptOutPattern = /\b(?:nao entre(?: mais)? em contato(?: comigo)?(?: nunca mais| de novo| novamente)?|nao quero(?: mais)? contato|nao quero(?: mais)? receber (?:mensagens?|contato|comunicacoes?)|nao quero que (?:voces? )?(?:me )?(?:procurem?|contatem?|liguem?|chamem?)|nao quero ser contatad[oa]|nao me (?:envie|mande|contate|procure|ligue|chame)(?: mais| de novo| novamente)?|nunca mais (?:me )?(?:procure|contate|ligue|chame|mande|envie))\b/i
-const identityQuestionPattern = /\b(?:quem (?:esta|ta) (?:me )?(?:respondendo|falando|atendendo)|quem (?:responde|atende)|com quem (?:eu )?(?:estou|to) falando|quem (?:e|eh) voce|voce (?:e|eh) (?:o )?(?:proprio )?cristhian|voce (?:esta|ta) falando com (?:o )?(?:proprio )?cristhian|e voce (?:o )?(?:proprio )?cristhian|estou falando com (?:o )?(?:proprio )?cristhian|cristhian (?:esta|ta) respondendo|e (?:o )?cristhian que (?:esta|ta) (?:respondendo|falando|atendendo)|voce (?:e|eh) (?:uma? )?(?:pessoa|humano|ia|inteligencia artificial|bot|robo|assistente(?: virtual)?)|(?:essa|esta) (?:e )?(?:uma? )?mensagem automatica|e (?:uma? )?mensagem automatica|isso (?:e|eh) (?:uma? )?(?:mensagem|resposta) automatica|(?:suas|essas) respostas? (?:sao )?automaticas?|(?:esse|este|seu) atendimento (?:e|eh) automatizado|(?:essa|sua) resposta (?:foi )?gerada por (?:uma? )?ia)\b/i
+const identityQuestionPattern = /\b(?:quem (?:esta|ta) (?:me )?(?:respondendo|falando|atendendo)|quem (?:responde|atende)|com quem (?:eu )?(?:estou|to) falando|quem (?:e|eh) voce|voce (?:e|eh) (?:o )?(?:proprio )?cristhian|voce (?:esta|ta) falando com (?:o )?(?:proprio )?cristhian|e voce (?:o )?(?:proprio )?cristhian|estou falando com (?:o )?(?:proprio )?cristhian|cristhian (?:esta|ta) respondendo|e (?:o )?cristhian que (?:esta|ta) (?:respondendo|falando|atendendo)|voce (?:e|eh) (?:(?:uma?|a) )?(?:pessoa|humano|ia|inteligencia artificial|bot|robo|assistente(?: virtual)?|sistema automatizado|automacao|automatizad[oa]|automatic[oa])|(?:essa|esta) (?:e )?(?:uma? )?mensagem automatica|e (?:uma? )?mensagem automatica|isso (?:e|eh) (?:uma? )?(?:mensagem|resposta) automatica?|isso (?:e|eh) (?:uma? )?automacao|(?:suas|essas) respostas? (?:sao )?automaticas?|(?:esse|este|seu) atendimento (?:e|eh) automatizado|(?:essa|sua) resposta (?:foi )?gerada por (?:(?:uma?|a) )?ia)\b/i
 
 function normalizeMessage(text: string) {
   return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').trim()
@@ -106,7 +108,7 @@ function isDirectIdentityQuestion(text: string) {
 function identityDisclosure(text: string) {
   const normalized = normalizeMessage(text)
   const asksIfCristhian = /\b(?:voce (?:e|eh) (?:o )?(?:proprio )?cristhian|voce (?:esta|ta) falando com (?:o )?(?:proprio )?cristhian|e voce (?:o )?(?:proprio )?cristhian|estou falando com (?:o )?(?:proprio )?cristhian|cristhian (?:esta|ta) respondendo|e (?:o )?cristhian que (?:esta|ta) (?:respondendo|falando|atendendo))\b/.test(normalized)
-  const asksIfAutomated = /\b(?:(?:essa|esta) (?:e )?(?:uma? )?mensagem automatica|e (?:uma? )?mensagem automatica|isso (?:e|eh) (?:uma? )?(?:mensagem|resposta) automatica|(?:suas|essas) respostas? (?:sao )?automaticas?|(?:esse|este|seu) atendimento (?:e|eh) automatizado|(?:essa|sua) resposta (?:foi )?gerada por (?:uma? )?ia|(?:voce|vc) (?:e|eh) (?:uma? )?(?:ia|inteligencia artificial|bot|robo|assistente(?: virtual)?|pessoa|humano))\b/.test(normalized)
+  const asksIfAutomated = /\b(?:(?:essa|esta) (?:e )?(?:uma? )?mensagem automatica|e (?:uma? )?mensagem automatica|isso (?:e|eh) (?:uma? )?(?:mensagem|resposta) automatica?|isso (?:e|eh) (?:uma? )?automacao|(?:suas|essas) respostas? (?:sao )?automaticas?|(?:esse|este|seu) atendimento (?:e|eh) automatizado|(?:essa|sua) resposta (?:foi )?gerada por (?:uma? )?ia|(?:voce|vc|tu) (?:e|eh) (?:uma? )?(?:ia|inteligencia artificial|bot|robo|assistente(?: virtual)?|pessoa|humano|sistema automatizado|automacao|automatizad[oa]|automatic[oa]))\b/.test(normalized)
   if (asksForCristhian(normalized)) {
     return 'Sou o Cristhian, agente virtual da DigiUP.'
   }
@@ -172,35 +174,435 @@ function newestInboundMessages(messages: WhatsAppWebhookMessage[]) {
   return [...newest.values()]
 }
 
-export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
+function createAutoReplyContext(
+  profile: WhatsAppAutomationProfile,
+  stage: WhatsAppAutomationStage,
+  inboundProjectInquiry: boolean,
+  receivedAt: string,
+  messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>,
+): WhatsAppAutoReplyContext {
+  return {
+    businessName: profile.businessName,
+    senderIdentity: profile.senderIdentity,
+    serviceSummary: profile.serviceSummary,
+    approvedFacts: profile.approvedFacts,
+    escalationContact: profile.escalationContact,
+    stage,
+    inboundProjectInquiry,
+    inboundReceivedAt: receivedAt,
+    messages,
+  }
+}
+
+function buildSanitizedOpenBotPrompt(context: WhatsAppAutoReplyContext) {
+  const sanitizedMessages = sanitizeWhatsAppHistoryForGemini(context.messages).slice(-10).map((message) => ({
+    ...message,
+    body: message.body && message.body.length > 700 ? `${message.body.slice(0, 680)} [trecho omitido]` : message.body,
+  }))
+  const prompt = buildWhatsAppAutoReplyPrompt({ ...context, messages: sanitizedMessages })
+  return Buffer.byteLength(prompt, 'utf8') <= 24_000 ? prompt : undefined
+}
+
+function parseSavedAutoReply(value: unknown) {
+  if (!value || typeof value !== 'object') return undefined
+  try { return parseWhatsAppAutoReplyAnswer(JSON.stringify(value)) } catch { return undefined }
+}
+
+function openBotClientMessageId(runId: string) {
+  return `whatsapp-${runId}`
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+}
+
+async function pollOpenBotDeliveryBriefly(agentId: string, deliveryId: string) {
+  let delivery: Awaited<ReturnType<typeof getOpenBotWhatsAppDelivery>> | undefined
+  for (let attempt = 0; attempt <= 8; attempt += 1) {
+    try {
+      delivery = await getOpenBotWhatsAppDelivery(agentId, deliveryId)
+    } catch (error) {
+      if (!(error instanceof OpenBotWhatsAppBridgeError) || ![429, 502, 503].includes(error.status) || attempt === 8) throw error
+    }
+    if (delivery && !['queued', 'starting', 'running'].includes(delivery.status)) break
+    if (attempt < 8) await wait(1_500)
+  }
+  if (!delivery) throw new OpenBotWhatsAppBridgeError(503, 'bridge_delivery_unavailable')
+  return delivery
+}
+
+async function resumeOpenBotAutomationRun(
+  store: WhatsAppStore,
+  message: WhatsAppWebhookMessage,
+  events: WhatsAppWebhookEvents,
+) {
+  const runId = message.automationRunId
+  if (!runId) return
+  const claimId = randomUUID()
+  if (!(await store.claimOpenBotRun(runId, claimId))) return
+
+  let run: WhatsAppAutomationRunRecord | undefined
+  let agentLockOwned = false
+  let terminal = false
+  let sendingStarted = false
+  let acceptedReplyId: string | undefined
+  let context: Awaited<ReturnType<WhatsAppStore['getAutomationRuntimeContext']>>
+  try {
+    run = await store.getAutomationRun(runId)
+    if (!run || run.status !== 'processing' || run.responseProvider !== 'openbot') return
+    if (run.replyProviderMessageId || run.reason === 'delivery_accepted') {
+      await store.reconcileAcceptedAutomationDeliveries()
+      terminal = true
+      return
+    }
+    if (run.reason === 'sending') {
+      const sendingStartedAt = Date.parse(run.sendingStartedAt ?? '')
+      if (Number.isFinite(sendingStartedAt) && Date.now() - sendingStartedAt < 2 * 60 * 1_000) return
+      await store.pauseAutomationRunForHuman(run.id, 'delivery_unconfirmed', 'handoff_send_failed')
+      terminal = true
+      return
+    }
+    const agentId = run.openBotAgentId
+    const bridge = getWhatsAppOpenBotBridgeConfig()
+    if (!agentId || !bridge || bridge.agentId !== agentId) {
+      await store.pauseAutomationRunForHuman(run.id, 'openbot_bridge_unavailable', 'handoff')
+      terminal = true
+      return
+    }
+
+    agentLockOwned = await store.claimOpenBotAgentLock(agentId, run.id)
+    if (!agentLockOwned) {
+      await store.pauseAutomationRunForHuman(run.id, 'openbot_agent_busy', 'handoff')
+      terminal = true
+      return
+    }
+
+    context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
+    const profile = context?.profile
+    let generated = parseSavedAutoReply(run.generatedResponse)
+
+    if (!run.openBotClientMessageId) {
+      if (!isWhatsAppOpenBotReplyRuntimeEnabled()) {
+        await store.pauseAutomationRunForHuman(run.id, 'openbot_runtime_unavailable', 'handoff')
+        terminal = true
+        return
+      }
+      if (
+        !context || !profile ||
+        !profile.automationEnabled || profile.responseMode !== 'openbot' || profile.openBotAgentId !== agentId ||
+        !profile.channelApprovedAt || !profile.contentApprovedAt || profile.updatedAt !== run.profileUpdatedAt ||
+        context.automationPaused || context.automationOptedOut || context.latestProviderMessageId !== message.providerMessageId ||
+        context.lastMessageDirection !== 'inbound'
+      ) {
+        await store.completeAutomationRun(run.id, 'skipped', 'openbot_state_changed_before_request')
+        terminal = true
+        return
+      }
+      const projectContext = resolveWhatsAppProjectContext(context.messages)
+      const inboundProjectInquiry = isInboundProjectInquiry(message.body ?? '')
+      const requestStage = projectContext.startsNewRequest || projectContext.clarificationReply
+        || (inboundProjectInquiry && context.automationStage === 'identify_responsible')
+        ? 'understand_scenario' : context.automationStage
+      const promptContext = createAutoReplyContext(
+        profile,
+        requestStage,
+        inboundProjectInquiry,
+        message.occurredAt,
+        sanitizeWhatsAppHistoryForGemini(context.messages),
+      )
+      const prompt = buildSanitizedOpenBotPrompt(promptContext)
+      if (!prompt) {
+        await store.pauseAutomationRunForHuman(run.id, 'openbot_prompt_too_large', 'handoff')
+        terminal = true
+        return
+      }
+      if (!run.openBotContextPreparedAt) {
+        try {
+          await clearOpenBotWhatsAppContext(agentId)
+          await store.markOpenBotContextPrepared(run.id)
+        } catch {
+          await store.pauseAutomationRunForHuman(run.id, 'openbot_context_unavailable', 'handoff')
+          terminal = true
+          return
+        }
+      }
+      run = await store.prepareOpenBotRequest({
+        runId: run.id,
+        agentId,
+        clientMessageId: openBotClientMessageId(run.id),
+        prompt,
+        profileUpdatedAt: profile.updatedAt,
+      })
+    }
+
+    if (!run.openBotClientMessageId || !run.openBotPrompt || !run.openBotRequestStartedAt) {
+      await store.pauseAutomationRunForHuman(run.id, 'openbot_request_state_unknown', 'handoff')
+      terminal = true
+      return
+    }
+    const openBotRunId = run.id
+    const openBotClientId = run.openBotClientMessageId
+    const openBotPrompt = run.openBotPrompt
+
+    if (!generated) {
+      const requestedAt = Date.parse(run.openBotRequestStartedAt)
+      if (!Number.isFinite(requestedAt) || Date.now() - requestedAt >= 24 * 60 * 60 * 1_000) {
+        await store.pauseAutomationRunForHuman(run.id, 'openbot_receipt_expired', 'handoff')
+        terminal = true
+        return
+      }
+
+      if (!run.openBotDeliveryId) {
+        try {
+          const receipt = await sendOpenBotWhatsAppMessage(agentId, openBotPrompt, openBotClientId)
+          await store.recordOpenBotDelivery(openBotRunId, receipt.deliveryId)
+          run = await store.getAutomationRun(openBotRunId)
+          if (!run || !run.openBotDeliveryId) return
+        } catch (error) {
+          if (error instanceof OpenBotWhatsAppBridgeError && error.status >= 400 && error.status < 500 && error.status !== 429) {
+            await store.pauseAutomationRunForHuman(openBotRunId, 'openbot_request_rejected', 'handoff')
+            terminal = true
+          } else {
+            logWarning('whatsapp_openbot_delivery_pending', { reason: 'request_receipt_not_confirmed' })
+          }
+          return
+        }
+      }
+
+      let delivery
+      const deliveryId = run?.openBotDeliveryId
+      if (!deliveryId) return
+      try {
+        delivery = await pollOpenBotDeliveryBriefly(agentId, deliveryId)
+      } catch (error) {
+        if (error instanceof OpenBotWhatsAppBridgeError && error.status === 404) {
+          try {
+            const receipt = await sendOpenBotWhatsAppMessage(agentId, openBotPrompt, openBotClientId)
+            await store.recordOpenBotDelivery(openBotRunId, receipt.deliveryId)
+          } catch (retryError) {
+            if (retryError instanceof OpenBotWhatsAppBridgeError && retryError.status >= 400 && retryError.status < 500 && retryError.status !== 429) {
+              await store.pauseAutomationRunForHuman(openBotRunId, 'openbot_delivery_unavailable', 'handoff')
+              terminal = true
+            }
+          }
+        }
+        return
+      }
+
+      if (delivery.status === 'queued' || delivery.status === 'starting' || delivery.status === 'running') return
+      if (delivery.status !== 'completed' || !delivery.answer) {
+        try {
+          await clearOpenBotWhatsAppContext(agentId)
+          await store.markOpenBotContextCleared(run.id)
+        } catch {
+          return
+        }
+        await store.pauseAutomationRunForHuman(run.id, 'openbot_delivery_failed', 'handoff')
+        terminal = true
+        return
+      }
+
+      generated = parseWhatsAppAutoReplyAnswer(delivery.answer)
+      if (!generated && isDirectIdentityQuestion(message.body ?? '')) {
+        generated = { action: 'reply', replyText: identityReply(message.body ?? ''), nextStage: context?.automationStage ?? 'identify_responsible' }
+      }
+      if (generated) await store.saveOpenBotGeneratedResponse(run.id, generated, generated.replyText)
+    }
+
+    run = await store.getAutomationRun(run.id)
+    if (!run || run.status !== 'processing') return
+    generated = parseSavedAutoReply(run.generatedResponse)
+    if (!generated) {
+      if (!run.openBotContextClearedAt) {
+        try {
+          await clearOpenBotWhatsAppContext(agentId)
+          await store.markOpenBotContextCleared(run.id)
+        } catch {
+          return
+        }
+      }
+      await store.pauseAutomationRunForHuman(run.id, 'openbot_reply_invalid', 'handoff')
+      terminal = true
+      return
+    }
+
+    if (!run.openBotContextClearedAt) {
+      try {
+        await clearOpenBotWhatsAppContext(agentId)
+        await store.markOpenBotContextCleared(run.id)
+      } catch {
+        return
+      }
+    }
+
+    context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
+    const currentProfile = context?.profile
+    const currentAgeMs = Date.now() - Date.parse(message.occurredAt)
+    if (!isWhatsAppAutomationRuntimeEnabled() || !isWhatsAppOpenBotReplyRuntimeEnabled()) {
+      await store.pauseAutomationRunForHuman(run.id, 'openbot_runtime_unavailable', 'handoff')
+      terminal = true
+      return
+    }
+    if (
+      !context || !currentProfile || !currentProfile.automationEnabled || currentProfile.responseMode !== 'openbot' ||
+      currentProfile.openBotAgentId !== agentId || currentProfile.updatedAt !== run.profileUpdatedAt ||
+      !currentProfile.channelApprovedAt || !currentProfile.contentApprovedAt || context.automationPaused || context.automationOptedOut ||
+      context.latestProviderMessageId !== message.providerMessageId || context.lastMessageDirection !== 'inbound' ||
+      !Number.isFinite(currentAgeMs) || currentAgeMs < 0 || currentAgeMs >= customerServiceWindowMs || !getEvolutionApiConfig()
+    ) {
+      await store.completeAutomationRun(run.id, 'skipped', 'state_changed_before_openbot_send')
+      terminal = true
+      return
+    }
+    try {
+      const connectionState = await getEvolutionConnectionState(message.phoneNumberId)
+      if (connectionState.state.toLowerCase() !== 'open') {
+        await store.pauseAutomationRunForHuman(run.id, 'evolution_connection_unavailable', 'handoff')
+        terminal = true
+        return
+      }
+    } catch {
+      await store.pauseAutomationRunForHuman(run.id, 'evolution_connection_unavailable', 'handoff')
+      terminal = true
+      return
+    }
+
+    const repeatedQuestionRecovery = isRepeatedQuestionComplaint(message.body ?? '')
+    const handoffMessages = [
+      ...context.messages,
+      ...events.messages.filter((candidate) => candidate.phoneNumberId === message.phoneNumberId && candidate.contactWaId === message.contactWaId)
+        .map(({ direction, body, occurredAt }) => ({ direction, body: body ?? null, occurredAt })),
+    ]
+    const leadAskedIdentity = isDirectIdentityQuestion(message.body ?? '')
+    const requiresHumanAfterIdentity = leadAskedIdentity && requiresHumanHandoff(handoffMessages)
+    if (leadAskedIdentity && (requiresHumanAfterIdentity || generated.action !== 'reply' || !isTransparentWhatsAppIdentityAnswer(generated.replyText))) {
+      generated = { action: 'reply', replyText: identityReply(message.body ?? ''), nextStage: context?.automationStage ?? 'identify_responsible' }
+    }
+    if ((requiresHumanHandoff(handoffMessages) || generated.action === 'handoff') && !repeatedQuestionRecovery && !requiresHumanAfterIdentity) {
+      await store.pauseAutomationRunForHuman(run.id, 'openbot_requested_human_handoff', 'handoff')
+      terminal = true
+      return
+    }
+    if (repeatedQuestionRecovery) {
+      generated = {
+        action: 'reply',
+        replyText: 'Você tem razão, desculpa por repetir. Vou seguir com o que você já me contou',
+        nextStage: advanceStageAfterRepeatedQuestion(context?.automationStage ?? 'identify_responsible'),
+      }
+    }
+
+    const projectContext = resolveWhatsAppProjectContext(context.messages)
+    const inboundProjectInquiry = isInboundProjectInquiry(message.body ?? '')
+    const schedulingReply = getWhatsAppSchedulingReply(context.messages)
+    const requestStage = projectContext.startsNewRequest || projectContext.clarificationReply
+      || (inboundProjectInquiry && context.automationStage === 'identify_responsible')
+      ? 'understand_scenario' : context.automationStage
+
+    if (leadAskedIdentity && generated.action === 'reply' && !isTransparentWhatsAppIdentityAnswer(generated.replyText)) {
+      generated = { action: 'reply', replyText: identityReply(message.body ?? ''), nextStage: context.automationStage }
+    }
+    if (generated.action === 'stop') {
+      generated = { action: 'reply', replyText: 'Se surgir outra dúvida, pode me chamar por aqui', nextStage: 'closed' }
+    }
+    if (generated.action === 'reply') {
+      generated = { ...generated, nextStage: keepStageFromMovingBackward(requestStage, generated.nextStage) }
+    }
+    if (repeatedQuestionRecovery && generated.action === 'reply' && generated.replyText.includes('?')) {
+      generated = {
+        action: 'reply',
+        replyText: 'Você tem razão, desculpa por repetir. Vou seguir com o que você já me contou',
+        nextStage: advanceStageAfterRepeatedQuestion(context.automationStage),
+      }
+    }
+    if (generated.action === 'reply' && getRepeatedQuestionTopic(generated.replyText, projectContext.messages)) {
+      generated = { ...generated, replyText: distinctFollowUpQuestion(projectContext.messages) }
+    }
+    if (schedulingReply && !repeatedQuestionRecovery && !leadAskedIdentity) generated = { ...generated, replyText: schedulingReply.replyText }
+    if (inboundProjectInquiry && generated.action === 'reply' && isColdProspectingReply(generated.replyText)) {
+      generated = { action: 'reply', replyText: 'Oi, me conta um pouco do que você está pensando para o projeto', nextStage: 'understand_scenario' }
+    }
+
+    const body = normalizeWhatsAppReplyText(generated.replyText)
+    await store.updateGeneratedAutomationResponse(run.id, generated, body)
+    if (schedulingReply) await store.markConversationScheduleReviewRequired(context.userId, context.conversationId)
+    await store.markAutomationRunSending(run.id)
+    sendingStarted = true
+    const replyId = await sendEvolutionTextMessage(message.phoneNumberId, message.contactWaId, body)
+    acceptedReplyId = replyId
+    await store.recordAutomationReplyAccepted(run.id, replyId)
+    await store.persistAutomatedReply({
+      userId: context.userId, phoneNumberId: message.phoneNumberId, conversationId: context.conversationId,
+      contactWaId: message.contactWaId, providerMessageId: replyId, body, occurredAt: new Date().toISOString(),
+    })
+    await store.updateAutomationStage(context.conversationId, generated.nextStage)
+    if (generated.nextStage === 'closed' && !repeatedQuestionRecovery) {
+      await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'assistant_closed')
+    }
+    if (requiresHumanAfterIdentity) {
+      await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'handoff')
+      await store.completeAutomationRun(run.id, 'needs_human', 'identity_answer_handoff', replyId)
+      terminal = true
+      return
+    }
+    await store.completeAutomationRun(run.id, 'sent', undefined, replyId)
+    terminal = true
+  } catch (error) {
+    if (run && sendingStarted) {
+      const reason = acceptedReplyId ? 'history_sync_failed_after_send' : 'delivery_unconfirmed'
+      await store.pauseAutomationRunForHuman(run.id, reason, 'handoff_send_failed', acceptedReplyId).catch(() => undefined)
+      terminal = true
+    } else if (run && error instanceof OpenBotWhatsAppBridgeError && error.status >= 400 && error.status < 500 && error.status !== 429) {
+      await store.pauseAutomationRunForHuman(run.id, 'openbot_bridge_rejected', 'handoff').catch(() => undefined)
+      terminal = true
+    }
+    logWarning('whatsapp_openbot_run_recovery_failed', { reason: sendingStarted ? 'delivery_outcome_unknown' : 'recovery_unavailable' })
+  } finally {
+    if (agentLockOwned && terminal && run?.openBotAgentId) {
+      await store.releaseOpenBotAgentLock(run.openBotAgentId, run.id).catch(() => undefined)
+    }
+    await store.releaseOpenBotRun(runId, claimId).catch(() => undefined)
+  }
+}
+
+export async function persistWhatsAppStopRequests(events: WhatsAppWebhookEvents) {
   const inboundMessages = events.messages.filter((message) => (
     message.source === 'live' && message.direction === 'inbound' && message.messageType === 'text' && Boolean(message.body?.trim())
   ))
-  const messages = newestInboundMessages(inboundMessages)
-  if (messages.length === 0) return
   const store = new WhatsAppStore()
   if (!(await store.isAutomationStorageReady())) return
-
-  const newestByConversation = new Map(messages.map((message) => [
-    `${message.phoneNumberId}:${message.contactWaId}`,
-    message.providerMessageId,
-  ]))
 
   for (const message of inboundMessages) {
     const normalized = normalizeMessage(message.body ?? '')
     if (!hasStopOrRefusal(normalized)) continue
-    try {
-      const context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
-      if (!context) continue
-      if (hasOptOutRequest(normalized)) {
-        await store.markConversationOptedOut(context.userId, context.conversationId)
-      } else {
-        await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'refusal')
-      }
-    } catch {
-      logWarning('whatsapp_automation_stop_request_failed', { reason: 'stop_request_state_unavailable' })
+    const context = await store.getAutomationRuntimeContext(message.phoneNumberId, message.contactWaId)
+    if (!context) continue
+    if (hasOptOutRequest(normalized)) {
+      await store.markConversationOptedOut(context.userId, context.conversationId)
+    } else {
+      await store.setConversationAutomationPaused(context.userId, context.conversationId, true, 'refusal')
     }
   }
+}
+
+export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
+  const allInboundMessages = events.messages.filter((message) => (
+    message.source === 'live' && message.direction === 'inbound' && message.messageType === 'text' && Boolean(message.body?.trim())
+  ))
+  const store = new WhatsAppStore()
+  if (!(await store.isAutomationStorageReady())) return
+  await persistWhatsAppStopRequests(events)
+
+  for (const message of allInboundMessages.filter((candidate) => candidate.automationRunId)) {
+    await resumeOpenBotAutomationRun(store, message, events)
+  }
+
+  const inboundMessages = allInboundMessages.filter((message) => !message.automationRunId)
+  const messages = newestInboundMessages(inboundMessages)
+  if (messages.length === 0) return
+  const newestByConversation = new Map(messages.map((message) => [
+    `${message.phoneNumberId}:${message.contactWaId}`,
+    message.providerMessageId,
+  ]))
 
   for (const message of inboundMessages) {
     const key = `${message.phoneNumberId}:${message.contactWaId}`
@@ -255,7 +657,15 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       const connectionState = await getEvolutionConnectionState(message.phoneNumberId)
       if (connectionState.state.toLowerCase() !== 'open') continue
 
-      const run = await store.claimAutomationRun(context.userId, message.phoneNumberId, context.conversationId, message.providerMessageId)
+      const run = await store.claimAutomationRun(
+        context.userId,
+        message.phoneNumberId,
+        context.conversationId,
+        message.providerMessageId,
+        profile.responseMode === 'openbot' ? 'openbot' : profile.responseMode === 'gemini' ? 'gemini' : undefined,
+        profile.responseMode === 'openbot' ? profile.openBotAgentId : undefined,
+        profile.updatedAt,
+      )
       if (!run) continue
       runId = run.id
 
@@ -293,10 +703,13 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       const repeatedQuestionRecovery = replyPlan === 'gemini'
         && !shouldHandoff
         && isRepeatedQuestionComplaint(message.body ?? '')
-      const identityDisclosureResponse = leadAskedIdentity && !shouldHandoff
-      const deterministicReply = repeatedQuestionRecovery || identityDisclosureResponse || Boolean(schedulingReply)
+      const identityDisclosureResponse = leadAskedIdentity && !shouldHandoff && replyPlan !== 'openbot'
+      const deterministicReply = repeatedQuestionRecovery || identityDisclosureResponse || (Boolean(schedulingReply) && replyPlan !== 'openbot')
       let generated: Awaited<ReturnType<typeof generateWhatsAppAutoReply>>
-      if (deterministicReply) {
+      if (replyPlan === 'openbot') {
+        await resumeOpenBotAutomationRun(store, { ...message, automationRunId: runId }, events)
+        continue
+      } else if (deterministicReply) {
         generated = {
           action: 'reply',
           replyText: [
@@ -403,6 +816,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       }
 
       const body = normalizeWhatsAppReplyText(generated.replyText)
+      await store.persistGeneratedAutomationResponse(runId, generated, body)
       await store.markAutomationRunSending(runId)
       sendingStarted = true
       const replyId = await sendEvolutionTextMessage(message.phoneNumberId, message.contactWaId, body)
@@ -424,8 +838,12 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       await store.completeAutomationRun(runId, 'sent', undefined, replyId)
     } catch (error) {
       if (runId) {
-        const reason = acceptedReplyId ? 'history_sync_failed_after_send' : sendingStarted ? 'delivery_unconfirmed' : 'processing_error'
-        await store.completeAutomationRun(runId, 'failed', reason, acceptedReplyId).catch(() => undefined)
+        if (sendingStarted) {
+          const reason = acceptedReplyId ? 'history_sync_failed_after_send' : 'delivery_unconfirmed'
+          await store.pauseAutomationRunForHuman(runId, reason, 'handoff_send_failed', acceptedReplyId).catch(() => undefined)
+        } else {
+          await store.completeAutomationRun(runId, 'failed', 'processing_error').catch(() => undefined)
+        }
       }
       logWarning('whatsapp_automation_message_skipped', {
         reason: error instanceof Error ? error.message : 'unknown_error',

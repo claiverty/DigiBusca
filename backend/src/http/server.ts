@@ -6,17 +6,18 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { opportunityTypes, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, configureRuntimeEnvironment, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppEvolutionSetupStatus, isWhatsAppAutomationRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured } from '../config/supabase.js'
+import { authenticateRequest, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import { GeminiOutreachError } from '../integrations/geminiOutreachProvider.js'
 import { generateLeadOutreach } from '../application/generateLeadOutreach.js'
 import { checkRateLimit } from './rateLimit.js'
-import { createRequestId, logError, logInfo } from '../observability/logger.js'
+import { createRequestId, logError, logInfo, logWarning } from '../observability/logger.js'
 import { checkSiteHealth } from '../integrations/siteHealth.js'
 import { buildOpenBotOutreachPrompt, OpenBotOutreachResponseError, validateOpenBotOutreachAnswer } from '../application/generateOpenBotOutreach.js'
 import { getOpenBotDelivery, listOpenBotAgents, OpenBotAutomationError, sendOpenBotAgentMessage } from '../integrations/openbotAutomationApi.js'
+import { getOpenBotWhatsAppAgentStatus, OpenBotWhatsAppBridgeError } from '../integrations/openBotWhatsAppBridge.js'
 import { getEvolutionConnections, getEvolutionPairingStatus, startEvolutionConnection } from '../application/evolutionConnections.js'
 import { persistEvolutionWebhook } from '../application/evolutionWebhook.js'
 import { evolutionWebhookSecretMatches, EvolutionApiError } from '../integrations/evolutionApi.js'
@@ -25,7 +26,7 @@ import { isUuid, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
 import { parseWhatsAppAutomationProfileInput } from '../contracts/whatsappAutomation.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
 import { WhatsAppProspectingError, WhatsAppProspectingStore } from '../data/whatsappProspectingStore.js'
-import { startLocalWhatsAppProspectingScheduler } from '../application/processLocalWhatsAppProspecting.js'
+import { runLocalWhatsAppProspectingTick, startLocalWhatsAppProspectingScheduler } from '../application/processLocalWhatsAppProspecting.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -341,8 +342,15 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
     try {
-      await persistEvolutionWebhook(body)
+      const shouldProcessInboundNow = await persistEvolutionWebhook(body)
       sendJson(response, 200, { received: true })
+      if (shouldProcessInboundNow) {
+        setImmediate(() => {
+          void runLocalWhatsAppProspectingTick().catch(() => {
+            logWarning('whatsapp_webhook_followup_failed', { reason: 'inbound_processing_unavailable' })
+          })
+        })
+      }
     } catch {
       sendJson(response, 503, { error: 'Não foi possível persistir o evento Evolution no Supabase.' })
     }
@@ -398,11 +406,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
     if (body.enabled && !isWhatsAppProspectingRuntimeEnabled()) {
-      sendJson(response, 503, { error: 'Ative WHATSAPP_PROSPECTING_RUNTIME_ENABLED no backend local e reinicie-o antes de ligar a fila.' })
+      sendJson(response, 503, { error: 'Ative WHATSAPP_PROSPECTING_RUNTIME_ENABLED no ambiente do backend e reinicie o serviço antes de ligar a fila.' })
       return
     }
     if (body.enabled && !getEvolutionApiConfig()) {
-      sendJson(response, 503, { error: 'Configure a Evolution API no backend local antes de ligar a fila.' })
+      sendJson(response, 503, { error: 'Configure a Evolution API no ambiente do backend antes de ligar a fila.' })
       return
     }
     if (body.enabled) {
@@ -563,6 +571,23 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       sendJson(response, 503, { error: 'A automação está bloqueada pelo interruptor global do servidor.' })
       return
     }
+    if (input.automationEnabled && input.responseMode === 'openbot') {
+      const bridge = getWhatsAppOpenBotBridgeConfig()
+      if (!isWhatsAppOpenBotReplyRuntimeEnabled() || !bridge || input.openBotAgentId !== bridge.agentId) {
+        sendJson(response, 503, { error: 'O atendimento OpenBot está indisponível até a bridge privada e o agente dedicado estarem configurados.' })
+        return
+      }
+      try {
+        const agent = await getOpenBotWhatsAppAgentStatus(input.openBotAgentId)
+        if (!agent.connected) {
+          sendJson(response, 503, { error: 'O agente OpenBot selecionado não está conectado à Local scripts API.' })
+          return
+        }
+      } catch {
+        sendJson(response, 503, { error: 'Não foi possível confirmar a conexão privada com o agente OpenBot.' })
+        return
+      }
+    }
     const profile = await new WhatsAppStore().saveAutomationProfile(user.id, input)
     response.setHeader('Cache-Control', 'no-store')
     sendJson(response, 200, { data: profile })
@@ -645,6 +670,33 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
 
+  if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/openbot/status') {
+    const agentId = requestUrl.searchParams.get('agentId') ?? ''
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(agentId)) {
+      sendJson(response, 400, { error: 'Informe um agent ID válido.' })
+      return
+    }
+    const bridge = getWhatsAppOpenBotBridgeConfig()
+    if (!bridge || agentId !== bridge.agentId) {
+      response.setHeader('Cache-Control', 'no-store')
+      sendJson(response, 200, { data: { agentId, agentName: null, connected: false } })
+      return
+    }
+    try {
+      const data = await getOpenBotWhatsAppAgentStatus(agentId)
+      response.setHeader('Cache-Control', 'no-store')
+      sendJson(response, 200, { data })
+    } catch (error) {
+      if (error instanceof OpenBotWhatsAppBridgeError) {
+        response.setHeader('Cache-Control', 'no-store')
+        sendJson(response, 200, { data: { agentId, agentName: null, connected: false } })
+        return
+      }
+      throw error
+    }
+    return
+  }
+
   const trackedLeadProvider = new GooglePlacesProvider(
     undefined,
     (requestType) => persistenceStore.reserveGoogleApiRequest(accessToken, requestType),
@@ -653,7 +705,8 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
 
   if (request.method === 'GET' && requestUrl.pathname === '/api/openbot/agents') {
     try {
-      sendJson(response, 200, { data: await listOpenBotAgents() })
+      const dedicatedWhatsAppAgentId = getConfiguredWhatsAppOpenBotAgentId()
+      sendJson(response, 200, { data: (await listOpenBotAgents()).filter((agent) => agent.id !== dedicatedWhatsAppAgentId) })
     } catch (error) {
       if (error instanceof OpenBotAutomationError) {
         sendJson(response, error.status, { error: error.message })
@@ -725,6 +778,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         return
       }
 
+      if (input.agentId === getConfiguredWhatsAppOpenBotAgentId()) {
+        sendJson(response, 409, { error: 'O agente dedicado ao atendimento WhatsApp não pode ser usado para rascunhos de prospecção.' })
+        return
+      }
+
       const rateLimit = checkRateLimit({ key: `openbot-outreach:${user.id}`, limit: 8, windowMs: 60_000 })
       if (!rateLimit.allowed) {
         response.setHeader('Retry-After', String(rateLimit.retryAfterSeconds))
@@ -772,6 +830,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         deliveryId = decodeURIComponent(openBotDeliveryMatch[2])
       } catch {
         sendJson(response, 400, { error: 'O identificador da tarefa do OpenBot é inválido.' })
+        return
+      }
+
+      if (agentId === getConfiguredWhatsAppOpenBotAgentId()) {
+        sendJson(response, 409, { error: 'O agente dedicado ao atendimento WhatsApp não pode ser usado para prospecção.' })
         return
       }
 
@@ -966,6 +1029,10 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         undefined,
         changes,
       )
+
+      if (changes.whatsappConsentStatus === 'opted_out') {
+        await new WhatsAppStore().markSavedLeadOptedOut(user.id, updateMatch[1])
+      }
 
       sendJson(response, 200, { data: updatedLead })
       return

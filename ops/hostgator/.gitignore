@@ -1,0 +1,10 @@
+/compose.env
+/backend.env
+/evolution-db.env
+/evolution-api.env
+/bridge.env
+/dokploy-mcp.env
+/cloudflare-tunnel-token
+/cloudflared-credentials*.json
+*.token
+*.secret

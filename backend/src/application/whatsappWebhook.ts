@@ -17,6 +17,7 @@ export type WhatsAppWebhookMessage = {
   source: 'live' | 'history'
   messageType: string
   body?: string
+  automationRunId?: string
 }
 
 export type WhatsAppWebhookStatus = {

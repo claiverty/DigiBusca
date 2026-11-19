@@ -12,7 +12,7 @@ export const whatsappAutomationStages = [
 
 export type WhatsAppAutomationStage = (typeof whatsappAutomationStages)[number]
 
-export const whatsappAutomationResponseModes = ['handoff_only', 'gemini'] as const
+export const whatsappAutomationResponseModes = ['handoff_only', 'gemini', 'openbot'] as const
 
 export type WhatsAppAutomationResponseMode = (typeof whatsappAutomationResponseModes)[number]
 
@@ -24,6 +24,7 @@ export type WhatsAppAutomationProfileInput = {
   approvedFacts: string
   escalationContact: string
   responseMode: WhatsAppAutomationResponseMode
+  openBotAgentId: string
   automationEnabled: boolean
   channelApproved: boolean
   contentApproved: boolean
@@ -45,6 +46,7 @@ export function parseWhatsAppAutomationProfileInput(value: unknown): WhatsAppAut
   }
   const phoneNumberId = candidate.phoneNumberId
   const responseMode = candidate.responseMode === undefined ? 'handoff_only' : candidate.responseMode
+  const openBotAgentId = candidate.openBotAgentId === undefined ? '' : boundedText('openBotAgentId', 128)
   const automationEnabled = candidate.automationEnabled
   const channelApproved = candidate.channelApproved
   const contentApproved = candidate.contentApproved
@@ -58,14 +60,15 @@ export function parseWhatsAppAutomationProfileInput(value: unknown): WhatsAppAut
     typeof phoneNumberId !== 'string' || !/^[-_a-zA-Z0-9]{1,128}$/.test(phoneNumberId) ||
     businessName === undefined || senderIdentity === undefined || serviceSummary === undefined ||
     approvedFacts === undefined || escalationContact === undefined ||
-    (responseMode !== 'handoff_only' && responseMode !== 'gemini') ||
+    openBotAgentId === undefined ||
+    (responseMode !== 'handoff_only' && responseMode !== 'gemini' && responseMode !== 'openbot') ||
     typeof automationEnabled !== 'boolean' || typeof channelApproved !== 'boolean' ||
     typeof contentApproved !== 'boolean'
   ) return undefined
 
   if (automationEnabled && (
     !businessName || !senderIdentity || !serviceSummary || !escalationContact ||
-    !channelApproved || !contentApproved
+    !channelApproved || !contentApproved || (responseMode === 'openbot' && !/^[A-Za-z0-9_-]{1,128}$/.test(openBotAgentId))
   )) return undefined
 
   return {
@@ -76,6 +79,7 @@ export function parseWhatsAppAutomationProfileInput(value: unknown): WhatsAppAut
     approvedFacts,
     escalationContact,
     responseMode,
+    openBotAgentId,
     automationEnabled,
     channelApproved,
     contentApproved,

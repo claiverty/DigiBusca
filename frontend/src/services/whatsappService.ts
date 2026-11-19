@@ -9,6 +9,9 @@ export type WhatsAppEvolutionSetupStatus = {
   automationStorageReady: boolean
   automationRuntimeEnabled: boolean
   prospectingRuntimeEnabled: boolean
+  openBotReplyRuntimeEnabled: boolean
+  openBotBridgeConfigured: boolean
+  openBotAgentSafetyConfirmed: boolean
 }
 
 export type WhatsAppProspectingSettings = {
@@ -48,7 +51,8 @@ export type WhatsAppAutomationProfile = {
   serviceSummary: string
   approvedFacts: string
   escalationContact: string
-  responseMode: 'handoff_only' | 'gemini'
+  responseMode: 'handoff_only' | 'gemini' | 'openbot'
+  openBotAgentId: string
   automationEnabled: boolean
   channelApprovedAt: string | null
   contentApprovedAt: string | null
@@ -58,6 +62,12 @@ export type WhatsAppAutomationProfile = {
 export type WhatsAppAutomationProfileInput = Omit<WhatsAppAutomationProfile, 'channelApprovedAt' | 'contentApprovedAt' | 'updatedAt'> & {
   channelApproved: boolean
   contentApproved: boolean
+}
+
+export type WhatsAppOpenBotAgentStatus = {
+  agentId: string
+  agentName: string | null
+  connected: boolean
 }
 
 export type WhatsAppConnection = {
@@ -114,7 +124,7 @@ async function getWhatsAppData<T>(path: string): Promise<T> {
   try {
     response = await whatsAppFetch(`${apiBaseUrl}${path}`)
   } catch {
-    throw new Error('Não foi possível conectar à API WhatsApp pelo domínio do DigiBusca. Verifique se o backend do Mac e o túnel Cloudflare estão ativos.')
+    throw new Error('Não foi possível conectar à API WhatsApp pelo domínio do DigiBusca. Verifique se o backend e o túnel Cloudflare estão ativos.')
   }
   const payload = (await response.json().catch(() => null)) as { data?: T; error?: string } | null
 
@@ -184,6 +194,10 @@ export async function getWhatsAppAutomationProfile(phoneNumberId: string): Promi
   return getWhatsAppData<WhatsAppAutomationProfile | null>(`/whatsapp/automation?phoneNumberId=${encodeURIComponent(phoneNumberId)}`)
 }
 
+export async function getWhatsAppOpenBotAgentStatus(agentId: string): Promise<WhatsAppOpenBotAgentStatus> {
+  return getWhatsAppData<WhatsAppOpenBotAgentStatus>(`/whatsapp/openbot/status?agentId=${encodeURIComponent(agentId)}`)
+}
+
 export async function saveWhatsAppAutomationProfile(input: WhatsAppAutomationProfileInput): Promise<WhatsAppAutomationProfile> {
   let response: Response
   try {
@@ -250,7 +264,7 @@ export async function connectWhatsAppEvolution(): Promise<WhatsAppEvolutionConne
       method: 'POST',
     })
   } catch {
-    throw new Error('Não foi possível conectar ao backend local do DigiBusca.')
+    throw new Error('Não foi possível conectar ao backend do DigiBusca.')
   }
   const payload = (await response.json().catch(() => null)) as { data?: WhatsAppEvolutionConnectionResult; error?: string } | null
   if (!response.ok || !payload?.data) {

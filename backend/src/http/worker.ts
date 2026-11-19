@@ -39,7 +39,7 @@ async function proxyLocalIntegration(request: Request, backendUrlValue?: string)
   const noStore = { 'Cache-Control': 'no-store, max-age=0' }
   if (!backendUrlValue?.trim()) {
     return jsonResponse(request, 503, {
-      error: 'O backend local ainda não está conectado ao domínio. Configure o túnel Cloudflare.',
+      error: 'O backend de WhatsApp ainda não está conectado ao domínio. Configure o túnel Cloudflare.',
     }, noStore)
   }
 
@@ -52,7 +52,7 @@ async function proxyLocalIntegration(request: Request, backendUrlValue?: string)
       backendOrigin.origin === requestUrl.origin
     ) throw new Error('invalid_backend_origin')
   } catch {
-    return jsonResponse(request, 503, { error: 'A origem segura do backend local não está configurada.' }, noStore)
+    return jsonResponse(request, 503, { error: 'A origem segura do backend de WhatsApp não está configurada.' }, noStore)
   }
 
   const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, backendOrigin)
@@ -68,7 +68,7 @@ async function proxyLocalIntegration(request: Request, backendUrlValue?: string)
     })
   } catch {
     return jsonResponse(request, 502, {
-      error: 'Não foi possível alcançar o backend do Mac pelo túnel Cloudflare.',
+      error: 'Não foi possível alcançar o backend de WhatsApp pelo túnel Cloudflare.',
     }, noStore)
   }
 }
@@ -199,7 +199,7 @@ async function handleApiRequest(request: Request, scheduleBackgroundTask?: (task
   }
 
   if (isWhatsAppIntegrationPath(url.pathname)) {
-    return jsonResponse(request, 410, { error: 'WhatsApp pela Evolution API exige o backend local em execução no Mac.' }, { 'Cache-Control': 'no-store' })
+    return jsonResponse(request, 410, { error: 'WhatsApp pela Evolution API exige o backend dedicado conectado ao domínio.' }, { 'Cache-Control': 'no-store' })
   }
 
   const authentication = await authenticateRequest(request.headers.get('Authorization') ?? undefined)

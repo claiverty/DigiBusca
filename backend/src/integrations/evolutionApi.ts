@@ -32,7 +32,7 @@ async function evolutionRequest<T>(path: string, init: RequestInit = {}): Promis
       signal: AbortSignal.timeout(20_000),
     })
   } catch {
-    throw new EvolutionApiError('Não foi possível conectar à Evolution API. Confira se o serviço está ativo no Mac.', 502)
+    throw new EvolutionApiError('Não foi possível conectar à Evolution API. Confira se o serviço está ativo e acessível pelo backend.', 502)
   }
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined)

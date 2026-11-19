@@ -1,0 +1,11 @@
+# Reserve a stable address outside the Dokploy MCP firewall's reserved address.
+services:
+  openbot:
+    networks:
+      openbot:
+        ipv4_address: 172.30.0.4
+
+networks:
+  openbot:
+    external: true
+    name: openbot

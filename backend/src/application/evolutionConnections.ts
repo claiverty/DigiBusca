@@ -20,7 +20,7 @@ function newInstanceName(userId: string) {
 }
 
 export async function startEvolutionConnection(userId: string) {
-  if (!getEvolutionApiConfig()) throw new Error('Configure a Evolution API no arquivo backend/.env antes de conectar.')
+  if (!getEvolutionApiConfig()) throw new Error('Configure a URL e as credenciais da Evolution API no ambiente do backend antes de conectar.')
   const store = new WhatsAppStore()
   if (!(await store.isEvolutionStorageReady())) {
     throw new Error('Aplique as migrations 009_whatsapp_webhook.sql e 010_whatsapp_coexistence.sql no Supabase antes de conectar.')

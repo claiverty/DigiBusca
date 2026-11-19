@@ -40,7 +40,7 @@ async function getAutomationConnection() {
     ])
   } catch {
     throw new OpenBotAutomationError(
-      'Ative Local scripts no agente DigiProspector em OpenBot > Configurações do agente > Permissões para conectar.',
+      'Ative Local scripts no agente que atenderá o WhatsApp em OpenBot > Configurações do agente > Permissões.',
       503,
     )
   }
@@ -49,7 +49,7 @@ async function getAutomationConnection() {
   try {
     parsedUrl = new URL(baseUrl.trim())
   } catch {
-    throw new OpenBotAutomationError('A conexão local do OpenBot está inválida. Reinicie o OpenBot e tente novamente.', 503)
+    throw new OpenBotAutomationError('A conexão da API do OpenBot está inválida. Confira a configuração do agente e tente novamente.', 503)
   }
 
   if (parsedUrl.protocol !== 'http:' || parsedUrl.hostname !== '127.0.0.1' || parsedUrl.pathname !== '/' || parsedUrl.search || parsedUrl.hash) {
@@ -61,7 +61,7 @@ async function getAutomationConnection() {
     .map((line) => line.trim())
     .find((line) => /^Authorization:\s*Bearer\s+\S+$/i.test(line))
   if (!authorization) {
-    throw new OpenBotAutomationError('A credencial local do OpenBot não está disponível. Reinicie o OpenBot e tente novamente.', 503)
+    throw new OpenBotAutomationError('A credencial da API do OpenBot não está disponível. Revise a permissão Local scripts do agente.', 503)
   }
 
   const [name, value] = authorization.split(/:\s*/, 2)
@@ -84,7 +84,7 @@ async function requestOpenBot<T>(path: string, init?: RequestInit): Promise<T> {
       signal: AbortSignal.timeout(10_000),
     })
   } catch {
-    throw new OpenBotAutomationError('Não foi possível alcançar a API local do OpenBot. Confira se ele continua aberto.', 503)
+    throw new OpenBotAutomationError('Não foi possível alcançar a API do OpenBot. Confira se a instância está ativa.', 503)
   }
 
   let payload: unknown
@@ -96,7 +96,7 @@ async function requestOpenBot<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     if (response.status === 401) {
-      throw new OpenBotAutomationError('A sessão local da API do OpenBot expirou. Reinicie o OpenBot para renová-la.', 503)
+      throw new OpenBotAutomationError('A credencial da API do OpenBot expirou. Revise Local scripts no agente e atualize a configuração.', 503)
     }
     if (response.status === 403) {
       throw new OpenBotAutomationError('O OpenBot recusou o acesso. Confirme se Local scripts está ativo no agente escolhido.', 403)
@@ -172,4 +172,14 @@ export async function getOpenBotDelivery(agentId: string, deliveryId: string): P
   }
 
   return { id: record.id, status: record.status as OpenBotDelivery['status'], answer: record.answer as string | null }
+}
+
+export async function clearOpenBotAgentContext(agentId: string) {
+  const payload = await requestOpenBot<unknown>(
+    `v1/agents/${encodeURIComponent(agentId)}/context/clear`,
+    { method: 'POST' },
+  )
+  if (typeof payload !== 'object' || payload === null || (payload as Record<string, unknown>).ok !== true) {
+    throw new OpenBotAutomationError('O OpenBot não confirmou a limpeza do contexto do agente.', 502)
+  }
 }

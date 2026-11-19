@@ -1,0 +1,50 @@
+# Add this file only to the dedicated DigiBot WhatsApp OpenBot instance.
+# The bridge shares its network namespace so it can reach OpenBot's loopback-only API.
+services:
+  openbot:
+    networks:
+      openbot:
+        ipv4_address: 172.30.0.4
+      whatsapp_agent:
+        ipv4_address: 10.0.4.10
+
+  openbot-whatsapp-bridge:
+    image: ${DIGIBUSCA_BACKEND_IMAGE:?Set the immutable DigiBusca backend image}
+    pull_policy: always
+    entrypoint: ["node"]
+    command: ["backend/dist/openBotReplyBridgeServer.js"]
+    network_mode: service:openbot
+    depends_on:
+      - openbot
+    restart: unless-stopped
+    user: "node"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    environment:
+      NODE_ENV: production
+      OPENBOT_AUTOMATION_DIR: /run/openbot-automation
+      OPENBOT_REPLY_BRIDGE_BIND_HOST: 10.0.4.10
+      OPENBOT_REPLY_BRIDGE_PORT: "4181"
+      OPENBOT_REPLY_BRIDGE_AGENT_ID: ${WHATSAPP_OPENBOT_AGENT_ID:?Set Cristhian's OpenBot agent ID}
+      OPENBOT_REPLY_BRIDGE_TOKEN: ${WHATSAPP_OPENBOT_BRIDGE_TOKEN:?Set the private bridge token}
+    volumes:
+      - type: bind
+        source: /srv/openbot/${OPENBOT_NAME:?Set the OpenBot instance name}/data/.config/OpenBot/automation
+        target: /run/openbot-automation
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 128m
+    cpus: 0.10
+    pids_limit: 64
+
+networks:
+  openbot:
+    external: true
+  whatsapp_agent:
+    name: digibusca-whatsapp-agent
+    external: true

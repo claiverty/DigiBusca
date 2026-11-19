@@ -1,0 +1,12 @@
+[Unit]
+Description=Backup diário do WhatsApp e OpenBot DigiBusca
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+AccuracySec=1m
+Unit=digibusca-evolution-backup.service
+
+[Install]
+WantedBy=timers.target

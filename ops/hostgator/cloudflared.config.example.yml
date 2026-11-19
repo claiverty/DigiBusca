@@ -1,0 +1,7 @@
+tunnel: ec5fc235-6aec-4f85-967c-16daca7b2507
+credentials-file: /run/secrets/cloudflare_tunnel_credentials
+protocol: quic
+ingress:
+  - hostname: whatsapp-api.digiuptech.com.br
+    service: http://digibusca-backend:3001
+  - service: http_status:404

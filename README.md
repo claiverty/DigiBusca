@@ -7,7 +7,7 @@ O DigiBusca é uma plataforma de prospecção digital para freelancers e agênci
 1. O usuário pesquisa empresas por localização e segmento.
 2. A aplicação organiza os dados públicos e identifica oportunidades de presença digital.
 3. Leads podem ser salvos, classificados por status e acompanhados com observações, contatos e próximos passos.
-4. Leads salvos com autorização registrada podem entrar numa fila de primeiro contato pela Evolution API (Baileys/WhatsApp Web); o backend local agenda os envios e registra o resultado no CRM.
+4. Leads salvos com consentimento registrado podem entrar numa fila de primeiro contato pela Evolution API (Baileys/WhatsApp Web); o backend da VPS agenda os envios e registra o resultado no CRM.
 5. Vendas podem ser registradas, editadas e acompanhadas em um resumo financeiro.
 
 ## Arquitetura
@@ -17,13 +17,15 @@ O DigiBusca é uma plataforma de prospecção digital para freelancers e agênci
 - `supabase/`: migrations do PostgreSQL e políticas de isolamento por usuário.
 - `.github/workflows/`: automação de qualidade do código.
 
+Em cada push validado para `main`, o CI publica as imagens do backend e da Evolution no GitHub Container Registry. O resumo da execução informa referências imutáveis por digest para configurar no Dokploy; as imagens não incluem arquivos `.env`.
+
 O Supabase Auth gerencia as contas. O backend valida cada sessão e acessa os dados com o contexto do usuário; o PostgreSQL aplica Row Level Security para impedir acesso cruzado. As credenciais de serviços externos ficam somente no ambiente do backend.
 
 ## Integrações
 
 - Google Places: pesquisa de empresas e dados públicos de localização.
 - Gemini: geração de rascunhos de abordagem comercial.
-- Evolution API com Baileys/WhatsApp Web: pareamento por QR Code, caixa de entrada, histórico, fila local e respostas Gemini configuráveis. Os runtimes de envio e resposta começam desligados.
+- Evolution API com Baileys/WhatsApp Web: pareamento por QR Code, caixa de entrada, histórico e fila de prospecção. O agente Cristhian no OpenBot conduz as respostas; Gemini continua como um modo separado, sem fallback automático entre os provedores. Os runtimes de envio e resposta começam desligados.
 - Supabase: autenticação e persistência de leads, interações e vendas.
 
 ## Desenvolvimento
@@ -74,9 +76,9 @@ A carteira registra etapa da conversa, pessoa de contato e próximo passo. Permi
 
 ## Prospecção pelo WhatsApp
 
-A aba **WhatsApp → Conexão** pareia a Evolution API com um QR Code. A aba **WhatsApp → Prospecção** permite enfileirar leads salvos com autorização registrada. O limite diário configurável fica entre 17 e 25 novos leads; envios são espaçados entre 9h e 18h, de segunda a sexta, no fuso de São Paulo. O processamento acontece no backend local enquanto o Mac e a Evolution estiverem ativos. Respostas recebidas podem ser processadas pelo Gemini no mesmo backend quando a automação estiver ativada.
+A aba **WhatsApp → Conexão** pareia a Evolution API com um QR Code. A aba **WhatsApp → Prospecção** permite enfileirar leads salvos com consentimento registrado. O limite diário configurável fica entre 17 e 25 novos contatos; envios são espaçados entre 9h e 18h, de segunda a sexta, no fuso de São Paulo. Na implantação de produção, o backend e a Evolution rodam na VPS; o OpenBot encaminha as respostas do Cristhian ao backend, que valida o estado da conversa e envia mensagens. Os runtimes permanecem desligados até concluir a configuração e aprovar o perfil.
 
-Para instalar e configurar a Evolution local, veja [backend/README.md](backend/README.md). A integração usa o webhook local autenticado; não usa a Cloud API nem o Worker para mensagens. Aplique as migrations `008_whatsapp_cloud_consent.sql` a `013_whatsapp_prospecting_queue.sql` antes de habilitar a fila.
+Para desenvolvimento local da Evolution, veja [backend/README.md](backend/README.md). Para implantação na HostGator, veja [ops/hostgator/README.md](ops/hostgator/README.md). A integração usa o webhook autenticado da Evolution; não usa a Cloud API para mensagens. Aplique as migrations de WhatsApp até `016_whatsapp_openbot_replies.sql` antes de habilitar respostas ou fila.
 
 Antes de executar esta versão contra um banco existente, aplique as migrations necessárias pelo fluxo autorizado.
 
