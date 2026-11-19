@@ -135,12 +135,40 @@ function keepStageFromMovingBackward(current: WhatsAppAutomationStage, next: Wha
   return automationStageOrder.indexOf(next) < automationStageOrder.indexOf(current) ? current : next
 }
 
+function keepConversationActive(stage: WhatsAppAutomationStage): WhatsAppAutomationStage {
+  return stage === 'closed' ? 'qualify_interest' : stage
+}
+
 function distinctFollowUpQuestion(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>) {
   const project = resolveWhatsAppProjectContext(messages)
   if (project.currentService === 'landing page' || project.currentService === 'site') {
     return 'Vocês já têm alguma referência visual para essa página?'
   }
   return 'Já existe algum exemplo ou material que represente o que vocês imaginam para esse projeto?'
+}
+
+function commercialQualificationReply(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>) {
+  const project = resolveWhatsAppProjectContext(messages)
+  const outbound = messages.filter(({ direction, body }) => direction === 'outbound' && body).map(({ body }) => normalizeMessage(body ?? ''))
+  const isSystem = project.currentService === 'sistema'
+    || messages.some(({ direction, body }) => direction === 'inbound' && Boolean(body && /\b(?:sistema|software|aplicativo|app)\b/i.test(normalizeMessage(body))))
+  const isWebsite = project.currentService === 'site' || project.currentService === 'landing page'
+
+  if (isSystem) {
+    const alreadyAskedProcess = outbound.some((body) => /\b(?:controlar|controle|rotina|dia a dia|etapas|processo|estoque|recebimento)\b/.test(body))
+    const alreadyAskedTeam = outbound.some((body) => /\b(?:quantas pessoas|quem vai usar|equipe|usuarios|acessar o sistema)\b/.test(body))
+    if (!alreadyAskedProcess) return 'Quais etapas do processo você precisa controlar primeiro?'
+    if (!alreadyAskedTeam) return 'Quantas pessoas precisariam usar o sistema no dia a dia?'
+    return 'Tem alguma informação ou relatório que seja indispensável na rotina?'
+  }
+
+  if (isWebsite) {
+    const alreadyAskedReference = outbound.some((body) => /\b(?:referencia|exemplo|inspiracao|site que gosta)\b/.test(body))
+    if (!alreadyAskedReference) return 'Já tem algum site ou referência visual que você gosta?'
+    return 'Qual ação você gostaria que a pessoa conseguisse fazer ao acessar o site?'
+  }
+
+  return 'O que você considera indispensável incluir nesse projeto?'
 }
 
 function requiresHumanHandoff(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null; occurredAt?: string }>) {
@@ -482,6 +510,17 @@ async function resumeOpenBotAutomationRun(
     if (leadAskedIdentity && (requiresHumanAfterIdentity || generated.action !== 'reply' || !isTransparentWhatsAppIdentityAnswer(generated.replyText))) {
       generated = { action: 'reply', replyText: identityReply(message.body ?? ''), nextStage: context?.automationStage ?? 'identify_responsible' }
     }
+    const commercialQualificationRequired = asksForUnapprovedCommercialTerms(message.body ?? '')
+      && !requiresHumanHandoff(handoffMessages)
+      && !hasStopOrRefusal(message.body ?? '')
+      && !sensitiveHandoffPattern.test(normalizeMessage(message.body ?? ''))
+    if (commercialQualificationRequired && !leadAskedIdentity) {
+      generated = {
+        action: 'reply',
+        replyText: commercialQualificationReply(handoffMessages),
+        nextStage: keepConversationActive(context?.automationStage ?? 'qualify_interest'),
+      }
+    }
     if ((requiresHumanHandoff(handoffMessages) || generated.action === 'handoff') && !repeatedQuestionRecovery && !requiresHumanAfterIdentity) {
       await store.pauseAutomationRunForHuman(run.id, 'openbot_requested_human_handoff', 'handoff')
       terminal = true
@@ -691,6 +730,10 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
           .map(({ direction, body, occurredAt }) => ({ direction, body: body ?? null, occurredAt })),
       ]
       const shouldHandoff = requiresHumanHandoff(handoffMessages)
+      const commercialQualificationRequired = asksForUnapprovedCommercialTerms(message.body ?? '')
+        && !shouldHandoff
+        && !hasStopOrRefusal(message.body ?? '')
+        && !sensitiveHandoffPattern.test(normalizeMessage(message.body ?? ''))
       const leadAskedIdentity = isDirectIdentityQuestion(message.body ?? '')
       const inboundProjectInquiry = isInboundProjectInquiry(message.body ?? '')
       const projectContext = resolveWhatsAppProjectContext(context.messages)
@@ -708,7 +751,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         && !shouldHandoff
         && isRepeatedQuestionComplaint(message.body ?? '')
       const identityDisclosureResponse = leadAskedIdentity && !shouldHandoff && replyPlan !== 'openbot'
-      const deterministicReply = repeatedQuestionRecovery || identityDisclosureResponse || (Boolean(schedulingReply) && replyPlan !== 'openbot')
+      const deterministicReply = commercialQualificationRequired || repeatedQuestionRecovery || identityDisclosureResponse || (Boolean(schedulingReply) && replyPlan !== 'openbot')
       let generated: Awaited<ReturnType<typeof generateWhatsAppAutoReply>>
       if (replyPlan === 'openbot') {
         await resumeOpenBotAutomationRun(store, { ...message, automationRunId: runId }, events)
@@ -716,14 +759,18 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       } else if (deterministicReply) {
         generated = {
           action: 'reply',
-          replyText: [
+          replyText: commercialQualificationRequired
+            ? commercialQualificationReply(handoffMessages)
+            : [
             repeatedQuestionRecovery ? 'Você tem razão, desculpa por repetir. Vou seguir com o que você já me contou' : undefined,
             identityDisclosureResponse ? identityReply(message.body ?? '') : undefined,
           schedulingReply?.replyText,
           ].filter(Boolean).join(' '),
           nextStage: repeatedQuestionRecovery
             ? advanceStageAfterRepeatedQuestion(context.automationStage)
-            : context.automationStage,
+            : commercialQualificationRequired
+              ? keepConversationActive(context.automationStage)
+              : context.automationStage,
         }
       } else if (shouldHandoff || profile.responseMode === 'handoff_only') {
         generated = { action: 'handoff', replyText: '', nextStage: context.automationStage }
