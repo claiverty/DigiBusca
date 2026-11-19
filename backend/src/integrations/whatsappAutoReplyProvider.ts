@@ -45,6 +45,25 @@ function isSimpleGreeting(text: string) {
   return greetingOnlyPattern.test(normalizePolicyText(text))
 }
 
+export function simpleWhatsAppGreetingReply(
+  text: string,
+  stage: WhatsAppAutomationStage,
+  receivedAt?: string,
+  now = Date.now(),
+): WhatsAppAutoReply | undefined {
+  if (!isSimpleGreeting(text)) return undefined
+
+  const receivedAtMs = Date.parse(receivedAt ?? '')
+  const lateReply = Number.isFinite(receivedAtMs) && now - receivedAtMs > 60_000
+  return {
+    action: 'reply',
+    replyText: lateReply
+      ? 'Desculpa a demora. Aqui é o Cristhian da DigiUP. Como posso te ajudar?'
+      : 'Opa, aqui é o Cristhian da DigiUP. Como posso te ajudar?',
+    nextStage: stage,
+  }
+}
+
 export function isUnsolicitedAutomationDisclosure(text: string) {
   return automationDisclosurePattern.test(normalizePolicyText(text))
 }
@@ -105,6 +124,7 @@ REGRAS
 - Cristhian é o nome deste agente. Não diga espontaneamente que é IA, bot ou resposta automática. Se perguntarem diretamente se você é uma pessoa ou IA, responda com transparência: “Sou o Cristhian, agente virtual da DigiUP.” Nunca afirme ser humano. Não diga que “vai encaminhar para o Cristhian”, porque você é o Cristhian.
 - Sua única tarefa é produzir o JSON abaixo. Não use ferramentas, não acione APIs, não faça prospecção e não envie mensagens. O backend valida a resposta e decide se pode enviá-la.
 - Não conte ao lead que a conversa foi encaminhada, transferida ou pausada. Quando uma situação exigir decisão humana, retorne action=handoff com replyText vazio; o sistema pausa e sinaliza o atendimento na caixa de entrada para o responsável da DigiUP.
+- Uma saudação simples, sem outro pedido, nunca exige handoff. Responda com uma saudação curta e pergunte como pode ajudar.
 - Responda primeiro ao conteúdo da mensagem recebida mais recente. O estágio comercial não deve fazer você ignorar um pedido explícito do lead.
 - Entenda o pedido atual antes de nomear ou sugerir uma solução. “Quero conversar sobre um projeto” não significa landing page, site, sistema ou automação. O site pelo qual a pessoa chegou é a origem do contato, não o serviço desejado.
 - Um serviço mencionado em atendimento anterior é apenas uma hipótese até a pessoa confirmar que está retomando esse projeto. Pergunte se é sobre o serviço anterior ou outro projeto; não afirme “como você quer uma landing page” nem marque diagnóstico com esse escopo sem confirmação. Menções feitas somente pela DigiUP não comprovam a necessidade do cliente.
@@ -213,17 +233,10 @@ export class WhatsAppAutoReplyProvider {
 
   async generate(apiKey: string, context: WhatsAppAutoReplyContext): Promise<WhatsAppAutoReply> {
     const latestInbound = [...context.messages].reverse().find((message) => message.direction === 'inbound' && message.body?.trim())
-    if (latestInbound?.body && isSimpleGreeting(latestInbound.body)) {
-      const receivedAt = Date.parse(context.inboundReceivedAt ?? '')
-      const lateReply = Number.isFinite(receivedAt) && this.now() - receivedAt > 60_000
-      return {
-        action: 'reply',
-        replyText: lateReply
-          ? 'Desculpa a demora. Aqui é o Cristhian da DigiUP. Como posso te ajudar?'
-          : 'Opa, aqui é o Cristhian da DigiUP. Como posso te ajudar?',
-        nextStage: context.stage,
-      }
-    }
+    const greetingReply = latestInbound?.body
+      ? simpleWhatsAppGreetingReply(latestInbound.body, context.stage, context.inboundReceivedAt, this.now())
+      : undefined
+    if (greetingReply) return greetingReply
 
     const project = resolveWhatsAppProjectContext(context.messages)
     if (project.clarificationReply) {

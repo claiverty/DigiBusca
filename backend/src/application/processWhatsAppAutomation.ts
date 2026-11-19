@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { getEvolutionApiConfig, getGeminiApiKey, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppOpenBotReplyRuntimeEnabled } from '../config/supabase.js'
 import { WhatsAppStore, type WhatsAppAutomationRunRecord } from '../data/whatsappStore.js'
-import { autoReplyFailureDetails, buildWhatsAppAutoReplyPrompt, generateWhatsAppAutoReply, isTransparentWhatsAppIdentityAnswer, parseWhatsAppAutoReplyAnswer, WhatsAppAutoReplyError, type WhatsAppAutoReplyContext } from '../integrations/whatsappAutoReplyProvider.js'
+import { autoReplyFailureDetails, buildWhatsAppAutoReplyPrompt, generateWhatsAppAutoReply, isTransparentWhatsAppIdentityAnswer, parseWhatsAppAutoReplyAnswer, simpleWhatsAppGreetingReply, WhatsAppAutoReplyError, type WhatsAppAutoReplyContext } from '../integrations/whatsappAutoReplyProvider.js'
 import { clearOpenBotWhatsAppContext, getOpenBotWhatsAppDelivery, OpenBotWhatsAppBridgeError, sendOpenBotWhatsAppMessage } from '../integrations/openBotWhatsAppBridge.js'
 import { normalizeWhatsAppReplyText } from '../domain/whatsappTextStyle.js'
 import { selectWhatsAppAutomationReplyPlan } from './whatsappAutomationPolicy.js'
@@ -402,7 +402,11 @@ async function resumeOpenBotAutomationRun(
         return
       }
 
-      generated = parseWhatsAppAutoReplyAnswer(delivery.answer)
+      generated = simpleWhatsAppGreetingReply(
+        message.body ?? '',
+        context?.automationStage ?? 'identify_responsible',
+        message.occurredAt,
+      ) ?? parseWhatsAppAutoReplyAnswer(delivery.answer)
       if (!generated && isDirectIdentityQuestion(message.body ?? '')) {
         generated = { action: 'reply', replyText: identityReply(message.body ?? ''), nextStage: context?.automationStage ?? 'identify_responsible' }
       }
