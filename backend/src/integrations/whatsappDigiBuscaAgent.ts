@@ -12,7 +12,15 @@ import { getWhatsAppAgentProviderConfig } from '../config/supabase.js'
 export type WhatsAppAgentQualification = NonNullable<WhatsAppAutoReplyContext['verifiedLeadQualification']>
 export type WhatsAppAgentQualificationField = keyof WhatsAppAgentQualification
 
+type WhatsAppDigiBuscaAgentRequest = {
+  provider: WhatsAppAgentProvider
+  model: string
+  context: WhatsAppAutoReplyContext
+  saveQualification: (fields: WhatsAppAgentQualification) => Promise<void>
+}
+
 type QualificationToolInput = Partial<Record<WhatsAppAgentQualificationField, { value: string; sourceQuote: string }>>
+const googleFallbackModel = 'gemini-3.5-flash'
 
 const qualificationFieldSchema = z.object({
   value: z.string().trim().min(1).max(180),
@@ -43,18 +51,39 @@ function createAgentModel(provider: WhatsAppAgentProvider, modelId: string): Lan
   }).chatModel(config.model)
 }
 
-export async function generateWhatsAppDigiBuscaAgentReply(request: {
-  provider: WhatsAppAgentProvider
-  model: string
-  context: WhatsAppAutoReplyContext
-  saveQualification: (fields: WhatsAppAgentQualification) => Promise<void>
-}): Promise<WhatsAppAutoReply> {
-  const model = createAgentModel(request.provider, request.model)
-  if (!model) throw new WhatsAppAutoReplyError('digibot_agent_provider_not_configured', 503)
-
+export async function generateWhatsAppDigiBuscaAgentReply(request: WhatsAppDigiBuscaAgentRequest): Promise<WhatsAppAutoReply> {
   const inboundTexts = request.context.messages
     .filter((message) => message.direction === 'inbound' && message.body?.trim())
     .map((message) => message.body!.trim())
+  const models = [request.model]
+  if (request.provider === 'google' && request.model !== googleFallbackModel) models.push(googleFallbackModel)
+
+  let lastError: unknown
+  for (const [index, modelId] of models.entries()) {
+    try {
+      const model = createAgentModel(request.provider, modelId)
+      if (!model) throw new WhatsAppAutoReplyError('digibot_agent_provider_not_configured', 503)
+      return await generateWithAgentModel(model, request, inboundTexts)
+    } catch (error) {
+      lastError = error
+      const fallbackModel = models[index + 1]
+      if (!fallbackModel || !shouldFallbackModel(error)) throw error
+      logWarning('whatsapp_digibot_agent_model_fallback', {
+        primaryModel: modelId,
+        fallbackModel,
+        reason: modelFailureReason(error),
+      })
+    }
+  }
+
+  throw lastError ?? new WhatsAppAutoReplyError('digibot_agent_generation_failed', 502)
+}
+
+async function generateWithAgentModel(
+  model: LanguageModel,
+  request: Pick<WhatsAppDigiBuscaAgentRequest, 'context' | 'saveQualification'>,
+  inboundTexts: string[],
+): Promise<WhatsAppAutoReply> {
   let requestedHumanReview = false
   const pendingQualifications: WhatsAppAgentQualification = {}
 
@@ -102,7 +131,7 @@ export async function generateWhatsAppDigiBuscaAgentReply(request: {
 
   const result = await agent.generate({
     prompt: buildWhatsAppAutoReplyPrompt(request.context, true),
-    abortSignal: AbortSignal.timeout(18_000),
+    abortSignal: AbortSignal.timeout(10_000),
   })
   if (requestedHumanReview) {
     await persistPendingQualifications(request.saveQualification, pendingQualifications)
@@ -112,6 +141,30 @@ export async function generateWhatsAppDigiBuscaAgentReply(request: {
   if (!generated) throw new WhatsAppAutoReplyError('digibot_agent_reply_invalid', 502)
   await persistPendingQualifications(request.saveQualification, pendingQualifications)
   return generated
+}
+
+function shouldFallbackModel(error: unknown) {
+  if (error instanceof WhatsAppAutoReplyError && error.reason === 'digibot_agent_reply_invalid') return true
+  if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)) return true
+  if (error instanceof TypeError) return true
+  const status = modelErrorStatus(error)
+  return typeof status === 'number' && (status === 404 || status === 408 || status === 429 || status >= 500)
+}
+
+function modelFailureReason(error: unknown) {
+  if (error instanceof WhatsAppAutoReplyError) return error.reason
+  if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)) return 'model_timeout'
+  if (error instanceof TypeError) return 'model_network_error'
+  const status = modelErrorStatus(error)
+  return status === undefined ? 'model_error' : `model_http_${status}`
+}
+
+function modelErrorStatus(error: unknown) {
+  if (typeof error !== 'object' || error === null) return undefined
+  const candidate = 'statusCode' in error ? (error as { statusCode?: unknown }).statusCode
+    : 'status' in error ? (error as { status?: unknown }).status
+      : undefined
+  return typeof candidate === 'number' ? candidate : undefined
 }
 
 async function persistPendingQualifications(

@@ -8,12 +8,12 @@
 - Foi criada uma chave Dokploy Member com validade de 90 dias. Ela está fora do Git em `/etc/digibusca/hostgator/dokploy-mcp.env`, `root:root`, modo `0600`; uma consulta de API somente leitura confirmou acesso ao projeto DigiBusca. Não copie a chave para o OpenBot nem para logs.
 - O MCP standalone `dokploy-mcp` está ativo sem portas publicadas, em `172.30.0.3` na bridge `openbot` e `10.0.3.10` na overlay interna `digibusca-dokploy-mcp-control`. O OpenBot Ops (`172.30.0.2`) é a única origem autorizada; 51 tools expostos e listagem de projetos somente leitura validados.
 - A instância `digibot-whatsapp` está online no OpenBot como **DigiBusca WhatsApp VPS**, v0.73.0, volume próprio, limite de 0,45 CPU/1.536 MiB e somente na bridge isolada `openbot`. O agente **Cristhian** foi criado em PT-BR. Não conecte essa instância ao MCP.
-- O backend DigiBusca está ativo na VPS com a imagem do commit `46a0428c7205ce03733383bbc1b55518b5e60c51`; o container está saudável e `https://whatsapp-api.digiuptech.com.br/api/health` retorna HTTP 200. Evolution API e PostgreSQL continuam ativos com volumes persistentes dedicados.
+- O backend DigiBusca está ativo na VPS com a imagem imutável do commit mais recente publicado pela branch `main`; o container está saudável e `https://whatsapp-api.digiuptech.com.br/api/health` retorna HTTP 200. Evolution API e PostgreSQL continuam ativos com volumes persistentes dedicados.
 - O túnel Cloudflare `ec5fc235-6aec-4f85-967c-16daca7b2507` está conectado em São Paulo e `whatsapp-api.digiuptech.com.br` já aponta para a VPS. O endpoint público `/api/health` retornou HTTP 200. O serviço antigo de túnel do Mac foi desativado; a definição local foi mantida para reversão.
 - O timer diário de backup está ativo para 03:00 (`America/Sao_Paulo`), com retenção de 14 dias. Uma cópia extra foi criada após as migrations; os três arquivos passaram por checksum e o dump PostgreSQL foi descriptografado fora da VPS e validado com `pg_restore --list`. A chave privada de recuperação permanece fora da VPS.
 - As migrations `016_whatsapp_openbot_replies.sql`, `017_whatsapp_contact_opt_out_dedupe.sql`, `018_whatsapp_prospecting_schedule_9_to_14.sql` e `019_digibot_agent_runtime.sql` foram aplicadas no Supabase de produção em 19/11/2026. A 018 restringe novos contatos a dias úteis, das 9h às 14h em `America/Sao_Paulo`, distribuindo os envios até o limite configurado e contando mensagens em envio, enviadas ou de resultado incerto.
-- A instância da Evolution API na VPS está conectada (`open`). O runtime próprio do Cristhian ainda precisa de deploy, chave de provedor no ambiente privado e ativação/aprovação do perfil na tela do DigiBusca.
-- `Local scripts` está habilitado somente para Cristhian e a ponte privada do OpenBot está configurada. Os runtimes de resposta e prospecção estão habilitados; a fila está ligada com limite diário de 20, mas sem itens elegíveis enfileirados. O envio e as respostas dependem de a sessão da Evolution chegar ao estado `open`.
+- A instância da Evolution API na VPS está conectada (`open`). O perfil de produção usa o runtime próprio do Cristhian no DigiBusca, com Google Gemini 3.8 Flash e fallback para 3.5 Flash; a chave está somente em `/etc/digibusca/hostgator/backend.env` com permissão `0600`.
+- `Local scripts` está habilitado somente para Cristhian e a ponte privada do OpenBot está configurada. Os runtimes de resposta e prospecção estão habilitados; a fila de prospecção usa limite diário de 20 e a janela de dias úteis das 9h às 14h. Ela só pode contatar leads com autorização explícita registrada.
 - Os resultados atuais da busca vêm do Google Places e não incluem um sinal de autorização para WhatsApp. A fila valida autorização explícita registrada e mantém bloqueados os contatos com pedido de descadastro; não marcar resultados públicos automaticamente como opt-in.
 - A rotina local do DigiBot Ops e a rotina remota do agente Ops estão ativas diariamente às 09:00 (`America/Sao_Paulo`). A rotina remota avisa 14, 7, 3 e 1 dia antes e no dia do vencimento previsto para 16/02/2027; se o OpenBot for interrompido no horário, roda uma vez quando reabrir. Ela não lê nem armazena a chave.
 
@@ -46,7 +46,6 @@
 
 ## Próximas etapas
 
-1. Gerar o QR da Evolution na VPS e parear o WhatsApp pelo celular.
-2. Depois de parear a instância da VPS e confirmar o estado `open`, validar a ida e volta com um número de teste e conferir a janela de prospecção das 9h às 14h.
-3. Enfileirar apenas leads com autorização explícita registrada; resultados do Google Places não indicam consentimento para WhatsApp.
-4. Configurar uma cópia externa para os arquivos `.age`. O backup diário atual fica criptografado na VPS; o plano gratuito cWatch aparece semanal e ainda precisa ser configurado/verificado para incluir essa pasta.
+1. Acompanhar a próxima conversa recebida para confirmar o ciclo completo do agente com a Evolution.
+2. Enfileirar apenas leads com autorização explícita registrada; resultados do Google Places não indicam consentimento para WhatsApp.
+3. Configurar uma cópia externa para os arquivos `.age`. O backup diário atual fica criptografado na VPS; o plano gratuito cWatch aparece semanal e ainda precisa ser configurado/verificado para incluir essa pasta.

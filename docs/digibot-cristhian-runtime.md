@@ -5,6 +5,7 @@ O runtime DigiBusca executa o Cristhian dentro do backend já hospedado na VPS. 
 ## Limites do agente
 
 - Responde conversas recebidas usando o histórico recente e os fatos aprovados do perfil.
+- Com Google selecionado, tenta `gemini-3.5-flash` quando o modelo principal falha por indisponibilidade, limite, timeout ou resposta inválida. Falhas de autenticação não geram repetição com a mesma chave.
 - Pode registrar tipo de projeto, objetivo, prioridade, prazo e interesse de serviço somente quando o valor aparece literalmente em uma citação de mensagem recebida do lead.
 - Guarda essa qualificação por até 90 dias e a remove ao registrar descadastro.
 - Pode sinalizar atendimento humano. A pausa, o estado da conversa, a janela de atendimento e o envio de mensagem continuam sob controle do backend.
@@ -26,4 +27,4 @@ As chaves nunca são enviadas ao navegador. Alterar o modo, provedor ou modelo i
 
 ## Estado deste código
 
-O runtime permanece desligado por padrão no código. Em produção, a migration está aplicada; o perfil atual ainda usa OpenBot. Depois do deploy e da configuração da credencial no backend, é necessário mudar o perfil para DigiBusca/Cristhian e revisar/aprovar novamente o canal e os fatos na tela de conexão. A sessão da Evolution está `open` neste momento. O deploy por si só não troca o modo persistido nem ativa respostas.
+O runtime permanece desligado por padrão no código. Em produção, a migration está aplicada, o perfil usa o agente Cristhian do DigiBusca com Google Gemini 3.8 Flash e fallback 3.5 Flash, e as respostas estão aprovadas e ativas. A sessão da Evolution está `open`. O deploy não troca o modo persistido nem ativa respostas por conta própria.
