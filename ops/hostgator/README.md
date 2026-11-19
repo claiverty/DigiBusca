@@ -9,8 +9,9 @@
 - A instância `digibot-whatsapp` está online no OpenBot como **DigiBusca WhatsApp VPS**, v0.73.0, volume próprio, limite de 0,45 CPU/1.200 MiB e somente na bridge isolada `openbot`. O agente **Cristhian** foi criado em PT-BR. Não conecte essa instância ao MCP.
 - O backend DigiBusca, a Evolution API e o PostgreSQL estão ativos na VPS, com volumes persistentes dedicados. A verificação interna do backend e da Evolution retornou HTTP 200.
 - O túnel Cloudflare `ec5fc235-6aec-4f85-967c-16daca7b2507` está conectado em São Paulo e `whatsapp-api.digiuptech.com.br` já aponta para a VPS. O endpoint público `/api/health` retornou HTTP 200. O serviço antigo de túnel do Mac foi desativado; a definição local foi mantida para reversão.
-- O timer diário de backup está ativo para 03:00 (`America/Sao_Paulo`), com retenção de 14 dias. A primeira cópia criptografada foi criada e os três arquivos passaram por checksum e validação de descriptografia/restauração. A chave privada de recuperação permanece fora da VPS.
-- Ainda falta autenticar no Supabase e aplicar as migrations `016_whatsapp_openbot_replies.sql` e `017_whatsapp_contact_opt_out_dedupe.sql` antes de habilitar o atendimento automatizado. A Evolution ainda precisa de um novo pareamento QR na VPS.
+- O timer diário de backup está ativo para 03:00 (`America/Sao_Paulo`), com retenção de 14 dias. Uma cópia extra foi criada após as migrations; os três arquivos passaram por checksum e o dump PostgreSQL foi descriptografado fora da VPS e validado com `pg_restore --list`. A chave privada de recuperação permanece fora da VPS.
+- As migrations `016_whatsapp_openbot_replies.sql` e `017_whatsapp_contact_opt_out_dedupe.sql` foram aplicadas no Supabase de produção em 19/11/2026. A validação confirmou a tabela e a coluna do OpenBot, a função de fila e a proteção contra telefone duplicado.
+- A Evolution API está online na VPS, mas ainda não há instância do WhatsApp pareada. A sessão que estava no Mac não foi migrada; é necessário gerar o QR da VPS e vinculá-la pelo celular.
 - O agente Cristhian está criado, mas `Local scripts` ainda está desligado. A ponte OpenBot não foi habilitada; a automação de resposta e a fila de prospecção continuam desligadas.
 - A rotina local do DigiBot Ops e a rotina remota do agente Ops estão ativas diariamente às 09:00 (`America/Sao_Paulo`). A rotina remota avisa 14, 7, 3 e 1 dia antes e no dia do vencimento previsto para 16/02/2027; se o OpenBot for interrompido no horário, roda uma vez quando reabrir. Ela não lê nem armazena a chave.
 
@@ -41,8 +42,7 @@
 
 ## Próximas etapas
 
-1. Aplicar as duas migrations pendentes no Supabase depois da autenticação do proprietário.
-2. Parear o WhatsApp com o QR da Evolution na VPS e validar ida/volta usando um número de teste.
-3. Concluir a ponte do agente Cristhian; `Local scripts` continua exigindo habilitação no agente específico.
-4. Validar o atendimento sem ativar a fila de prospecção. Os três runtimes seguem desligados até revisão explícita do fluxo.
-5. Configurar uma cópia externa para os arquivos `.age`. O backup diário atual fica criptografado na VPS; o plano gratuito cWatch aparece semanal e ainda precisa ser configurado/verificado para incluir essa pasta.
+1. Gerar o QR da Evolution na VPS, parear o WhatsApp pelo celular e validar ida/volta com um número de teste.
+2. Concluir a ponte do agente Cristhian; `Local scripts` continua desligado e requer habilitação no agente específico.
+3. Validar o atendimento sem ativar a fila de prospecção. Os três runtimes seguem desligados até revisão explícita do fluxo.
+4. Configurar uma cópia externa para os arquivos `.age`. O backup diário atual fica criptografado na VPS; o plano gratuito cWatch aparece semanal e ainda precisa ser configurado/verificado para incluir essa pasta.
