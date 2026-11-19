@@ -18,6 +18,7 @@ import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWe
 const customerServiceWindowMs = 24 * 60 * 60 * 1_000
 const optOutPattern = /^\s*(?:por favor[, ]+)?(?:parar(?: de me (?:procurar|contatar|ligar|chamar|mandar mensagens?))?|pare(?: de (?:me )?(?:procur\w*|contat\w*|lig\w*|cham\w*|mandar mensagens?|enviar mensagens?))?|cancelar|cancele|sair|remover|descadastrar|stop|unsubscribe|nao entre(?: mais)? em contato(?: comigo)?(?: nunca mais| de novo| novamente)?|nao quero(?: mais)? contato|nao quero(?: mais)? receber(?: mensagens?| contato| comunicacoes?)?|nao quero que (?:voces? )?(?:me )?(?:procurem?|contatem?|liguem?|chamem?)|nao quero ser contatad[oa]|nao me (?:envie|mande|contate|procure|ligue|chame)(?: mais| de novo| novamente)?|nao mandar(?: mais)?|nao envie(?: mais)?|nao mande(?: mais)?|nunca mais (?:me )?(?:procure|contate|ligue|chame|mande|envie)|me (?:remova|remove|retire|tire) da lista)(?: por favor)?(?:[.!?,\s]|$)/i
 const refusalPattern = /^\s*(nao tenho interesse|nao quero|sem interesse)(?:[.!?,\s]|$)/i
+const formalComplaintPattern = /\b(?:reclamacao formal|registrar (?:uma )?reclamacao formal|abrir (?:uma )?reclamacao formal|fazer (?:uma )?reclamacao formal|reclamar formalmente)\b/i
 const sensitiveHandoffPattern = /\b(?:consulta juridica pessoal|aconselhamento juridico pessoal|meu problema juridico|minha situacao juridica|cpf\s*(?:e|:)?\s*\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[-\s]?\d{2}|rg\s*(?:e|:)?\s*\d{1,2}[.\s-]?\d{3}[.\s-]?\d{3}[-\s]?\d?|(?:minha )?senha\s*(?:e|:|=)\s*\S+|senha\s*[:=]\s*\S+|(?:meu )?codigo(?: de autenticacao| de seguranca| sms| 2fa)?\s*(?:e|:|=)\s*\S+|meus dados bancarios\s*(?:sao|e|:|=)\s*\S+|dados bancarios\s*[:=]\s*\S+|(?:numero|agencia) da minha conta(?: bancaria)?\s*(?:e|:|=)\s*\d+|(?:meu cartao|numero do cartao|dados do cartao)\s*(?:e|:|=)\s*(?:\d{4}(?:[ -]?\d{4}){2,3}|final \d{4})|minha saude|meu estado de saude|problema de saude pessoal|condicao de saude pessoal|meu diagnostico|meus sintomas|meu tratamento|diagnostico medico pessoal|tratamento medico pessoal|minha doenca|aconselhamento financeiro pessoal|orientacao financeira pessoal|minhas financas pessoais|minha situacao financeira pessoal|estou endividado[oa]?|minha divida pessoal|fui vitima de fraud\w*|sofri fraud\w*|denunciar fraud\w*|fraude na minha conta|cai (?:em|num) (?:um )?golpe|me aplicaram (?:um )?golpe|sofri ameaca|fui ameacad\w*|me ameacaram|estou sendo ameacad\w*|ameaca contra mim|sofri assedio|fui vitima de assedio|fui assediad\w*|estou sendo assediad\w*|sofri violencia|fui vitima de violencia|sofri discriminacao|fui discriminad\w*)\b/i
 const repeatedQuestionFeedbackPattern = /\b(?:(?:nao (?:quero|vou) (?:repetir|responder(?: isso)? de novo|falar disso de novo))|(?:(?:eu\s+)?(?:ja\s+)?(?:te\s+)?(?:respondi|respondeu|respondemos|respondido|falei|falado|disse|dizia|informei|informado|passei|contei|expliquei|mencionei)(?:\s+(?:isso|essa pergunta|a mesma coisa|sobre isso|essas informacoes|disso|aquilo))?)|(?:essa pergunta|essa questao)\s+ja\s+foi\s+respondida|(?:voce|vc)\s+(?:perguntou|repetiu)\s+(?:isso|a mesma coisa)(?:\s+(?:de novo|novamente))?|(?:pergunta|questao)\s+repetida|(?:perguntou|repetiu)\s+(?:isso|a mesma coisa)\s+(?:de novo|novamente))\b/i
 const automationStageOrder: WhatsAppAutomationStage[] = [
@@ -171,6 +172,28 @@ function commercialQualificationReply(messages: Array<{ direction: 'inbound' | '
   return 'O que você considera indispensável incluir nesse projeto?'
 }
 
+function openBotSafeFallback(
+  text: string,
+  messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null }>,
+  stage: WhatsAppAutomationStage,
+  receivedAt: string,
+) {
+  const repeatedQuestionRecovery = isRepeatedQuestionComplaint(text)
+  const greetingReply = simpleWhatsAppGreetingReply(text, stage, receivedAt)
+  const schedulingReply = getWhatsAppSchedulingReply(messages)
+  const replyText = repeatedQuestionRecovery
+    ? 'Você tem razão, desculpa por repetir. Vou seguir com o que você já me contou'
+    : greetingReply?.replyText
+      ?? (isDirectIdentityQuestion(text) ? identityReply(text) : undefined)
+      ?? schedulingReply?.replyText
+      ?? commercialQualificationReply(messages)
+  return {
+    action: 'reply' as const,
+    replyText,
+    nextStage: keepConversationActive(repeatedQuestionRecovery ? advanceStageAfterRepeatedQuestion(stage) : stage),
+  }
+}
+
 function requiresHumanHandoff(messages: Array<{ direction: 'inbound' | 'outbound'; body: string | null; occurredAt?: string }>) {
   const chronologicalMessages = [...messages].sort((left, right) => (
     Date.parse(left.occurredAt ?? '') - Date.parse(right.occurredAt ?? '')
@@ -273,6 +296,7 @@ async function resumeOpenBotAutomationRun(
   let agentLockOwned = false
   let terminal = false
   let sendingStarted = false
+  let safeFallbackUsed = false
   let acceptedReplyId: string | undefined
   let context: Awaited<ReturnType<WhatsAppStore['getAutomationRuntimeContext']>>
   try {
@@ -445,20 +469,40 @@ async function resumeOpenBotAutomationRun(
     if (!run || run.status !== 'processing') return
     generated = parseSavedAutoReply(run.generatedResponse)
     if (!generated) {
+      const fallbackMessages = context?.messages ?? []
+      const latestText = message.body ?? ''
+      const needsHumanReview = hasStopOrRefusal(latestText)
+        || requiresHumanHandoff(fallbackMessages)
+        || sensitiveHandoffPattern.test(normalizeMessage(latestText))
+        || formalComplaintPattern.test(normalizeMessage(latestText))
       if (!run.openBotContextClearedAt) {
         try {
           await clearOpenBotWhatsAppContext(agentId)
           await store.markOpenBotContextCleared(run.id)
         } catch {
-          return
+          logWarning('whatsapp_openbot_context_clear_failed_before_fallback', { reason: 'continuing_with_safe_reply' })
         }
       }
-      await store.pauseAutomationRunForHuman(run.id, 'openbot_reply_invalid', 'handoff')
-      terminal = true
-      return
+      if (needsHumanReview) {
+        await store.pauseAutomationRunForHuman(run.id, 'openbot_reply_invalid_requires_review', 'handoff')
+        terminal = true
+        return
+      }
+      generated = openBotSafeFallback(latestText, fallbackMessages, context?.automationStage ?? 'qualify_interest', message.occurredAt)
+      await store.updateGeneratedAutomationResponse(run.id, generated, generated.replyText)
+      safeFallbackUsed = true
+      logWarning('whatsapp_openbot_safe_fallback_used', { reason: 'invalid_agent_reply' })
+      run = await store.getAutomationRun(run.id)
+      if (!run || run.status !== 'processing') return
+      generated = parseSavedAutoReply(run.generatedResponse)
+      if (!generated) {
+        await store.pauseAutomationRunForHuman(run.id, 'openbot_reply_invalid_requires_review', 'handoff')
+        terminal = true
+        return
+      }
     }
 
-    if (!run.openBotContextClearedAt) {
+    if (!run.openBotContextClearedAt && !safeFallbackUsed) {
       try {
         await clearOpenBotWhatsAppContext(agentId)
         await store.markOpenBotContextCleared(run.id)
