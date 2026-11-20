@@ -23,8 +23,9 @@ import { persistEvolutionWebhook } from '../application/evolutionWebhook.js'
 import { evolutionWebhookSecretMatches, EvolutionApiError } from '../integrations/evolutionApi.js'
 import { whatsappWebhookMaxBodyBytes, WhatsAppWebhookBodyTooLargeError } from '../application/whatsappWebhook.js'
 import { isUuid, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
-import { parseWhatsAppAutomationProfileInput } from '../contracts/whatsappAutomation.js'
+import { parseWhatsAppAutomationProfileInput, whatsappAgentProviders } from '../contracts/whatsappAutomation.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
+import { listWhatsAppAgentModels, WhatsAppAgentModelCatalogError } from '../integrations/whatsappAgentModels.js'
 import { WhatsAppProspectingError, WhatsAppProspectingStore } from '../data/whatsappProspectingStore.js'
 import { runLocalWhatsAppProspectingTick, startLocalWhatsAppProspectingScheduler } from '../application/processLocalWhatsAppProspecting.js'
 import { runWhatsAppDailyProspectingCampaign } from '../application/runWhatsAppDailyProspectingCampaign.js'
@@ -682,6 +683,34 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     const profile = await new WhatsAppStore().getAutomationProfile(user.id, phoneNumberId)
     response.setHeader('Cache-Control', 'no-store')
     sendJson(response, 200, { data: profile ?? null })
+    return
+  }
+
+  if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/agent-models') {
+    const provider = requestUrl.searchParams.get('provider') ?? ''
+    if (!whatsappAgentProviders.includes(provider as typeof whatsappAgentProviders[number])) {
+      sendJson(response, 400, { error: 'Selecione um provedor de IA válido.' })
+      return
+    }
+    const rateLimit = checkRateLimit({ key: `whatsapp-agent-models:${user.id}`, limit: 10, windowMs: 60_000 })
+    if (!rateLimit.allowed) {
+      sendJson(response, 429, { error: 'Aguarde um instante antes de atualizar a lista de modelos.' })
+      return
+    }
+    try {
+      const data = await listWhatsAppAgentModels(provider as typeof whatsappAgentProviders[number])
+      response.setHeader('Cache-Control', 'private, no-store')
+      sendJson(response, 200, { data })
+    } catch (error) {
+      response.setHeader('Cache-Control', 'private, no-store')
+      const statusCode = error instanceof WhatsAppAgentModelCatalogError && error.reason === 'provider_not_configured' ? 409 : 503
+      const message = error instanceof WhatsAppAgentModelCatalogError && error.reason === 'provider_not_configured'
+        ? 'Configure as credenciais deste provedor na VPS para carregar os modelos disponíveis.'
+        : error instanceof WhatsAppAgentModelCatalogError && error.reason === 'catalog_empty'
+          ? 'Este provedor não retornou modelos compatíveis com a automação.'
+          : 'Não foi possível consultar os modelos deste provedor agora.'
+      sendJson(response, statusCode, { error: message })
+    }
     return
   }
 

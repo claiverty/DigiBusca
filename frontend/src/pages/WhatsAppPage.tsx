@@ -12,6 +12,7 @@ import {
   getWhatsAppHumanPendingCount,
   getWhatsAppHumanPendingConversations,
   getWhatsAppAutomationProfile,
+  getWhatsAppAgentModels,
   getWhatsAppOpenBotAgentStatus,
   saveWhatsAppAutomationProfile,
   setWhatsAppConversationAutomationPaused,
@@ -19,12 +20,13 @@ import {
   type WhatsAppAutomationProfileInput,
   type WhatsAppConnection,
   type WhatsAppAgentQualification,
+  type WhatsAppAgentModelChoice,
   type WhatsAppConversation,
   type WhatsAppMessage,
   type WhatsAppOpenBotAgentStatus,
 } from '../services/whatsappService'
 import { WhatsAppProspectingPanel } from './WhatsAppProspectingPanel'
-import { AppSelect } from '../components/AppSelect'
+import { AppSelect, type AppSelectOption } from '../components/AppSelect'
 import './WhatsAppPage.css'
 
 type PageTab = 'inbox' | 'settings' | 'prospecting'
@@ -133,6 +135,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const qrActive = Boolean(connectQrCode)
   const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
   const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(newAutomationProfileDraft(''))
+  const [agentModelChoices, setAgentModelChoices] = useState<AppSelectOption[]>([])
+  const [agentModelsState, setAgentModelsState] = useState<LoadState>('ready')
+  const [agentModelsError, setAgentModelsError] = useState('')
   const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
   const [automationPersistedResponseMode, setAutomationPersistedResponseMode] = useState<'handoff_only' | 'gemini' | 'openbot' | 'digibot_agent'>('handoff_only')
   const [automationPersistedOpenBotAgentId, setAutomationPersistedOpenBotAgentId] = useState('')
@@ -289,6 +294,33 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
       })
     return () => { active = false }
   }, [automationPhoneNumberId, status?.automationStorageReady])
+
+  useEffect(() => {
+    if (automationForm.responseMode !== 'digibot_agent') {
+      setAgentModelChoices([])
+      setAgentModelsError('')
+      setAgentModelsState('ready')
+      return
+    }
+
+    let active = true
+    setAgentModelChoices([])
+    setAgentModelsError('')
+    setAgentModelsState('loading')
+    void getWhatsAppAgentModels(automationForm.agentProvider)
+      .then((models: WhatsAppAgentModelChoice[]) => {
+        if (!active) return
+        setAgentModelChoices(models.map((model) => ({ value: model.id, label: model.label })))
+        setAgentModelsState('ready')
+      })
+      .catch((error: unknown) => {
+        if (!active) return
+        setAgentModelChoices([])
+        setAgentModelsError(error instanceof Error ? error.message : 'Não foi possível carregar os modelos deste provedor.')
+        setAgentModelsState('error')
+      })
+    return () => { active = false }
+  }, [automationForm.agentProvider, automationForm.responseMode])
 
   useEffect(() => {
     let active = true
@@ -580,8 +612,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     : automationForm.agentProvider === 'anthropic'
       ? status?.agentProviders?.anthropic === true
       : status?.agentProviders?.openaiCompatible === true
+  const selectedAgentModelAvailable = agentModelChoices.some((model) => model.value === automationForm.agentModel)
+  const agentModelOptions = automationForm.agentModel && !selectedAgentModelAvailable
+    ? [{ value: automationForm.agentModel, label: `${automationForm.agentModel} · salvo anteriormente` }, ...agentModelChoices]
+    : agentModelChoices
   const digiBuscaAgentCanEnable = Boolean(
-    status?.digiBuscaAgentRuntimeEnabled && status.digiBuscaAgentStorageReady && digiBuscaAgentProviderConfigured,
+    status?.digiBuscaAgentRuntimeEnabled && status.digiBuscaAgentStorageReady && digiBuscaAgentProviderConfigured &&
+    selectedAgentModelAvailable,
   )
 
   return (
@@ -894,26 +931,41 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     <AppSelect
                       id="whatsapp-agent-provider"
                       value={automationForm.agentProvider}
-                      ariaLabel="Provedor configurado no backend"
-                      onValueChange={(value) => setAutomationForm((current) => ({ ...current, agentProvider: value as WhatsAppAutomationProfileInput['agentProvider'], contentApproved: false, automationEnabled: false }))}
+                      ariaLabel="Provedor de IA"
+                      onValueChange={(value) => setAutomationForm((current) => ({
+                        ...current,
+                        agentProvider: value as WhatsAppAutomationProfileInput['agentProvider'],
+                        agentModel: current.agentProvider === value ? current.agentModel : '',
+                        contentApproved: false,
+                        automationEnabled: false,
+                      }))}
                       options={[
-                        { value: 'google', label: `Google Gemini ${status?.agentProviders?.google ? '· configurado' : '· sem chave no backend'}` },
-                        { value: 'anthropic', label: `Anthropic ${status?.agentProviders?.anthropic ? '· configurado' : '· sem chave no backend'}` },
-                        { value: 'openai-compatible', label: `OpenAI compatível ${status?.agentProviders?.openaiCompatible ? '· configurado' : '· sem chave/base URL no backend'}` },
+                        { value: 'google', label: `Google Gemini · ${status?.agentProviders?.google ? 'API configurada' : 'configure na VPS'}` },
+                        { value: 'anthropic', label: `Anthropic · ${status?.agentProviders?.anthropic ? 'API configurada' : 'configure na VPS'}` },
+                        { value: 'openai-compatible', label: `OpenAI compatível · ${status?.agentProviders?.openaiCompatible ? 'API configurada' : 'configure na VPS'}` },
                       ]}
                     />
                     <label htmlFor="whatsapp-agent-model">Modelo</label>
-                    <input
+                    <AppSelect
                       id="whatsapp-agent-model"
                       value={automationForm.agentModel}
-                      maxLength={128}
-                      autoComplete="off"
-                      onChange={(event) => setAutomationForm((current) => ({ ...current, agentModel: event.target.value.trim(), contentApproved: false, automationEnabled: false }))}
-                      placeholder="Ex.: gemini-3.8-flash"
+                      ariaLabel="Modelo de IA"
+                      options={agentModelOptions}
+                      disabled={!digiBuscaAgentProviderConfigured || agentModelsState === 'loading' || agentModelChoices.length === 0}
+                      placeholder={agentModelsState === 'loading' ? 'Carregando modelos…' : 'Escolha um modelo'}
+                      onValueChange={(value) => setAutomationForm((current) => ({ ...current, agentModel: value, contentApproved: false, automationEnabled: false }))}
                     />
+                    {agentModelsState === 'loading' && <small>Consultando os modelos disponíveis na API do provedor…</small>}
+                    {agentModelsState === 'error' && <small>{agentModelsError}</small>}
+                    {agentModelsState === 'ready' && digiBuscaAgentProviderConfigured && agentModelChoices.length > 0 && (
+                      <small>A lista vem da VPS. A chave da API nunca é enviada ao navegador.</small>
+                    )}
+                    {agentModelChoices.length > 0 && !selectedAgentModelAvailable && automationForm.agentModel && (
+                      <small>O modelo salvo não aparece no catálogo atual. Escolha um modelo disponível antes de ativar.</small>
+                    )}
                     {!status?.digiBuscaAgentStorageReady && <small>Aplique <code>019_digibot_agent_runtime.sql</code> para salvar qualificações do projeto.</small>}
                     {!status?.digiBuscaAgentRuntimeEnabled && <small>O runtime está desligado no servidor. Configure <code>WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED=true</code> depois de revisar a configuração.</small>}
-                    {!digiBuscaAgentProviderConfigured && <small>Este provedor não tem credenciais completas na VPS. As chaves nunca são enviadas ao navegador.</small>}
+                    {!digiBuscaAgentProviderConfigured && <small>Conecte a API do provedor na VPS para carregar os modelos. A chave fica protegida no servidor e não aparece no navegador.</small>}
                   </div>
                 )}
                 {automationForm.responseMode === 'openbot' && (
@@ -1000,7 +1052,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               {automationError && <p className="whatsapp-connect-state is-error" role="alert">{automationError}</p>}
               {automationNotice && <p className="whatsapp-connect-state is-ready" role="status">{automationNotice}</p>}
               <div className="whatsapp-automation-actions">
-                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.automationEnabled && (!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable)))}>
+                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.responseMode === 'digibot_agent' && !automationForm.agentModel) || (automationForm.automationEnabled && (!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable)))}>
                   <ShieldCheck size={15} />
                   {automationBusy ? 'Salvando…' : 'Salvar regras'}
                 </button>

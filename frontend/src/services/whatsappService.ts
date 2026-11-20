@@ -91,6 +91,11 @@ export type WhatsAppAutomationProfileInput = Omit<WhatsAppAutomationProfile, 'ch
   contentApproved: boolean
 }
 
+export type WhatsAppAgentModelChoice = {
+  id: string
+  label: string
+}
+
 export type WhatsAppAgentQualification = Partial<Record<'projectType' | 'objective' | 'priority' | 'timeline' | 'serviceInterest', string>>
 
 export type WhatsAppOpenBotAgentStatus = {
@@ -237,6 +242,10 @@ export async function cancelWhatsAppQueueItem(queueId: string): Promise<void> {
 
 export async function getWhatsAppAutomationProfile(phoneNumberId: string): Promise<WhatsAppAutomationProfile | null> {
   return getWhatsAppData<WhatsAppAutomationProfile | null>(`/whatsapp/automation?phoneNumberId=${encodeURIComponent(phoneNumberId)}`)
+}
+
+export async function getWhatsAppAgentModels(provider: WhatsAppAutomationProfile['agentProvider']): Promise<WhatsAppAgentModelChoice[]> {
+  return getWhatsAppData<WhatsAppAgentModelChoice[]>(`/whatsapp/agent-models?provider=${encodeURIComponent(provider)}`)
 }
 
 export async function getWhatsAppOpenBotAgentStatus(agentId: string): Promise<WhatsAppOpenBotAgentStatus> {
