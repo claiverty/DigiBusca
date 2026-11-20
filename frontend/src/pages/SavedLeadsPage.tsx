@@ -1,19 +1,27 @@
-import { ArrowUpRight, CalendarClock, Check, ChevronLeft, ChevronRight, Download, Trash2 } from 'lucide-react'
+import { ArrowUpRight, CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
+import {
+  getSavedLeads,
+  MAX_BULK_LEAD_IDS,
+  type BulkLeadDeleteResult,
+  type BulkLeadStatusResult,
+  type SavedLeadState,
+} from '../services/leadsService'
 import { exportLeadsCsv } from '../services/exportLeadsCsv'
 import { localDateKey, localDay, isOpenStatus } from '../lib/dates'
-import type { Lead } from '../types'
+import type { Lead, LeadStatus } from '../types'
 import './SavedLeadsPage.css'
 
 type SavedLeadsPageProps = {
   cachedLeads: Lead[]
   onOpenLead: (leadId: string) => Promise<void>
   onRemoveLead: (leadId: string) => Promise<void>
+  onRemoveLeadsBulk: (leadIds: string[]) => Promise<BulkLeadDeleteResult>
+  onUpdateLeadsStatusBulk: (leadIds: string[], status: LeadStatus) => Promise<BulkLeadStatusResult>
   onSearch: () => void
 }
 
-const statuses = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
+const statuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
 
 function toLocalDate(value: string) {
   return localDay(value)
@@ -42,9 +50,18 @@ export function SavedLeadsPage({
   cachedLeads,
   onOpenLead,
   onRemoveLead,
+  onRemoveLeadsBulk,
+  onUpdateLeadsStatusBulk,
   onSearch,
 }: SavedLeadsPageProps) {
   const [leads, setLeads] = useState<SavedLeadState[]>([])
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(() => new Set())
+  const [bulkStatus, setBulkStatus] = useState<LeadStatus>('Contatado')
+  const [bulkBusy, setBulkBusy] = useState<'status' | 'delete' | null>(null)
+  const [bulkDeleteConfirmation, setBulkDeleteConfirmation] = useState(false)
+  const [bulkFeedback, setBulkFeedback] = useState('')
+  const [bulkError, setBulkError] = useState('')
+  const selectVisibleRef = useRef<HTMLInputElement>(null)
   const statusTabsRef = useRef<HTMLDivElement>(null)
   const [statusTabsOverflow, setStatusTabsOverflow] = useState({ left: false, right: false })
   const [status, setStatus] = useState('loading')
@@ -143,6 +160,106 @@ export function SavedLeadsPage({
         : date >= today && date < weekEnd
     }).sort((a, b) => sortOrder === 'name' ? getLeadName(a).localeCompare(getLeadName(b), 'pt-BR') : sortOrder === 'recent' ? b.updatedAt.localeCompare(a.updatedAt) : (a.nextFollowUp ?? '9999').localeCompare(b.nextFollowUp ?? '9999'))
   }, [leads, statusFilter, followUpFilter, searchText, sortOrder, cachedLeadById])
+
+  const visibleLeadIds = useMemo(() => visibleLeads.map((lead) => lead.leadId), [visibleLeads])
+  const visibleLeadIdsKey = visibleLeadIds.join('\0')
+  const selectedVisibleCount = visibleLeadIds.reduce(
+    (count, leadId) => count + Number(selectedLeadIds.has(leadId)),
+    0,
+  )
+  const allVisibleSelected = visibleLeadIds.length > 0 && selectedVisibleCount === visibleLeadIds.length
+  const visibleSelectionExceedsLimit = visibleLeadIds.length > MAX_BULK_LEAD_IDS
+
+  useEffect(() => {
+    if (selectVisibleRef.current) {
+      selectVisibleRef.current.indeterminate = selectedVisibleCount > 0 && !allVisibleSelected
+    }
+  }, [selectedVisibleCount, allVisibleSelected])
+
+  useEffect(() => {
+    const visibleIds = new Set(visibleLeadIds)
+    setSelectedLeadIds((current) => {
+      const next = new Set([...current].filter((leadId) => visibleIds.has(leadId)))
+      return next.size === current.size ? current : next
+    })
+    setBulkDeleteConfirmation(false)
+  }, [visibleLeadIdsKey])
+
+  function toggleVisibleLead(leadId: string) {
+    setSelectedLeadIds((current) => {
+      if (!current.has(leadId) && current.size >= MAX_BULK_LEAD_IDS) return current
+      const next = new Set(current)
+      if (next.has(leadId)) next.delete(leadId)
+      else next.add(leadId)
+      return next
+    })
+    setBulkError('')
+    setBulkFeedback('')
+    setBulkDeleteConfirmation(false)
+  }
+
+  function toggleAllVisibleLeads() {
+    if (visibleSelectionExceedsLimit) return
+    setSelectedLeadIds((current) => {
+      const next = new Set(current)
+      if (allVisibleSelected) visibleLeadIds.forEach((leadId) => next.delete(leadId))
+      else visibleLeadIds.forEach((leadId) => next.add(leadId))
+      return next
+    })
+    setBulkError('')
+    setBulkFeedback('')
+    setBulkDeleteConfirmation(false)
+  }
+
+  async function updateSelectedLeadsStatus() {
+    const leadIds = visibleLeadIds.filter((leadId) => selectedLeadIds.has(leadId))
+    if (!leadIds.length || leadIds.length > MAX_BULK_LEAD_IDS || bulkBusy) return
+
+    setBulkBusy('status')
+    setBulkError('')
+    setBulkFeedback('')
+    try {
+      const result = await onUpdateLeadsStatusBulk(leadIds, bulkStatus)
+      setLeads((current) => current.map((lead) => result.updatedLeadIds.includes(lead.leadId)
+        ? { ...lead, status: bulkStatus }
+        : lead))
+      setSelectedLeadIds((current) => new Set([...current].filter((leadId) => !result.updatedLeadIds.includes(leadId))))
+      setBulkDeleteConfirmation(false)
+      setBulkFeedback(result.updatedCount === leadIds.length
+        ? `Status atualizado para ${result.updatedCount} lead(s).`
+        : result.updatedCount > 0
+          ? `Status atualizado para ${result.updatedCount} de ${leadIds.length} lead(s) selecionado(s).`
+          : `Nenhum dos ${leadIds.length} lead(s) selecionado(s) foi atualizado.`)
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : 'Não foi possível atualizar os leads selecionados.')
+    } finally {
+      setBulkBusy(null)
+    }
+  }
+
+  async function removeSelectedLeads() {
+    const leadIds = visibleLeadIds.filter((leadId) => selectedLeadIds.has(leadId))
+    if (!leadIds.length || leadIds.length > MAX_BULK_LEAD_IDS || bulkBusy) return
+
+    setBulkBusy('delete')
+    setBulkError('')
+    setBulkFeedback('')
+    try {
+      const result = await onRemoveLeadsBulk(leadIds)
+      setLeads((current) => current.filter((lead) => !result.deletedLeadIds.includes(lead.leadId)))
+      setSelectedLeadIds((current) => new Set([...current].filter((leadId) => !result.deletedLeadIds.includes(leadId))))
+      setBulkDeleteConfirmation(false)
+      setBulkFeedback(result.deletedCount === leadIds.length
+        ? `${result.deletedCount} lead(s) excluído(s).`
+        : result.deletedCount > 0
+          ? `${result.deletedCount} de ${leadIds.length} lead(s) selecionado(s) excluído(s).`
+          : `Nenhum dos ${leadIds.length} lead(s) selecionado(s) foi excluído.`)
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : 'Não foi possível excluir os leads selecionados.')
+    } finally {
+      setBulkBusy(null)
+    }
+  }
 
   const exportableLeads = visibleLeads.flatMap((state) => {
     const lead = cachedLeadById.get(state.leadId)
@@ -328,6 +445,7 @@ export function SavedLeadsPage({
                 <summary>
                   <CalendarClock size={16} aria-hidden="true" />
                   {followUpFilter === 'Todos' ? 'Agendamento' : followUpFilter}
+                  <ChevronDown size={15} aria-hidden="true" />
                 </summary>
                 <div className="saved-leads-filter-options" role="group" aria-label="Filtrar por próximo contato">
                   {['Todos', 'Hoje', 'Atrasados', 'Próximos 7 dias', 'Sem agendamento'].map((option) => (
@@ -379,7 +497,7 @@ export function SavedLeadsPage({
                   }}
                 >
                   {item}
-                  <span>{item === 'Todos' ? leads.length : (statusCounts.get(item) ?? 0)}</span>
+                  <span>{item === 'Todos' ? leads.length : (statusCounts.get(item as LeadStatus) ?? 0)}</span>
                 </button>
               ))}
             </div>
@@ -405,11 +523,94 @@ export function SavedLeadsPage({
             )}
           </div>
 
+          <div className="saved-leads-bulk-toolbar">
+            <label className="saved-leads-select-all">
+              <input
+                ref={selectVisibleRef}
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={toggleAllVisibleLeads}
+                disabled={visibleLeadIds.length === 0 || visibleSelectionExceedsLimit || bulkBusy !== null}
+              />
+              <span>Selecionar todos os leads visíveis</span>
+            </label>
+            <span className="saved-leads-selection-count" role="status" aria-live="polite">
+              {selectedVisibleCount} de {MAX_BULK_LEAD_IDS} selecionado(s)
+            </span>
+            <p className="saved-leads-bulk-limit">
+              Cada operação aceita até {MAX_BULK_LEAD_IDS} leads. {visibleSelectionExceedsLimit
+                ? `Há ${visibleLeadIds.length} leads visíveis; marque até ${MAX_BULK_LEAD_IDS} linhas ou use filtros para dividir em grupos.`
+                : `Use os filtros para dividir listas maiores em grupos de até ${MAX_BULK_LEAD_IDS}.`}
+            </p>
+            <div className="saved-leads-bulk-actions">
+              <label className="saved-leads-bulk-status">
+                <span>Novo status</span>
+                <select
+                  aria-label="Novo status para leads selecionados"
+                  value={bulkStatus}
+                  onChange={(event) => setBulkStatus(event.target.value as LeadStatus)}
+                  disabled={selectedVisibleCount === 0 || bulkBusy !== null}
+                >
+                  {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <button
+                className="saved-leads-bulk-update"
+                type="button"
+                onClick={() => void updateSelectedLeadsStatus()}
+                disabled={selectedVisibleCount === 0 || bulkBusy !== null}
+              >
+                {bulkBusy === 'status' ? 'Atualizando…' : 'Aplicar status'}
+              </button>
+              <button
+                className="saved-leads-bulk-delete"
+                type="button"
+                onClick={() => {
+                  setBulkDeleteConfirmation(true)
+                  setBulkError('')
+                  setBulkFeedback('')
+                }}
+                disabled={selectedVisibleCount === 0 || bulkBusy !== null}
+              >
+                <Trash2 size={15} aria-hidden="true" />
+                Excluir selecionados
+              </button>
+            </div>
+          </div>
+
+          {bulkDeleteConfirmation && selectedVisibleCount > 0 && (
+            <div className="saved-leads-bulk-confirm" role="group" aria-label="Confirmar exclusão em lote">
+              <div className="saved-leads-bulk-confirm-copy">
+                <p>Excluir {selectedVisibleCount} lead(s) selecionado(s)? Esta ação não pode ser desfeita.</p>
+                <p>A exclusão também remove da fila de prospecção do WhatsApp os registros associados, inclusive envios já registrados. Mensagens, conversas e vendas serão preservadas.</p>
+              </div>
+              <button
+                className="saved-lead-delete-confirm"
+                type="button"
+                onClick={() => void removeSelectedLeads()}
+                disabled={bulkBusy !== null}
+              >
+                {bulkBusy === 'delete' ? 'Excluindo…' : 'Confirmar exclusão'}
+              </button>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => setBulkDeleteConfirmation(false)}
+                disabled={bulkBusy !== null}
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
+          {bulkFeedback && <p className="saved-leads-bulk-feedback" role="status">{bulkFeedback}</p>}
+          {bulkError && <p className="saved-leads-bulk-error" role="alert">{bulkError}</p>}
+
           {visibleLeads.length === 0 ? (
             <p className="saved-leads-table-empty">Nenhum lead corresponde aos filtros selecionados.</p>
           ) : (
             <div className="saved-leads-table">
               <div className="saved-leads-table-header" aria-hidden="true">
+                <span />
                 <span>Empresa</span>
                 <span>Status</span>
                 <span>Próximo contato</span>
@@ -425,7 +626,7 @@ export function SavedLeadsPage({
                       aria-label={`Lead ${getLeadName(lead)}`}
                       onClick={(event) => {
                         const interactiveTarget = (event.target as HTMLElement).closest(
-                          'button, .saved-lead-remove-confirm, .saved-lead-error',
+                          'button, input, select, .saved-lead-remove-confirm, .saved-lead-error',
                         )
 
                         if (
@@ -439,6 +640,14 @@ export function SavedLeadsPage({
                         void openLead(lead.leadId)
                       }}
                     >
+                      <input
+                        className="saved-lead-select"
+                        type="checkbox"
+                        aria-label={`Selecionar ${getLeadName(lead)}`}
+                        checked={selectedLeadIds.has(lead.leadId)}
+                        onChange={() => toggleVisibleLead(lead.leadId)}
+                        disabled={bulkBusy !== null || removingLeadId === lead.leadId || (!selectedLeadIds.has(lead.leadId) && selectedVisibleCount >= MAX_BULK_LEAD_IDS)}
+                      />
                       <button
                         className="saved-lead-company"
                         type="button"

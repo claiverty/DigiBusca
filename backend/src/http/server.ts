@@ -3,7 +3,7 @@ import dotenv from 'dotenv'
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { GooglePlacesProvider } from '../integrations/googlePlacesProvider.js'
 import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit.js'
-import { opportunityTypes, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
+import { leadStatuses, opportunityTypes, parseBulkLeadDeleteInput, parseBulkLeadStatusUpdateInput, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
 import { authenticateRequest, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppAgentProviderConfig, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured } from '../config/supabase.js'
@@ -37,14 +37,6 @@ const port = Number(process.env.PORT ?? 3001)
 const host = process.env.HOST?.trim() || '127.0.0.1'
 const leadProvider = new GooglePlacesProvider()
 const persistenceStore = new SupabaseStore()
-const leadStatuses: LeadStatus[] = [
-  'Novo',
-  'Contatado',
-  'Respondeu',
-  'Proposta',
-  'Ganhou',
-  'Perdeu',
-]
 const allowedOrigins = new Set([
   'http://localhost:5173',
   'http://127.0.0.1:5173',
@@ -156,6 +148,59 @@ function readJsonBody(request: IncomingMessage): Promise<unknown> {
       }
     })
     request.on('error', reject)
+  })
+}
+
+const bulkLeadBodyLimitBytes = 64 * 1024
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super('O corpo da requisição excede o limite de 64 KiB.')
+    this.name = 'RequestBodyTooLargeError'
+  }
+}
+
+function readLimitedJsonBody(request: IncomingMessage, maxBytes: number): Promise<unknown> {
+  const contentLength = request.headers['content-length']
+  if (typeof contentLength === 'string' && /^\d+$/.test(contentLength) && Number(contentLength) > maxBytes) {
+    request.resume()
+    return Promise.reject(new RequestBodyTooLargeError())
+  }
+
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let totalBytes = 0
+    let tooLarge = false
+
+    request.on('data', (chunk: Buffer | string) => {
+      if (tooLarge) return
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf8')
+      if (totalBytes + buffer.byteLength > maxBytes) {
+        tooLarge = true
+        chunks.length = 0
+        reject(new RequestBodyTooLargeError())
+        return
+      }
+      totalBytes += buffer.byteLength
+      chunks.push(buffer)
+    })
+    request.on('end', () => {
+      if (tooLarge) return
+      const body = Buffer.concat(chunks, totalBytes).toString('utf8')
+      if (!body) {
+        resolve({})
+        return
+      }
+
+      try {
+        resolve(JSON.parse(body))
+      } catch {
+        reject(new Error('JSON inválido.'))
+      }
+    })
+    request.on('error', (error) => {
+      if (!tooLarge) reject(error)
+    })
   })
 }
 
@@ -864,6 +909,50 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     const updateMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)$/)
     const salesMatch = requestUrl.pathname === '/api/sales'
     const saleMatch = requestUrl.pathname.match(/^\/api\/sales\/([^/]+)$/)
+
+    if (requestUrl.pathname === '/api/leads/bulk' && request.method === 'PATCH') {
+      let body: unknown
+      try {
+        body = await readLimitedJsonBody(request, bulkLeadBodyLimitBytes)
+      } catch (error) {
+        if (error instanceof RequestBodyTooLargeError) {
+          sendJson(response, 413, { error: error.message })
+          return
+        }
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+      const input = parseBulkLeadStatusUpdateInput(body)
+      if (!input) {
+        sendJson(response, 400, { error: 'Informe de 1 a 200 IDs de leads únicos e válidos e um status permitido.' })
+        return
+      }
+      const updatedLeadIds = await persistenceStore.updateSavedLeadStatuses(accessToken, user.id, input.leadIds, input.status)
+      sendJson(response, 200, { data: { updatedCount: updatedLeadIds.length, updatedLeadIds } })
+      return
+    }
+
+    if (requestUrl.pathname === '/api/leads/bulk' && request.method === 'DELETE') {
+      let body: unknown
+      try {
+        body = await readLimitedJsonBody(request, bulkLeadBodyLimitBytes)
+      } catch (error) {
+        if (error instanceof RequestBodyTooLargeError) {
+          sendJson(response, 413, { error: error.message })
+          return
+        }
+        sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+        return
+      }
+      const input = parseBulkLeadDeleteInput(body)
+      if (!input) {
+        sendJson(response, 400, { error: 'Informe de 1 a 200 IDs de leads únicos e válidos.' })
+        return
+      }
+      const deletedLeadIds = await persistenceStore.removeSavedLeads(accessToken, user.id, input.leadIds)
+      sendJson(response, 200, { data: { deletedCount: deletedLeadIds.length, deletedLeadIds } })
+      return
+    }
 
     if (requestUrl.pathname === '/api/whatsapp/send-template' && request.method === 'POST') {
       sendJson(response, 410, { error: 'Envios diretos foram substituídos pela fila de prospecção com limite diário.' })

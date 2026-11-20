@@ -13,10 +13,12 @@ import {
   getSavedLead,
   getSavedLeadIds,
   removeSavedLead,
+  removeSavedLeads,
   saveLead,
   updateLead,
+  updateSavedLeadsStatus,
 } from './services/leadsService'
-import type { Lead, LeadUpdate } from './types'
+import type { Lead, LeadStatus, LeadUpdate } from './types'
 import type { CreateSaleInput } from './types/sales'
 import './App.css'
 
@@ -91,6 +93,30 @@ function App() {
       next.delete(leadId)
       return next
     })
+  }
+
+  async function removeLeadsBulk(leadIds: string[]) {
+    const result = await removeSavedLeads(leadIds)
+    result.deletedLeadIds.forEach((leadId) => savedLeads.current.delete(leadId))
+    setSavedLeadIds((current) => {
+      const next = new Set(current)
+      result.deletedLeadIds.forEach((leadId) => next.delete(leadId))
+      return next
+    })
+    if (selectedLead && result.deletedLeadIds.includes(selectedLead.id)) setSelectedLead(null)
+    return result
+  }
+
+  async function updateLeadsStatusBulk(leadIds: string[], status: LeadStatus) {
+    const result = await updateSavedLeadsStatus(leadIds, status)
+    result.updatedLeadIds.forEach((leadId) => {
+      const cachedLead = savedLeads.current.get(leadId)
+      if (cachedLead) savedLeads.current.set(leadId, { ...cachedLead, status })
+    })
+    if (selectedLead && result.updatedLeadIds.includes(selectedLead.id)) {
+      setSelectedLead((current) => current ? { ...current, status } : current)
+    }
+    return result
   }
 
   async function updateSelectedLead(changes: LeadUpdate) {
@@ -231,6 +257,8 @@ function App() {
             cachedLeads={Array.from(savedLeads.current.values())}
             onOpenLead={openSavedLead}
             onRemoveLead={removeLead}
+            onRemoveLeadsBulk={removeLeadsBulk}
+            onUpdateLeadsStatusBulk={updateLeadsStatusBulk}
             onSearch={() => handleNavigate('search')}
           />
         )}

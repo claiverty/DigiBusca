@@ -377,6 +377,35 @@ export class SupabaseStore {
     throwIfError(error)
   }
 
+  async updateSavedLeadStatuses(
+    accessToken: string,
+    userId: string,
+    leadIds: string[],
+    status: LeadStatus,
+  ): Promise<string[]> {
+    const { data, error } = await this.client(accessToken)
+      .from('saved_leads')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .in('lead_id', leadIds)
+      .select('lead_id')
+
+    throwIfError(error)
+    return (data ?? []).map((row) => row.lead_id)
+  }
+
+  async removeSavedLeads(accessToken: string, userId: string, leadIds: string[]): Promise<string[]> {
+    const { data, error } = await this.client(accessToken)
+      .from('saved_leads')
+      .delete()
+      .eq('user_id', userId)
+      .in('lead_id', leadIds)
+      .select('lead_id')
+
+    throwIfError(error)
+    return (data ?? []).map((row) => row.lead_id)
+  }
+
   async listLeadInteractions(
     accessToken: string,
     userId: string,

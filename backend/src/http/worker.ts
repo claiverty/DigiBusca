@@ -1,6 +1,6 @@
 import { executeSearchLeads } from '../application/searchLeads.js'
 import { authenticateRequest, configureRuntimeEnvironment, getAdditionalAllowedAppOrigins, getGeminiApiKey, type RuntimeEnvironment } from '../config/supabase.js'
-import { parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
+import { leadStatuses, parseBulkLeadDeleteInput, parseBulkLeadStatusUpdateInput, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, opportunityTypes, type OpportunityType } from '../contracts/lead.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
@@ -18,8 +18,6 @@ type WorkerEnvironment = RuntimeEnvironment & {
   ASSETS?: { fetch(request: Request): Promise<Response> }
   LOCAL_BACKEND_PROXY_URL?: string
 }
-
-const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -183,6 +181,57 @@ async function parseBody(request: Request) {
   }
 }
 
+const bulkLeadBodyLimitBytes = 64 * 1024
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super('O corpo da requisição excede o limite de 64 KiB.')
+    this.name = 'RequestBodyTooLargeError'
+  }
+}
+
+async function readLimitedJsonBody(request: Request): Promise<unknown> {
+  const contentLength = request.headers.get('content-length')
+  if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > bulkLeadBodyLimitBytes) {
+    throw new RequestBodyTooLargeError()
+  }
+
+  const reader = request.body?.getReader()
+  if (!reader) return {}
+
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (totalBytes + value.byteLength > bulkLeadBodyLimitBytes) {
+        await reader.cancel().catch(() => undefined)
+        throw new RequestBodyTooLargeError()
+      }
+      totalBytes += value.byteLength
+      chunks.push(value)
+    }
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) throw error
+    return undefined
+  }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  const body = new TextDecoder().decode(bytes)
+  if (!body) return {}
+  try {
+    return JSON.parse(body)
+  } catch {
+    return undefined
+  }
+}
+
 async function handleApiRequest(request: Request, scheduleBackgroundTask?: (task: Promise<void>) => void) {
   if (request.method === 'OPTIONS') return jsonResponse(request, 204, null)
 
@@ -239,6 +288,34 @@ async function handleApiRequest(request: Request, scheduleBackgroundTask?: (task
     const updateMatch = url.pathname.match(/^\/api\/leads\/([^/]+)$/)
     const interactionMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/interactions$/)
     const saleMatch = url.pathname.match(/^\/api\/sales\/([^/]+)$/)
+
+    if (url.pathname === '/api/leads/bulk' && request.method === 'PATCH') {
+      let body: unknown
+      try {
+        body = await readLimitedJsonBody(request)
+      } catch (error) {
+        if (error instanceof RequestBodyTooLargeError) return jsonResponse(request, 413, { error: error.message })
+        return jsonResponse(request, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+      }
+      const input = parseBulkLeadStatusUpdateInput(body)
+      if (!input) return jsonResponse(request, 400, { error: 'Informe de 1 a 200 IDs de leads únicos e válidos e um status permitido.' })
+      const updatedLeadIds = await persistenceStore.updateSavedLeadStatuses(accessToken, user.id, input.leadIds, input.status)
+      return jsonResponse(request, 200, { data: { updatedCount: updatedLeadIds.length, updatedLeadIds } })
+    }
+
+    if (url.pathname === '/api/leads/bulk' && request.method === 'DELETE') {
+      let body: unknown
+      try {
+        body = await readLimitedJsonBody(request)
+      } catch (error) {
+        if (error instanceof RequestBodyTooLargeError) return jsonResponse(request, 413, { error: error.message })
+        return jsonResponse(request, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+      }
+      const input = parseBulkLeadDeleteInput(body)
+      if (!input) return jsonResponse(request, 400, { error: 'Informe de 1 a 200 IDs de leads únicos e válidos.' })
+      const deletedLeadIds = await persistenceStore.removeSavedLeads(accessToken, user.id, input.leadIds)
+      return jsonResponse(request, 200, { data: { deletedCount: deletedLeadIds.length, deletedLeadIds } })
+    }
 
     if (url.pathname === '/api/ai/outreach' && request.method === 'POST') {
       const input = parseGenerateOutreachInput(await parseBody(request))

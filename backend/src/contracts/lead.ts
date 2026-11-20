@@ -1,6 +1,7 @@
 export const opportunityTypes = ['Sem site', 'Site identificado', 'Perfil incompleto'] as const
 export type OpportunityType = (typeof opportunityTypes)[number]
 export type LeadStatus = 'Novo' | 'Contatado' | 'Respondeu' | 'Proposta' | 'Ganhou' | 'Perdeu'
+export const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
 export const authorizedGoogleSearchSource = 'Busca DigiBusca/Google configurada pelo titular para retornar leads autorizados ao contato por WhatsApp'
 
 export type Lead = {
@@ -50,6 +51,41 @@ export type LeadSnapshot = Pick<
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+const bulkLeadIdsLimit = 200
+const bulkLeadIdLengthLimit = 256
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
+  const ownKeys = Object.keys(value)
+  return ownKeys.length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+}
+
+function parseBulkLeadIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0 || value.length > bulkLeadIdsLimit) return undefined
+  if (!value.every((id) => (
+    typeof id === 'string' &&
+    id.length > 0 &&
+    id.length <= bulkLeadIdLengthLimit &&
+    id.trim() === id &&
+    !/\s/u.test(id)
+  ))) return undefined
+
+  const leadIds = value as string[]
+  return new Set(leadIds).size === leadIds.length ? leadIds : undefined
+}
+
+export function parseBulkLeadStatusUpdateInput(value: unknown): { leadIds: string[]; status: LeadStatus } | undefined {
+  if (!isRecord(value) || !hasExactKeys(value, ['leadIds', 'status'])) return undefined
+  const leadIds = parseBulkLeadIds(value.leadIds)
+  if (!leadIds || typeof value.status !== 'string' || !leadStatuses.includes(value.status as LeadStatus)) return undefined
+  return { leadIds, status: value.status as LeadStatus }
+}
+
+export function parseBulkLeadDeleteInput(value: unknown): { leadIds: string[] } | undefined {
+  if (!isRecord(value) || !hasExactKeys(value, ['leadIds'])) return undefined
+  const leadIds = parseBulkLeadIds(value.leadIds)
+  return leadIds ? { leadIds } : undefined
 }
 
 export function parseLeadSnapshot(value: unknown, leadId: string): LeadSnapshot | undefined {

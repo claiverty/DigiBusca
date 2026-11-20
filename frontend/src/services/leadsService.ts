@@ -33,6 +33,18 @@ export type SavedLeadState = {
   updatedAt: string
 }
 
+export const MAX_BULK_LEAD_IDS = 200
+
+export type BulkLeadStatusResult = {
+  updatedCount: number
+  updatedLeadIds: string[]
+}
+
+export type BulkLeadDeleteResult = {
+  deletedCount: number
+  deletedLeadIds: string[]
+}
+
 export type GoogleApiUsage = {
   requestsToday: number
   requestsThisMonth: number
@@ -327,6 +339,68 @@ export async function removeSavedLead(leadId: string): Promise<void> {
   if (!response.ok) {
     throw new Error('Não foi possível remover este lead dos salvos.')
   }
+}
+
+export async function updateSavedLeadsStatus(leadIds: string[], status: Lead['status']): Promise<BulkLeadStatusResult> {
+  if (leadIds.length === 0) return { updatedCount: 0, updatedLeadIds: [] }
+  if (leadIds.length > MAX_BULK_LEAD_IDS) {
+    throw new Error(`Selecione no máximo ${MAX_BULK_LEAD_IDS} leads por operação.`)
+  }
+
+  const response = await authenticatedFetch(`${apiBaseUrl}/leads/bulk`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ leadIds, status }),
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível atualizar os leads selecionados.')
+  }
+
+  const payload = (await response.json().catch(() => null)) as { data?: Partial<BulkLeadStatusResult> } | null
+  const { updatedCount, updatedLeadIds } = payload?.data ?? {}
+  if (
+    !Number.isInteger(updatedCount) || updatedCount! < 0 || updatedCount! > leadIds.length ||
+    !Array.isArray(updatedLeadIds) || updatedLeadIds.length !== updatedCount ||
+    !updatedLeadIds.every((leadId) => typeof leadId === 'string' && leadIds.includes(leadId)) ||
+    new Set(updatedLeadIds).size !== updatedLeadIds.length
+  ) {
+    throw new Error('A API retornou uma contagem ou IDs inconsistentes. Atualize a carteira antes de continuar.')
+  }
+
+  return { updatedCount: updatedCount!, updatedLeadIds }
+}
+
+export async function removeSavedLeads(leadIds: string[]): Promise<BulkLeadDeleteResult> {
+  if (leadIds.length === 0) return { deletedCount: 0, deletedLeadIds: [] }
+  if (leadIds.length > MAX_BULK_LEAD_IDS) {
+    throw new Error(`Selecione no máximo ${MAX_BULK_LEAD_IDS} leads por operação.`)
+  }
+
+  const response = await authenticatedFetch(`${apiBaseUrl}/leads/bulk`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ leadIds }),
+  })
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
+    throw new Error(payload?.error ?? 'Não foi possível excluir os leads selecionados.')
+  }
+
+  const payload = (await response.json().catch(() => null)) as { data?: Partial<BulkLeadDeleteResult> } | null
+  const { deletedCount, deletedLeadIds } = payload?.data ?? {}
+  if (
+    !Number.isInteger(deletedCount) || deletedCount! < 0 || deletedCount! > leadIds.length ||
+    !Array.isArray(deletedLeadIds) || deletedLeadIds.length !== deletedCount ||
+    !deletedLeadIds.every((leadId) => typeof leadId === 'string' && leadIds.includes(leadId)) ||
+    new Set(deletedLeadIds).size !== deletedLeadIds.length
+  ) {
+    throw new Error('A API retornou uma contagem ou IDs inconsistentes. Atualize a carteira antes de continuar.')
+  }
+
+  return { deletedCount: deletedCount!, deletedLeadIds }
 }
 
 export async function updateLead(lead: Lead, changes: LeadUpdate): Promise<Lead> {
