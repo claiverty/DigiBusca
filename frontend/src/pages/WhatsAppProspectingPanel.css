@@ -4,6 +4,7 @@
 }
 
 .prospecting-overview,
+.prospecting-daily-chat,
 .prospecting-candidates,
 .prospecting-queue {
   min-width: 0;
@@ -153,6 +154,184 @@
 
 .prospecting-policy-note {
   margin: -7px 0 0;
+}
+
+.prospecting-daily-chat {
+  display: grid;
+  gap: 16px;
+}
+
+.prospecting-chat-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.prospecting-chat-heading h3 {
+  margin-top: 6px;
+  font-size: 19px;
+  letter-spacing: -0.035em;
+}
+
+.prospecting-chat-state {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid #e9e2d1;
+  border-radius: 999px;
+  color: #775f2d;
+  background: #fbf7ed;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.prospecting-chat-state.is-completed {
+  border-color: #d6e8dc;
+  color: #326447;
+  background: #f1f8f2;
+}
+
+.prospecting-chat-state.is-processing {
+  color: var(--color-text-subtle);
+  background: #f4f4f5;
+}
+
+.prospecting-chat-state.is-failed {
+  border-color: #eed2d2;
+  color: #8b3838;
+  background: #fff8f8;
+}
+
+.prospecting-chat-messages {
+  display: grid;
+  gap: 10px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #ececeb;
+  border-radius: 14px;
+  background: #fafaf9;
+}
+
+.prospecting-chat-message {
+  width: fit-content;
+  max-width: min(78%, 680px);
+  padding: 10px 12px;
+  border: 1px solid #e7e7e6;
+  border-radius: 12px 12px 12px 4px;
+  background: #fff;
+}
+
+.prospecting-chat-message.is-user {
+  justify-self: end;
+  border-color: #d6e8dc;
+  border-radius: 12px 12px 4px 12px;
+  background: #eff8f1;
+}
+
+.prospecting-chat-message > span {
+  color: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.prospecting-chat-message p {
+  margin: 4px 0 0;
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.prospecting-chat-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(190px, 1.2fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.prospecting-chat-form label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: var(--color-text-subtle);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.prospecting-chat-form label small {
+  color: var(--color-text-muted);
+  font-weight: 450;
+}
+
+.prospecting-chat-form input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  color: var(--color-text);
+  background: #fff;
+  font: inherit;
+  font-size: 11px;
+}
+
+.prospecting-chat-input-wrap {
+  position: relative;
+}
+
+.prospecting-chat-input-wrap svg {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  color: var(--color-text-muted);
+  transform: translateY(-50%);
+}
+
+.prospecting-chat-input-wrap input {
+  padding-left: 34px;
+}
+
+.prospecting-chat-submit {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid #17181b;
+  border-radius: 10px;
+  color: #fff;
+  background: #17181b;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.prospecting-chat-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.prospecting-chat-submit .is-spinning {
+  animation: whatsapp-spin 1s linear infinite;
+}
+
+.prospecting-chat-hint,
+.prospecting-chat-policy {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.prospecting-chat-policy {
+  padding-top: 11px;
+  border-top: 1px solid #ededec;
+}
+
+.prospecting-chat-policy strong {
+  color: var(--color-text-subtle);
 }
 
 .prospecting-feedback {
@@ -389,6 +568,7 @@
 
 @media (max-width: 620px) {
   .prospecting-overview,
+  .prospecting-daily-chat,
   .prospecting-candidates,
   .prospecting-queue {
     padding: 16px;
@@ -408,5 +588,22 @@
 
   .prospecting-limit-field {
     flex: 1 1 120px;
+  }
+
+  .prospecting-chat-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .prospecting-chat-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prospecting-chat-submit {
+    width: 100%;
+  }
+
+  .prospecting-chat-message {
+    max-width: 92%;
   }
 }

@@ -27,6 +27,7 @@ import { parseWhatsAppAutomationProfileInput } from '../contracts/whatsappAutoma
 import { WhatsAppStore } from '../data/whatsappStore.js'
 import { WhatsAppProspectingError, WhatsAppProspectingStore } from '../data/whatsappProspectingStore.js'
 import { runLocalWhatsAppProspectingTick, startLocalWhatsAppProspectingScheduler } from '../application/processLocalWhatsAppProspecting.js'
+import { runWhatsAppDailyProspectingCampaign } from '../application/runWhatsAppDailyProspectingCampaign.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -368,10 +369,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/prospecting') {
     try {
       const prospectingStore = new WhatsAppProspectingStore()
-      const [settings, dailyCount, queue] = await Promise.all([
+      const [settings, dailyCount, queue, campaign] = await Promise.all([
         prospectingStore.getSettings(user.id),
         prospectingStore.getDailyCount(user.id),
         prospectingStore.listQueue(user.id),
+        prospectingStore.getOrCreateDailyCampaign(user.id),
       ])
       response.setHeader('Cache-Control', 'no-store')
       sendJson(response, 200, {
@@ -379,12 +381,96 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
           settings,
           dailyCount,
           queue,
+          campaign,
           localRuntimeEnabled: isWhatsAppProspectingRuntimeEnabled(),
           evolutionConfigured: Boolean(getEvolutionApiConfig()),
         },
       })
     } catch {
-      sendJson(response, 503, { error: 'Aplique a migration 013 do WhatsApp no Supabase para habilitar a fila de prospecção.' })
+      sendJson(response, 503, { error: 'Aplique as migrations 013 e 020 do WhatsApp no Supabase para habilitar a fila e o chat diário de prospecção.' })
+    }
+    return
+  }
+
+  if (request.method === 'POST' && requestUrl.pathname === '/api/whatsapp/prospecting/campaign') {
+    let body: unknown
+    try {
+      body = await readJsonBody(request)
+    } catch {
+      sendJson(response, 400, { error: 'O corpo da requisição precisa ser um JSON válido.' })
+      return
+    }
+    if (
+      !isRecord(body) || typeof body.city !== 'string' || body.city.trim().length < 2 || body.city.trim().length > 120 ||
+      (body.segment !== undefined && (typeof body.segment !== 'string' || body.segment.trim().length > 120)) ||
+      (body.phoneNumberId !== undefined && (typeof body.phoneNumberId !== 'string' || !/^[-_a-zA-Z0-9]{1,128}$/.test(body.phoneNumberId)))
+    ) {
+      sendJson(response, 400, { error: 'Informe uma cidade válida e, se quiser, um segmento de até 120 caracteres.' })
+      return
+    }
+    const rateLimit = checkRateLimit({ key: `whatsapp-daily-campaign:${user.id}`, limit: 3, windowMs: 60_000 })
+    if (!rateLimit.allowed) {
+      sendJson(response, 429, { error: 'Aguarde um instante antes de iniciar outra busca.' })
+      return
+    }
+    const city = body.city.trim()
+    const segment = typeof body.segment === 'string' && body.segment.trim() ? body.segment.trim() : 'Todos os segmentos'
+    const phoneNumberId = typeof body.phoneNumberId === 'string' ? body.phoneNumberId : undefined
+    const prospectingStore = new WhatsAppProspectingStore()
+    let campaign
+    try {
+      campaign = await prospectingStore.beginDailyCampaign(user.id, city, segment)
+    } catch (error) {
+      if (error instanceof WhatsAppProspectingError) {
+        sendJson(response, error.status, { error: error.message })
+        return
+      }
+      sendJson(response, 503, { error: 'Não foi possível iniciar o chat diário. Confira se a migration 020 está aplicada no Supabase.' })
+      return
+    }
+
+    let connections: Awaited<ReturnType<typeof getEvolutionConnections>> = []
+    if (phoneNumberId) {
+      try {
+        connections = await getEvolutionConnections(user.id)
+      } catch {
+        connections = []
+      }
+    }
+    const selectedConnectionIsOpen = connections.some((connection) => (
+      connection.phoneNumberId === phoneNumberId && connection.connectionState?.toLowerCase() === 'open'
+    ))
+    const queueSendingAvailable = Boolean(
+      phoneNumberId && selectedConnectionIsOpen && isWhatsAppProspectingRuntimeEnabled() && getEvolutionApiConfig(),
+    )
+    try {
+      const result = await runWhatsAppDailyProspectingCampaign({
+        userId: user.id,
+        accessToken,
+        city,
+        segment,
+        ...(phoneNumberId ? { phoneNumberId } : {}),
+        queueSendingAvailable,
+        campaign,
+        provider: new GooglePlacesProvider(
+          undefined,
+          (requestType) => persistenceStore.reserveGoogleApiRequest(accessToken, requestType),
+        ),
+        persistenceStore,
+        prospectingStore,
+      })
+      sendJson(response, 200, { data: result })
+      if (result.queuedCount > 0) {
+        setImmediate(() => {
+          void runLocalWhatsAppProspectingTick().catch(() => {
+            logWarning('whatsapp_campaign_dispatch_failed', { reason: 'queue_dispatch_unavailable' })
+          })
+        })
+      }
+    } catch (error) {
+      sendJson(response, isGoogleApiMonthlyLimitError(error) ? 429 : 503, {
+        error: error instanceof Error ? error.message : 'Não foi possível concluir a busca de hoje.',
+      })
     }
     return
   }

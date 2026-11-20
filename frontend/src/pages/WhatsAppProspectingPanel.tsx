@@ -1,10 +1,11 @@
-import { AlertCircle, CheckCircle2, Clock3, Pause, Play, RefreshCw, Send, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AlertCircle, CheckCircle2, Clock3, LoaderCircle, MapPin, Pause, Play, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import {
   cancelWhatsAppQueueItem,
   enqueueWhatsAppNewLead,
   getWhatsAppProspectingDashboard,
+  runWhatsAppDailyProspectingCampaign,
   saveWhatsAppProspectingSettings,
   type WhatsAppProspectingDashboard,
   type WhatsAppProspectingQueueItem,
@@ -49,6 +50,9 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
   const [dailyLimit, setDailyLimit] = useState(20)
   const [busyKey, setBusyKey] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [campaignCity, setCampaignCity] = useState('')
+  const [campaignSegment, setCampaignSegment] = useState('')
+  const [campaignBusy, setCampaignBusy] = useState(false)
 
   const reload = useCallback(async () => {
     setLoadState('loading')
@@ -60,6 +64,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
       ])
       setDashboard(nextDashboard)
       setDailyLimit(nextDashboard.settings.dailyNewLeadLimit)
+      setCampaignCity((current) => current || nextDashboard.settings.defaultCity)
       setLeads(savedLeads)
       setLoadState('ready')
     } catch (loadError) {
@@ -71,6 +76,18 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible' || campaignBusy) return
+      void getWhatsAppProspectingDashboard().then((nextDashboard) => {
+        setDashboard(nextDashboard)
+        setDailyLimit(nextDashboard.settings.dailyNewLeadLimit)
+        setCampaignCity((current) => current || nextDashboard.settings.defaultCity)
+      }).catch(() => undefined)
+    }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [campaignBusy])
 
   useEffect(() => {
     const readyConnections = connections.filter((connection) => connection.connectionState?.toLowerCase() === 'open')
@@ -155,6 +172,36 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
     }
   }
 
+  async function submitDailyCampaign(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const city = campaignCity.trim()
+    if (city.length < 2) {
+      setError('Digite a cidade que vamos prospectar hoje.')
+      return
+    }
+    setCampaignBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await runWhatsAppDailyProspectingCampaign({
+        city,
+        ...(campaignSegment.trim() ? { segment: campaignSegment.trim() } : {}),
+        ...(selectedPhoneNumberId ? { phoneNumberId: selectedPhoneNumberId } : {}),
+      })
+      setDashboard((current) => current ? { ...current, campaign: result.campaign } : current)
+      setCampaignCity('')
+      setCampaignSegment('')
+      setNotice(`Busca concluída: ${result.searchedCount} encontrados, ${result.savedCount} salvos e ${result.queuedCount} na fila.`)
+      await reload()
+    } catch (campaignError) {
+      const message = campaignError instanceof Error ? campaignError.message : 'Não foi possível concluir a busca de hoje.'
+      await reload()
+      setError(message)
+    } finally {
+      setCampaignBusy(false)
+    }
+  }
+
   const leadNames = useMemo(() => new Map(leads.map((savedLead) => [savedLead.leadId, savedLead.lead?.name ?? savedLead.leadId] as const)), [leads])
   const runtimeEnabled = dashboard?.localRuntimeEnabled === true
   const evolutionConfigured = dashboard?.evolutionConfigured === true
@@ -209,6 +256,47 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
           </label>
         )}
         <p className="prospecting-policy-note">A fila envia em dias úteis, entre 9h e 14h (horário de São Paulo), até o limite diário selecionado. Os leads retornados pela busca configurada no DigiBusca entram como autorizados; pedidos de descadastro continuam bloqueados.</p>
+      </section>
+
+      <section className="panel prospecting-daily-chat" aria-label="Chat de prospecção do dia">
+        <header className="prospecting-chat-heading">
+          <div>
+            <span className="eyebrow">DIGIBOT · CAMPANHA DIÁRIA</span>
+            <h3>Vamos escolher a cidade</h3>
+          </div>
+          <span className={`prospecting-chat-state is-${dashboard?.campaign.status ?? 'awaiting_city'}`}>
+            {dashboard?.campaign.status === 'completed' ? 'Concluída' : dashboard?.campaign.status === 'processing' || campaignBusy ? 'Em andamento' : dashboard?.campaign.status === 'failed' ? 'Precisa tentar de novo' : 'Aguardando cidade'}
+          </span>
+        </header>
+        <div className="prospecting-chat-messages" aria-live="polite">
+          {(dashboard?.campaign.messages ?? []).map((message, index) => (
+            <div className={`prospecting-chat-message is-${message.role}`} key={`${message.createdAt}-${index}`}>
+              <span>{message.role === 'assistant' ? 'DigiBot' : 'Você'}</span>
+              <p>{message.text}</p>
+            </div>
+          ))}
+        </div>
+        {dashboard?.campaign.status === 'awaiting_city' || dashboard?.campaign.status === 'failed' ? (
+          <form className="prospecting-chat-form" onSubmit={(event) => void submitDailyCampaign(event)}>
+            <label>
+              <span>Cidade</span>
+              <div className="prospecting-chat-input-wrap"><MapPin size={16} /><input value={campaignCity} onChange={(event) => setCampaignCity(event.target.value)} maxLength={120} placeholder="Ex.: Brasília, DF" disabled={campaignBusy} required /></div>
+            </label>
+            <label>
+              <span>Segmento <small>opcional</small></span>
+              <input value={campaignSegment} onChange={(event) => setCampaignSegment(event.target.value)} maxLength={120} placeholder="Todos os segmentos" disabled={campaignBusy} />
+            </label>
+            <button className="prospecting-chat-submit" type="submit" disabled={campaignBusy || loadState !== 'ready'}>
+              {campaignBusy ? <LoaderCircle size={16} className="is-spinning" /> : <Send size={15} />}
+              {campaignBusy ? 'Pesquisando…' : 'Buscar e preparar contatos'}
+            </button>
+          </form>
+        ) : dashboard?.campaign.status === 'processing' ? (
+          <p className="prospecting-chat-hint">A busca está rodando. O DigiBot vai salvar os resultados e preparar os contatos que couberem na fila diária.</p>
+        ) : (
+          <p className="prospecting-chat-hint">O chat de amanhã aparece quando você abrir esta aba. A busca só começa depois que você informar a cidade.</p>
+        )}
+        <p className="prospecting-chat-policy">A cidade de hoje é <strong>{dashboard?.campaign.city ?? 'ainda não escolhida'}</strong>. A fila respeita seu limite, a janela das 9h às 14h e os bloqueios de descadastro.</p>
       </section>
 
       {(error || notice) && <div className={`prospecting-feedback${error ? ' is-error' : ''}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}

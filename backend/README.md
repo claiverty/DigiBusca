@@ -29,7 +29,8 @@ API TypeScript responsável pela autenticação, regras de negócio, integraçõ
 - `POST /api/sales`: registra uma venda manual ou vinculada a um lead.
 - `PATCH /api/sales/:id`: corrige comércio, serviço, valor ou data de uma venda do usuário.
 - `DELETE /api/sales/:id`: exclui uma venda do usuário.
-- `GET /api/whatsapp/prospecting`: retorna configurações, uso do limite diário e fila de novos contatos da conta autenticada.
+- `GET /api/whatsapp/prospecting`: retorna configurações, uso do limite diário, fila e chat da campanha do dia.
+- `POST /api/whatsapp/prospecting/campaign`: pesquisa a cidade escolhida no chat, salva até três páginas de resultados e enfileira novos contatos elegíveis dentro da capacidade diária disponível.
 - `POST /api/whatsapp/prospecting/settings`: ativa/pausa a fila e define o limite de 17 a 25 novos leads por dia.
 - `POST /api/whatsapp/prospecting/queue`: agenda um primeiro contato de um lead salvo com consentimento registrado.
 - `DELETE /api/whatsapp/prospecting/queue/:id`: cancela um item ainda não enviado.
@@ -61,7 +62,7 @@ docker compose --project-name digibusca-evolution-candidate --env-file backend/.
 docker compose --project-name digibusca-evolution-candidate --env-file backend/.env --env-file evolution/.env -f docker-compose.evolution.yml --profile evolution-candidate build digibusca-webhook
 ```
 
-O healthcheck do webhook consulta o Supabase e exige as tabelas de conexão, conversa e mensagem das migrations `009_whatsapp_webhook.sql` e `010_whatsapp_coexistence.sql`; a Evolution só inicia depois dessa checagem passar. A rota `/api/whatsapp/status` também bloqueia a geração do QR se a persistência ainda não estiver pronta. No ambiente local, o backend usa `127.0.0.1:3001`. A configuração da VPS e do túnel fica em [ops/hostgator/README.md](../ops/hostgator/README.md); o Worker encaminha somente as rotas de WhatsApp e OpenBot para o hostname configurado. O webhook interno da Evolution continua na rede privada de serviços.
+O healthcheck do webhook consulta o Supabase e exige as tabelas de conexão, conversa e mensagem das migrations `009_whatsapp_webhook.sql` e `010_whatsapp_coexistence.sql`; a Evolution só inicia depois dessa checagem passar. A rota `/api/whatsapp/status` também bloqueia a geração do QR se a persistência ainda não estiver pronta. No ambiente local, o backend usa `127.0.0.1:3001`. A configuração da VPS e do túnel fica em [ops/hostgator/README.md](../ops/hostgator/README.md); o Worker encaminha somente as rotas de WhatsApp e OpenBot para o hostname configurado. O webhook interno da Evolution continua na rede privada de serviços. A campanha diária usa a migration `020_whatsapp_daily_prospecting_chat.sql`.
 
 Depois do pareamento, perfis de resposta e fila de prospecção começam desativados. O perfil começa em `handoff_only`; nesse modo, a conversa fica para atendimento humano. O modo `openbot` envia ao agente Cristhian o histórico recente sanitizado e uma instrução estruturada; o backend valida a resposta, aplica as regras de segurança e controla o envio pela Evolution. `Local scripts` precisa estar habilitado especificamente no agente Cristhian. O modo `gemini` é separado: não existe fallback automático entre Gemini e OpenBot. Preço, prazo, desconto, contrato e pagamento só podem ser informados se estiverem no conteúdo aprovado; caso contrário, o sistema sinaliza atendimento humano sem anunciar a transferência ao contato. Aplique as migrations de WhatsApp até `016_whatsapp_openbot_replies.sql`; a migration `015_whatsapp_automation_response_mode_safety_reset.sql` desativa perfis existentes e limpa a aprovação antiga do conteúdo. Antes de ativar qualquer perfil, revise conteúdo e canal na interface e valide o fluxo com números de teste.
 

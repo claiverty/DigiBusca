@@ -2,11 +2,13 @@ import { createWhatsAppWebhookSupabaseClient } from '../config/supabase.js'
 import { getEvolutionConnectionState } from '../integrations/evolutionApi.js'
 
 const brazilTimeZone = 'America/Sao_Paulo'
+const staleDailyCampaignMs = 30 * 60 * 1_000
 
 export type WhatsAppProspectingSettings = {
   enabled: boolean
   dailyNewLeadLimit: number
   timezone: string
+  defaultCity: string
   nextNewLeadAt?: string
 }
 
@@ -23,6 +25,26 @@ export type WhatsAppProspectingQueueItem = {
   providerMessageId?: string
   errorCode?: string
   createdAt: string
+}
+
+export type WhatsAppProspectingChatMessage = {
+  role: 'assistant' | 'user'
+  text: string
+  createdAt: string
+}
+
+export type WhatsAppDailyProspectingCampaign = {
+  id: string
+  campaignDate: string
+  city?: string
+  segment: string
+  status: 'awaiting_city' | 'processing' | 'completed' | 'failed'
+  searchedCount: number
+  savedCount: number
+  queuedCount: number
+  messages: WhatsAppProspectingChatMessage[]
+  errorCode?: string
+  updatedAt: string
 }
 
 export class WhatsAppProspectingError extends Error {
@@ -82,17 +104,184 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function saoPauloDayRange(now = new Date()) {
-  const localDate = new Intl.DateTimeFormat('sv-SE', {
+  const localDate = saoPauloDate(now)
+  const start = new Date(`${localDate}T00:00:00-03:00`)
+  return { start: start.toISOString(), end: new Date(start.getTime() + 24 * 60 * 60 * 1_000).toISOString() }
+}
+
+function saoPauloDate(now = new Date()) {
+  return new Intl.DateTimeFormat('sv-SE', {
     timeZone: brazilTimeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).format(now)
-  const start = new Date(`${localDate}T00:00:00-03:00`)
-  return { start: start.toISOString(), end: new Date(start.getTime() + 24 * 60 * 60 * 1_000).toISOString() }
+}
+
+type DailyCampaignRow = {
+  id: string
+  campaign_date: string
+  city: string | null
+  segment: string
+  status: WhatsAppDailyProspectingCampaign['status']
+  searched_count: number
+  saved_count: number
+  queued_count: number
+  messages: unknown
+  error_code: string | null
+  updated_at: string
+}
+
+function mapDailyCampaign(row: DailyCampaignRow): WhatsAppDailyProspectingCampaign {
+  const messages = Array.isArray(row.messages) ? row.messages.flatMap((message) => {
+    if (!isRecord(message) || (message.role !== 'assistant' && message.role !== 'user') || typeof message.text !== 'string' || typeof message.createdAt !== 'string') return []
+    return [{ role: message.role as WhatsAppProspectingChatMessage['role'], text: message.text.slice(0, 1_024), createdAt: message.createdAt }]
+  }) : []
+  return {
+    id: row.id,
+    campaignDate: row.campaign_date,
+    ...(row.city ? { city: row.city } : {}),
+    segment: row.segment,
+    status: row.status,
+    searchedCount: Number(row.searched_count),
+    savedCount: Number(row.saved_count),
+    queuedCount: Number(row.queued_count),
+    messages,
+    ...(row.error_code ? { errorCode: row.error_code } : {}),
+    updatedAt: row.updated_at,
+  }
 }
 
 export class WhatsAppProspectingStore {
+  async getOrCreateDailyCampaign(userId: string, now = new Date()): Promise<WhatsAppDailyProspectingCampaign> {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const campaignDate = saoPauloDate(now)
+    const createdAt = now.toISOString()
+    const prompt: WhatsAppProspectingChatMessage = {
+      role: 'assistant',
+      text: 'Bom dia, qual cidade vamos prospectar hoje? Brasília, DF está como sugestão inicial. Se quiser, informe também um segmento; se deixar em branco, busco negócios locais em geral.',
+      createdAt,
+    }
+    const inserted = await admin.from('whatsapp_prospecting_daily_campaigns').upsert({
+      user_id: userId,
+      campaign_date: campaignDate,
+      segment: 'Todos os segmentos',
+      status: 'awaiting_city',
+      messages: [prompt],
+      updated_at: createdAt,
+    }, { onConflict: 'user_id,campaign_date', ignoreDuplicates: true })
+    throwIfError(inserted.error, 'Não foi possível iniciar o chat diário de prospecção.')
+
+    const result = await admin.from('whatsapp_prospecting_daily_campaigns')
+      .select('id, campaign_date, city, segment, status, searched_count, saved_count, queued_count, messages, error_code, updated_at')
+      .eq('user_id', userId)
+      .eq('campaign_date', campaignDate)
+      .single()
+    throwIfError(result.error, 'Não foi possível carregar o chat diário de prospecção.')
+    const row = result.data as DailyCampaignRow
+    const campaign = mapDailyCampaign(row)
+    if (
+      campaign.status !== 'processing' ||
+      !Number.isFinite(Date.parse(campaign.updatedAt)) ||
+      now.getTime() - Date.parse(campaign.updatedAt) < staleDailyCampaignMs
+    ) return campaign
+
+    const recoveredAt = now.toISOString()
+    const messages = [
+      ...campaign.messages.slice(-7),
+      {
+        role: 'assistant' as const,
+        text: 'A busca anterior parece ter sido interrompida. Envie a cidade novamente para eu tentar de novo.',
+        createdAt: recoveredAt,
+      },
+    ]
+    const recovered = await admin.from('whatsapp_prospecting_daily_campaigns')
+      .update({ status: 'failed', error_code: 'campaign_interrupted', messages, updated_at: recoveredAt })
+      .eq('id', campaign.id)
+      .eq('user_id', userId)
+      .eq('status', 'processing')
+      .eq('updated_at', row.updated_at)
+      .select('id, campaign_date, city, segment, status, searched_count, saved_count, queued_count, messages, error_code, updated_at')
+      .maybeSingle()
+    throwIfError(recovered.error, 'Não foi possível recuperar a busca diária interrompida.')
+    if (recovered.data) return mapDailyCampaign(recovered.data as DailyCampaignRow)
+
+    const latest = await admin.from('whatsapp_prospecting_daily_campaigns')
+      .select('id, campaign_date, city, segment, status, searched_count, saved_count, queued_count, messages, error_code, updated_at')
+      .eq('user_id', userId)
+      .eq('campaign_date', campaignDate)
+      .single()
+    throwIfError(latest.error, 'Não foi possível recarregar o chat diário de prospecção.')
+    return mapDailyCampaign(latest.data as DailyCampaignRow)
+  }
+
+  async beginDailyCampaign(userId: string, city: string, segment: string, now = new Date()) {
+    const current = await this.getOrCreateDailyCampaign(userId, now)
+    if (current.status === 'processing' || current.status === 'completed') {
+      throw new WhatsAppProspectingError('A busca de hoje já foi iniciada. Confira o resultado no chat.', 409)
+    }
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const createdAt = now.toISOString()
+    const messages = [
+      ...current.messages.slice(-7),
+      { role: 'user', text: segment === 'Todos os segmentos' ? city : `${city} — ${segment}`, createdAt },
+      { role: 'assistant', text: `Certo, vou procurar ${segment === 'Todos os segmentos' ? 'negócios locais' : segment} em ${city} e preparar os contatos elegíveis.`, createdAt },
+    ]
+    const result = await admin.from('whatsapp_prospecting_daily_campaigns')
+      .update({ city, segment, status: 'processing', messages, error_code: null, updated_at: createdAt })
+      .eq('id', current.id)
+      .eq('user_id', userId)
+      .in('status', ['awaiting_city', 'failed'])
+      .select('id, campaign_date, city, segment, status, searched_count, saved_count, queued_count, messages, error_code, updated_at')
+      .maybeSingle()
+    throwIfError(result.error, 'Não foi possível iniciar a busca do dia.')
+    if (!result.data) throw new WhatsAppProspectingError('A busca de hoje já foi iniciada. Confira o resultado no chat.', 409)
+    return mapDailyCampaign(result.data as DailyCampaignRow)
+  }
+
+  async finishDailyCampaign(userId: string, campaignId: string, counts: { searched: number; saved: number; queued: number; summary: string }, now = new Date()) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const current = await admin.from('whatsapp_prospecting_daily_campaigns')
+      .select('messages')
+      .eq('id', campaignId)
+      .eq('user_id', userId)
+      .eq('status', 'processing')
+      .maybeSingle()
+    throwIfError(current.error, 'Não foi possível carregar o histórico da busca diária.')
+    if (!current.data) throw new WhatsAppProspectingError('A busca diária não está mais em andamento.', 409)
+    const oldMessages = Array.isArray((current.data as { messages: unknown }).messages) ? (current.data as { messages: WhatsAppProspectingChatMessage[] }).messages : []
+    const messages = [...oldMessages.slice(-8), { role: 'assistant', text: counts.summary.slice(0, 1_024), createdAt: now.toISOString() }]
+    const result = await admin.from('whatsapp_prospecting_daily_campaigns')
+      .update({ status: 'completed', searched_count: counts.searched, saved_count: counts.saved, queued_count: counts.queued, messages, updated_at: now.toISOString() })
+      .eq('id', campaignId)
+      .eq('user_id', userId)
+      .eq('status', 'processing')
+      .select('id, campaign_date, city, segment, status, searched_count, saved_count, queued_count, messages, error_code, updated_at')
+      .single()
+    throwIfError(result.error, 'Não foi possível concluir a busca diária.')
+    return mapDailyCampaign(result.data as DailyCampaignRow)
+  }
+
+  async failDailyCampaign(userId: string, campaignId: string, errorCode: string, message: string, now = new Date()) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const current = await admin.from('whatsapp_prospecting_daily_campaigns')
+      .select('messages')
+      .eq('id', campaignId)
+      .eq('user_id', userId)
+      .eq('status', 'processing')
+      .maybeSingle()
+    throwIfError(current.error, 'Não foi possível carregar o histórico da busca diária.')
+    if (!current.data) return
+    const previousMessages = Array.isArray((current.data as { messages: unknown }).messages) ? (current.data as { messages: WhatsAppProspectingChatMessage[] }).messages : []
+    const messages = [...previousMessages.slice(-8), { role: 'assistant', text: message.slice(0, 1_024), createdAt: now.toISOString() }]
+    const result = await admin.from('whatsapp_prospecting_daily_campaigns')
+      .update({ status: 'failed', error_code: errorCode.slice(0, 80), messages, updated_at: now.toISOString() })
+      .eq('id', campaignId)
+      .eq('user_id', userId)
+      .eq('status', 'processing')
+    throwIfError(result.error, 'Não foi possível registrar a falha da busca diária.')
+  }
+
   async getSettings(userId: string): Promise<WhatsAppProspectingSettings> {
     const admin = createWhatsAppWebhookSupabaseClient()
     const inserted = await admin.from('whatsapp_prospecting_settings')
@@ -100,15 +289,16 @@ export class WhatsAppProspectingStore {
     throwIfError(inserted.error, 'Não foi possível preparar as configurações da prospecção.')
 
     const result = await admin.from('whatsapp_prospecting_settings')
-      .select('enabled, daily_new_lead_limit, timezone, next_new_lead_at')
+      .select('enabled, daily_new_lead_limit, timezone, default_city, next_new_lead_at')
       .eq('user_id', userId)
       .single()
     throwIfError(result.error, 'Não foi possível carregar as configurações da prospecção.')
-    const row = result.data as { enabled: boolean; daily_new_lead_limit: number; timezone: string; next_new_lead_at: string | null }
+    const row = result.data as { enabled: boolean; daily_new_lead_limit: number; timezone: string; default_city: string; next_new_lead_at: string | null }
     return {
       enabled: row.enabled,
       dailyNewLeadLimit: Number(row.daily_new_lead_limit),
       timezone: row.timezone,
+      defaultCity: row.default_city,
       ...(row.next_new_lead_at ? { nextNewLeadAt: row.next_new_lead_at } : {}),
     }
   }
@@ -126,14 +316,15 @@ export class WhatsAppProspectingStore {
         timezone: brazilTimeZone,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' })
-      .select('enabled, daily_new_lead_limit, timezone, next_new_lead_at')
+      .select('enabled, daily_new_lead_limit, timezone, default_city, next_new_lead_at')
       .single()
     throwIfError(result.error, 'Não foi possível salvar as configurações da prospecção.')
-    const row = result.data as { enabled: boolean; daily_new_lead_limit: number; timezone: string; next_new_lead_at: string | null }
+    const row = result.data as { enabled: boolean; daily_new_lead_limit: number; timezone: string; default_city: string; next_new_lead_at: string | null }
     return {
       enabled: row.enabled,
       dailyNewLeadLimit: Number(row.daily_new_lead_limit),
       timezone: row.timezone,
+      defaultCity: row.default_city,
       ...(row.next_new_lead_at ? { nextNewLeadAt: row.next_new_lead_at } : {}),
     }
   }
@@ -148,6 +339,16 @@ export class WhatsAppProspectingStore {
       .gte('claimed_at', start)
       .lt('claimed_at', end)
     throwIfError(result.error, 'Não foi possível consultar o limite diário de prospecção.')
+    return result.count ?? 0
+  }
+
+  async getPendingQueueCount(userId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_prospecting_queue')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('status', 'queued')
+    throwIfError(result.error, 'Não foi possível consultar os itens aguardando na fila.')
     return result.count ?? 0
   }
 

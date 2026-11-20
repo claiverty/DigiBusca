@@ -7,7 +7,7 @@ O DigiBusca é uma plataforma de prospecção digital para freelancers e agênci
 1. O usuário pesquisa empresas por localização e segmento.
 2. A aplicação organiza os dados públicos e identifica oportunidades de presença digital.
 3. Leads podem ser salvos, classificados por status e acompanhados com observações, contatos e próximos passos.
-4. Leads salvos com consentimento registrado podem entrar numa fila de primeiro contato pela Evolution API (Baileys/WhatsApp Web); o backend da VPS agenda os envios e registra o resultado no CRM.
+4. Na aba de prospecção do WhatsApp, o DigiBot pergunta a cidade do dia. Depois da resposta, pesquisa no Google Places, salva os resultados como leads autorizados segundo a configuração do titular e prepara os novos contatos na fila da Evolution API; o backend da VPS agenda os envios e registra o resultado no CRM.
 5. Vendas podem ser registradas, editadas e acompanhadas em um resumo financeiro.
 
 ## Arquitetura
@@ -76,7 +76,7 @@ A carteira registra etapa da conversa, pessoa de contato e próximo passo. Permi
 
 ## Prospecção pelo WhatsApp
 
-A aba **WhatsApp → Conexão** pareia a Evolution API com um QR Code. A aba **WhatsApp → Prospecção** permite enfileirar leads salvos com consentimento registrado. O limite diário configurável fica entre 17 e 25 novos contatos; envios são espaçados entre 9h e 14h, de segunda a sexta, no fuso de São Paulo. Na implantação de produção, o backend e a Evolution rodam na VPS. O agente DigiBusca atende mensagens recebidas sob demanda no backend, sem manter um processo de agente pesado em execução contínua; OpenBot é opcional. O agente registra qualificações declaradas pelo lead por até 90 dias, e o backend continua responsável por pausa, descadastro, limites e envio pela Evolution. A fila de prospecção segue o fluxo já existente; este runtime não escolhe nem contata leads por conta própria.
+A aba **WhatsApp → Conexão** pareia a Evolution API com um QR Code. Em **WhatsApp → Prospecção**, um chat diário pergunta qual cidade usar; o segmento é opcional e Brasília, DF fica como sugestão inicial. A busca só começa depois que você envia a cidade. O DigiBot salva os resultados e prepara até o espaço disponível na fila; sem conexão Evolution, runtime ativo ou fila ligada, ele apenas salva os leads e explica o que falta. O limite configurável fica entre 17 e 25 novos contatos por dia; os envios são espaçados entre 9h e 14h, de segunda a sexta, no fuso de São Paulo. Na implantação de produção, o backend e a Evolution rodam na VPS. O agente DigiBusca atende mensagens recebidas sob demanda no backend, sem manter um processo de agente pesado em execução contínua; OpenBot é opcional. O agente registra qualificações declaradas pelo lead por até 90 dias, e o backend continua responsável por pausa, descadastro, limites e envio pela Evolution. Aplique as migrations até `020_whatsapp_daily_prospecting_chat.sql` antes de usar o novo chat.
 
 Para desenvolvimento local da Evolution, veja [backend/README.md](backend/README.md). Para implantação na HostGator, veja [ops/hostgator/README.md](ops/hostgator/README.md). Para configurar o runtime do agente Cristhian, veja [docs/digibot-cristhian-runtime.md](docs/digibot-cristhian-runtime.md). A integração usa o webhook autenticado da Evolution; não usa a Cloud API para mensagens. Aplique as migrations necessárias até `019_digibot_agent_runtime.sql` antes de habilitar o novo runtime.
 

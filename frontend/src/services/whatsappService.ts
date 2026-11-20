@@ -21,6 +21,7 @@ export type WhatsAppProspectingSettings = {
   enabled: boolean
   dailyNewLeadLimit: number
   timezone: string
+  defaultCity: string
   nextNewLeadAt?: string
 }
 
@@ -39,10 +40,31 @@ export type WhatsAppProspectingQueueItem = {
   createdAt: string
 }
 
+export type WhatsAppProspectingChatMessage = {
+  role: 'assistant' | 'user'
+  text: string
+  createdAt: string
+}
+
+export type WhatsAppDailyProspectingCampaign = {
+  id: string
+  campaignDate: string
+  city?: string
+  segment: string
+  status: 'awaiting_city' | 'processing' | 'completed' | 'failed'
+  searchedCount: number
+  savedCount: number
+  queuedCount: number
+  messages: WhatsAppProspectingChatMessage[]
+  errorCode?: string
+  updatedAt: string
+}
+
 export type WhatsAppProspectingDashboard = {
   settings: WhatsAppProspectingSettings
   dailyCount: number
   queue: WhatsAppProspectingQueueItem[]
+  campaign: WhatsAppDailyProspectingCampaign
   localRuntimeEnabled: boolean
   evolutionConfigured: boolean
 }
@@ -152,6 +174,22 @@ export async function getWhatsAppConnections(): Promise<WhatsAppConnection[]> {
 
 export async function getWhatsAppProspectingDashboard(): Promise<WhatsAppProspectingDashboard> {
   return getWhatsAppData<WhatsAppProspectingDashboard>('/whatsapp/prospecting')
+}
+
+export async function runWhatsAppDailyProspectingCampaign(input: { city: string; segment?: string; phoneNumberId?: string }) {
+  let response: Response
+  try {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/prospecting/campaign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+  } catch {
+    throw new Error('Não foi possível conectar ao backend para fazer a busca do dia.')
+  }
+  const payload = (await response.json().catch(() => null)) as { data?: { campaign: WhatsAppDailyProspectingCampaign; searchedCount: number; savedCount: number; queuedCount: number }; error?: string } | null
+  if (!response.ok || !payload?.data) throw new Error(payload?.error ?? 'Não foi possível concluir a busca do dia.')
+  return payload.data
 }
 
 export async function saveWhatsAppProspectingSettings(input: Pick<WhatsAppProspectingSettings, 'enabled' | 'dailyNewLeadLimit'>): Promise<WhatsAppProspectingSettings> {
