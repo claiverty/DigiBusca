@@ -189,8 +189,6 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
         ...(selectedPhoneNumberId ? { phoneNumberId: selectedPhoneNumberId } : {}),
       })
       setDashboard((current) => current ? { ...current, campaign: result.campaign } : current)
-      setCampaignCity('')
-      setCampaignSegment('')
       setNotice(`Busca concluída: ${result.searchedCount} encontrados, ${result.savedCount} salvos e ${result.queuedCount} na fila.`)
       await reload()
     } catch (campaignError) {
@@ -276,7 +274,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
             </div>
           ))}
         </div>
-        {dashboard?.campaign.status === 'awaiting_city' || dashboard?.campaign.status === 'failed' ? (
+        {dashboard?.campaign.status === 'awaiting_city' || dashboard?.campaign.status === 'failed' || dashboard?.campaign.status === 'completed' ? (
           <form className="prospecting-chat-form" onSubmit={(event) => void submitDailyCampaign(event)}>
             <label>
               <span>Cidade</span>
@@ -288,13 +286,13 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
             </label>
             <button className="prospecting-chat-submit" type="submit" disabled={campaignBusy || loadState !== 'ready'}>
               {campaignBusy ? <LoaderCircle size={16} className="is-spinning" /> : <Send size={15} />}
-              {campaignBusy ? 'Pesquisando…' : 'Buscar e preparar contatos'}
+              {campaignBusy ? 'Pesquisando…' : dashboard?.campaign.status === 'completed' ? 'Prospectar mais hoje' : 'Buscar e preparar contatos'}
             </button>
           </form>
         ) : dashboard?.campaign.status === 'processing' ? (
           <p className="prospecting-chat-hint">A busca está rodando. O DigiBot vai salvar os resultados e preparar os contatos que couberem na fila diária.</p>
         ) : (
-          <p className="prospecting-chat-hint">O chat de amanhã aparece quando você abrir esta aba. A busca só começa depois que você informar a cidade.</p>
+          <p className="prospecting-chat-hint">Você pode iniciar outras buscas hoje. Os envios continuam respeitando o limite diário, o horário configurado e os bloqueios de descadastro.</p>
         )}
         <p className="prospecting-chat-policy">A busca considera empresas cujo perfil do Google não informa um site. A cidade de hoje é <strong>{dashboard?.campaign.city ?? 'ainda não escolhida'}</strong>. A fila respeita seu limite, a janela das 9h às 14h e os bloqueios de descadastro.</p>
       </section>

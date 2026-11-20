@@ -220,8 +220,8 @@ export class WhatsAppProspectingStore {
 
   async beginDailyCampaign(userId: string, city: string, segment: string, now = new Date()) {
     const current = await this.getOrCreateDailyCampaign(userId, now)
-    if (current.status === 'processing' || current.status === 'completed') {
-      throw new WhatsAppProspectingError('A busca de hoje já foi iniciada. Confira o resultado no chat.', 409)
+    if (current.status === 'processing') {
+      throw new WhatsAppProspectingError('Já existe uma busca em andamento. Aguarde a conclusão antes de iniciar outra.', 409)
     }
     const admin = createWhatsAppWebhookSupabaseClient()
     const createdAt = now.toISOString()
@@ -234,11 +234,11 @@ export class WhatsAppProspectingStore {
       .update({ city, segment, status: 'processing', messages, error_code: null, updated_at: createdAt })
       .eq('id', current.id)
       .eq('user_id', userId)
-      .in('status', ['awaiting_city', 'failed'])
+      .in('status', ['awaiting_city', 'failed', 'completed'])
       .select('id, campaign_date, city, segment, status, searched_count, saved_count, queued_count, messages, error_code, updated_at')
       .maybeSingle()
     throwIfError(result.error, 'Não foi possível iniciar a busca do dia.')
-    if (!result.data) throw new WhatsAppProspectingError('A busca de hoje já foi iniciada. Confira o resultado no chat.', 409)
+    if (!result.data) throw new WhatsAppProspectingError('Já existe uma busca em andamento. Aguarde a conclusão antes de iniciar outra.', 409)
     return mapDailyCampaign(result.data as DailyCampaignRow)
   }
 
