@@ -28,6 +28,7 @@ async function mountWorkflow(page: Page, view: 'assistant' | 'portfolio' | 'sear
   await page.route('**/src/services/leadsService.ts', (route) => route.fulfill({
     contentType: 'application/javascript', body: `
       export class GoogleApiMonthlyLimitError extends Error {}
+      export const MAX_BULK_LEAD_IDS = 200;
       export async function getSavedLeads() { return window.fixtureLeads }
       export async function getCachedAiOutreach() { return undefined }
       export async function getOpenBotAgents() { return [] }
@@ -92,6 +93,33 @@ test('carteira conta todos os atrasados, filtra hoje e exporta dados atuais', as
   expect(csv).not.toContain('Venda concluída')
   await page.getByLabel('Buscar na carteira').fill('Não existe')
   await expect(page.getByText('Nenhum lead corresponde aos filtros selecionados.')).toBeVisible()
+})
+
+test('carteira seleciona leads e aplica status e exclusão em lote', async ({ page }) => {
+  await mountWorkflow(page, 'portfolio')
+
+  const selectAll = page.getByLabel('Selecionar todos os leads visíveis')
+  await selectAll.check()
+  await expect(page.getByText('8 de 200 selecionado(s)')).toBeVisible()
+  await selectAll.uncheck()
+
+  await page.getByLabel('Selecionar Empresa 0').check()
+  await page.getByLabel('Selecionar Empresa 1').check()
+  await page.getByLabel('Novo status para leads selecionados').selectOption('Proposta')
+  await page.getByRole('button', { name: 'Aplicar status', exact: true }).click()
+
+  await expect(page.getByLabel('Lead Empresa 0').locator('.saved-lead-status')).toHaveText('Proposta')
+  await expect(page.getByText('Status atualizado para 2 lead(s).')).toBeVisible()
+
+  await page.getByLabel('Selecionar Empresa 0').check()
+  await page.getByLabel('Selecionar Empresa 1').check()
+  await page.getByRole('button', { name: 'Excluir selecionados', exact: true }).click()
+  await expect(page.getByText(/A exclusão também remove da fila de prospecção/)).toBeVisible()
+  await page.getByRole('button', { name: 'Confirmar exclusão', exact: true }).click()
+
+  await expect(page.locator('.saved-lead-row').filter({ hasText: 'Empresa 0' })).toHaveCount(0)
+  await expect(page.locator('.saved-lead-row').filter({ hasText: 'Empresa 1' })).toHaveCount(0)
+  await expect(page.getByText('2 lead(s) excluído(s).')).toBeVisible()
 })
 
 test('filtro que esvazia uma página mantém próxima página acessível', async ({ page }) => {

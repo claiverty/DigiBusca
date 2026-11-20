@@ -4,7 +4,7 @@ import { AiOutreachAssistant } from '../../frontend/src/components/AiOutreachAss
 import { SavedLeadsPage } from '../../frontend/src/pages/SavedLeadsPage'
 import { SearchPage } from '../../frontend/src/pages/SearchPage'
 import { LeadDetail } from '../../frontend/src/components/LeadDetail'
-import type { Lead, LeadUpdate } from '../../frontend/src/types'
+import type { Lead, LeadStatus, LeadUpdate } from '../../frontend/src/types'
 import '../../frontend/src/styles/tokens.css'
 import '../../frontend/src/styles/base.css'
 import '../../frontend/src/App.css'
@@ -26,7 +26,14 @@ function Harness() {
     <p id="used-message">{used}</p>
   </main>
   if (window.fixtureView === 'portfolio') return <main style={{ padding: 16 }}>
-    <SavedLeadsPage cachedLeads={[]} onOpenLead={async () => {}} onRemoveLead={async () => {}} onSearch={() => {}} />
+    <SavedLeadsPage
+      cachedLeads={[]}
+      onOpenLead={async () => {}}
+      onRemoveLead={async () => {}}
+      onRemoveLeadsBulk={async (leadIds) => ({ deletedCount: leadIds.length, deletedLeadIds: leadIds })}
+      onUpdateLeadsStatusBulk={async (leadIds, _status: LeadStatus) => ({ updatedCount: leadIds.length, updatedLeadIds: leadIds })}
+      onSearch={() => {}}
+    />
   </main>
   if (window.fixtureView === 'detail') return <main style={{ padding: 16 }}>
     <LeadDetail lead={lead} isSaved onBack={() => {}} onToggleSave={async () => {}} onUpdateLead={async (changes) => { window.savedChanges = changes; setLead({ ...lead, ...changes }) }} onRegisterSale={async () => {}} />
