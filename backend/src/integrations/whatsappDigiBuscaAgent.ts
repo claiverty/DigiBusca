@@ -7,7 +7,8 @@ import { logWarning } from '../observability/logger.js'
 import type { WhatsAppAgentProvider } from '../contracts/whatsappAutomation.js'
 import type { WhatsAppAutoReply, WhatsAppAutoReplyContext } from './whatsappAutoReplyProvider.js'
 import { buildWhatsAppAutoReplyPrompt, parseWhatsAppAutoReplyAnswer, WhatsAppAutoReplyError } from './whatsappAutoReplyProvider.js'
-import { getWhatsAppAgentProviderConfig } from '../config/supabase.js'
+import type { WhatsAppAgentProviderConfig } from '../config/supabase.js'
+import { safeExternalApiFetch } from './externalApiFetch.js'
 
 export type WhatsAppAgentQualification = NonNullable<WhatsAppAutoReplyContext['verifiedLeadQualification']>
 export type WhatsAppAgentQualificationField = keyof WhatsAppAgentQualification
@@ -15,6 +16,7 @@ export type WhatsAppAgentQualificationField = keyof WhatsAppAgentQualification
 type WhatsAppDigiBuscaAgentRequest = {
   provider: WhatsAppAgentProvider
   model: string
+  providerConfig: WhatsAppAgentProviderConfig
   context: WhatsAppAutoReplyContext
   saveQualification: (fields: WhatsAppAgentQualification) => Promise<void>
 }
@@ -39,16 +41,16 @@ function normalizeForQuoteMatch(value: string) {
   return value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR').replace(/\s+/g, ' ').trim()
 }
 
-function createAgentModel(provider: WhatsAppAgentProvider, modelId: string): LanguageModel | undefined {
-  const config = getWhatsAppAgentProviderConfig(provider, modelId)
-  if (!config) return undefined
-  if (config.provider === 'google') return createGoogle({ apiKey: config.apiKey })(config.model)
-  if (config.provider === 'anthropic') return createAnthropic({ apiKey: config.apiKey })(config.model)
+function createAgentModel(config: WhatsAppAgentProviderConfig, modelId: string): LanguageModel {
+  const modelConfig = { ...config, model: modelId }
+  if (modelConfig.provider === 'google') return createGoogle({ apiKey: modelConfig.apiKey, fetch: safeExternalApiFetch })(modelConfig.model)
+  if (modelConfig.provider === 'anthropic') return createAnthropic({ apiKey: modelConfig.apiKey, fetch: safeExternalApiFetch })(modelConfig.model)
   return createOpenAICompatible({
     name: 'DigiBusca OpenAI Compatible',
-    baseURL: config.baseUrl!,
-    apiKey: config.apiKey,
-  }).chatModel(config.model)
+    baseURL: modelConfig.baseUrl!,
+    apiKey: modelConfig.apiKey,
+    fetch: safeExternalApiFetch,
+  }).chatModel(modelConfig.model)
 }
 
 export async function generateWhatsAppDigiBuscaAgentReply(request: WhatsAppDigiBuscaAgentRequest): Promise<WhatsAppAutoReply> {
@@ -61,8 +63,7 @@ export async function generateWhatsAppDigiBuscaAgentReply(request: WhatsAppDigiB
   let lastError: unknown
   for (const [index, modelId] of models.entries()) {
     try {
-      const model = createAgentModel(request.provider, modelId)
-      if (!model) throw new WhatsAppAutoReplyError('digibot_agent_provider_not_configured', 503)
+      const model = createAgentModel(request.providerConfig, modelId)
       return await generateWithAgentModel(model, request, inboundTexts)
     } catch (error) {
       lastError = error

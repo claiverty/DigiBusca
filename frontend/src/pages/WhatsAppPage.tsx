@@ -13,6 +13,9 @@ import {
   getWhatsAppHumanPendingConversations,
   getWhatsAppAutomationProfile,
   getWhatsAppAgentModels,
+  connectWhatsAppAiProvider,
+  disconnectWhatsAppAiProvider,
+  migrateWhatsAppAiProvider,
   getWhatsAppOpenBotAgentStatus,
   saveWhatsAppAutomationProfile,
   setWhatsAppConversationAutomationPaused,
@@ -24,6 +27,9 @@ import {
   type WhatsAppConversation,
   type WhatsAppMessage,
   type WhatsAppOpenBotAgentStatus,
+  type WhatsAppAiProviderId,
+  type WhatsAppAiProviderSource,
+  WhatsAppAiProviderOperationError,
 } from '../services/whatsappService'
 import { WhatsAppProspectingPanel } from './WhatsAppProspectingPanel'
 import { AppSelect, type AppSelectOption } from '../components/AppSelect'
@@ -76,6 +82,43 @@ function newAutomationProfileDraft(phoneNumberId: string): WhatsAppAutomationPro
     automationEnabled: false,
     channelApproved: false,
     contentApproved: false,
+  }
+}
+
+function getAiProviderStatusKey(provider: WhatsAppAiProviderId): 'google' | 'anthropic' | 'openaiCompatible' {
+  return provider === 'openai-compatible' ? 'openaiCompatible' : provider
+}
+
+function getAiProviderSource(status: WhatsAppEvolutionSetupStatus | null, provider: WhatsAppAiProviderId): WhatsAppAiProviderSource {
+  const key = getAiProviderStatusKey(provider)
+  return status?.agentProviderSources?.[key] ?? (status?.agentProviders?.[key] ? 'server' : 'none')
+}
+
+function getAiProviderStatusLabel(status: WhatsAppEvolutionSetupStatus | null, provider: WhatsAppAiProviderId) {
+  const source = getAiProviderSource(status, provider)
+  if (source === 'panel') return 'conectado no painel'
+  if (source === 'server') return 'configurado na VPS'
+  if (source === 'disconnected') return 'desconectado'
+  if (source === 'unavailable') return 'status indisponível'
+  return 'não conectado'
+}
+
+function updateAiProviderStatus(
+  status: WhatsAppEvolutionSetupStatus,
+  provider: WhatsAppAiProviderId,
+  configured: boolean,
+  source: WhatsAppAiProviderSource,
+): WhatsAppEvolutionSetupStatus {
+  const key = getAiProviderStatusKey(provider)
+  const sources = status.agentProviderSources ?? {
+    google: status.agentProviders.google ? 'server' as const : 'none' as const,
+    anthropic: status.agentProviders.anthropic ? 'server' as const : 'none' as const,
+    openaiCompatible: status.agentProviders.openaiCompatible ? 'server' as const : 'none' as const,
+  }
+  return {
+    ...status,
+    agentProviders: { ...status.agentProviders, [key]: configured },
+    agentProviderSources: { ...sources, [key]: source },
   }
 }
 
@@ -138,6 +181,11 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [agentModelChoices, setAgentModelChoices] = useState<AppSelectOption[]>([])
   const [agentModelsState, setAgentModelsState] = useState<LoadState>('ready')
   const [agentModelsError, setAgentModelsError] = useState('')
+  const [agentApiKey, setAgentApiKey] = useState('')
+  const [agentBaseUrl, setAgentBaseUrl] = useState('https://api.openai.com/v1')
+  const [agentProviderBusy, setAgentProviderBusy] = useState(false)
+  const [agentProviderError, setAgentProviderError] = useState('')
+  const [agentProviderNotice, setAgentProviderNotice] = useState('')
   const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
   const [automationPersistedResponseMode, setAutomationPersistedResponseMode] = useState<'handoff_only' | 'gemini' | 'openbot' | 'digibot_agent'>('handoff_only')
   const [automationPersistedOpenBotAgentId, setAutomationPersistedOpenBotAgentId] = useState('')
@@ -320,7 +368,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         setAgentModelsState('error')
       })
     return () => { active = false }
-  }, [automationForm.agentProvider, automationForm.responseMode])
+  }, [
+    automationForm.agentProvider,
+    automationForm.responseMode,
+    status?.agentProviders?.google,
+    status?.agentProviders?.anthropic,
+    status?.agentProviders?.openaiCompatible,
+  ])
 
   useEffect(() => {
     let active = true
@@ -511,6 +565,107 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     }
   }
 
+  function reflectPausedAutomationAfterProviderFailure(error: unknown, provider: WhatsAppAiProviderId) {
+    if (
+      !(error instanceof WhatsAppAiProviderOperationError) || !error.automationPaused ||
+      automationPersistedResponseMode !== 'digibot_agent' || automationPersistedAgentProvider !== provider
+    ) return
+    setAutomationPersistedEnabled(false)
+    setAutomationForm((current) => ({ ...current, automationEnabled: false, contentApproved: false }))
+    setAgentProviderNotice('A conexão não foi concluída, então o Cristhian foi pausado por segurança. Confirme a conexão e aprove novamente as respostas antes de reativar.')
+  }
+
+  async function connectAiProvider() {
+    setAgentProviderBusy(true)
+    setAgentProviderError('')
+    setAgentProviderNotice('')
+    try {
+      const result = await connectWhatsAppAiProvider({
+        provider: automationForm.agentProvider,
+        apiKey: agentApiKey,
+        ...(automationForm.agentProvider === 'openai-compatible' ? { baseUrl: agentBaseUrl } : {}),
+      })
+      const modelOptions = result.models.map((model) => ({ value: model.id, label: model.label }))
+      setAgentModelChoices(modelOptions)
+      setAgentModelsState('ready')
+      setAgentModelsError('')
+      setAutomationForm((current) => ({
+        ...current,
+        agentModel: modelOptions.some((model) => model.value === current.agentModel)
+          ? current.agentModel
+          : modelOptions[0]?.value ?? '',
+        contentApproved: false,
+        automationEnabled: false,
+      }))
+      setStatus((current) => current ? updateAiProviderStatus(current, result.provider, true, 'panel') : current)
+      if (automationPersistedResponseMode === 'digibot_agent' && automationPersistedAgentProvider === result.provider) {
+        setAutomationPersistedEnabled(false)
+      }
+      setAgentApiKey('')
+      setAgentProviderNotice(`Conexão validada. ${result.models.length} modelos disponíveis. Revise e aprove novamente as respostas antes de reativar o Cristhian.`)
+      void loadStatus()
+    } catch (error) {
+      reflectPausedAutomationAfterProviderFailure(error, automationForm.agentProvider)
+      setAgentProviderError(error instanceof Error ? error.message : 'Não foi possível conectar este provedor de IA.')
+    } finally {
+      setAgentProviderBusy(false)
+    }
+  }
+
+  async function disconnectAiProvider() {
+    setAgentProviderBusy(true)
+    setAgentProviderError('')
+    setAgentProviderNotice('')
+    try {
+      await disconnectWhatsAppAiProvider(automationForm.agentProvider)
+      setStatus((current) => current ? updateAiProviderStatus(current, automationForm.agentProvider, false, 'disconnected') : current)
+      if (automationPersistedResponseMode === 'digibot_agent' && automationPersistedAgentProvider === automationForm.agentProvider) {
+        setAutomationPersistedEnabled(false)
+      }
+      setAgentModelChoices([])
+      setAutomationForm((current) => ({ ...current, agentModel: '', contentApproved: false, automationEnabled: false }))
+      setAgentProviderNotice('Provedor desconectado. Revise o modo de atendimento antes de ativar as respostas.')
+      void loadStatus()
+    } catch (error) {
+      reflectPausedAutomationAfterProviderFailure(error, automationForm.agentProvider)
+      setAgentProviderError(error instanceof Error ? error.message : 'Não foi possível desconectar este provedor de IA.')
+    } finally {
+      setAgentProviderBusy(false)
+    }
+  }
+
+  async function migrateAiProvider() {
+    setAgentProviderBusy(true)
+    setAgentProviderError('')
+    setAgentProviderNotice('')
+    try {
+      const result = await migrateWhatsAppAiProvider(automationForm.agentProvider)
+      const modelOptions = result.models.map((model) => ({ value: model.id, label: model.label }))
+      setAgentModelChoices(modelOptions)
+      setAgentModelsState('ready')
+      setAgentModelsError('')
+      setAutomationForm((current) => ({
+        ...current,
+        agentModel: modelOptions.some((model) => model.value === current.agentModel)
+          ? current.agentModel
+          : modelOptions[0]?.value ?? '',
+        contentApproved: false,
+        automationEnabled: false,
+      }))
+      setStatus((current) => current ? updateAiProviderStatus(current, result.provider, true, 'panel') : current)
+      if (automationPersistedResponseMode === 'digibot_agent' && automationPersistedAgentProvider === result.provider) {
+        setAutomationPersistedEnabled(false)
+      }
+      setAgentProviderNotice(`Conexão da VPS salva no painel. ${result.models.length} modelos disponíveis. Revise e aprove novamente as respostas antes de reativar o Cristhian.`)
+      void loadStatus()
+    } catch (error) {
+      reflectPausedAutomationAfterProviderFailure(error, automationForm.agentProvider)
+      setAgentProviderError(error instanceof Error ? error.message : 'Não foi possível migrar a conexão da VPS para o painel.')
+    } finally {
+      setAgentProviderBusy(false)
+    }
+  }
+
   async function saveAutomationSettings() {
     const responseModeChanged = automationProfileSaved && automationPersistedResponseMode !== automationForm.responseMode
     const openBotAgentChanged = automationProfileSaved && automationPersistedOpenBotAgentId !== automationForm.openBotAgentId
@@ -612,6 +767,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     : automationForm.agentProvider === 'anthropic'
       ? status?.agentProviders?.anthropic === true
       : status?.agentProviders?.openaiCompatible === true
+  const digiBuscaAgentProviderSource = getAiProviderSource(status, automationForm.agentProvider)
   const selectedAgentModelAvailable = agentModelChoices.some((model) => model.value === automationForm.agentModel)
   const agentModelOptions = automationForm.agentModel && !selectedAgentModelAvailable
     ? [{ value: automationForm.agentModel, label: `${automationForm.agentModel} · salvo anteriormente` }, ...agentModelChoices]
@@ -921,51 +1077,106 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     : automationForm.responseMode === 'openbot'
                       ? 'O agente dedicado redige a resposta em JSON com os fatos aprovados e o histórico recente sanitizado. O backend aplica as validações e é o único componente que pode enviar pela Evolution.'
                       : automationForm.responseMode === 'digibot_agent'
-                        ? 'O Cristhian roda no backend do DigiBusca, usa o histórico recente e fatos aprovados, pode registrar dados do projeto que o lead declarou e pedir sua entrada quando necessário. A chave do provedor fica somente na VPS; no Google, Gemini 3.5 Flash assume se o modelo principal falhar.'
+                        ? 'O Cristhian roda no backend do DigiBusca, usa o histórico recente e fatos aprovados, pode registrar dados do projeto que o lead declarou e pedir sua entrada quando necessário. Conecte a API do provedor neste painel; no Google, Gemini 3.5 Flash assume se o modelo principal falhar.'
                         : 'O Gemini recebe o histórico recente para responder com base nos fatos aprovados. Pedidos comerciais sem condições aprovadas, pedidos de atendimento humano e assuntos sensíveis ficam pendentes para você, sem aviso de transferência ao lead.'}</small>
                 </label>
                 {automationForm.responseMode === 'digibot_agent' && (
                   <div className="whatsapp-form-field is-wide">
                     <strong>Agente Cristhian · runtime do DigiBusca</strong>
-                    <label htmlFor="whatsapp-agent-provider">Provedor configurado no backend</label>
+                    <label htmlFor="whatsapp-agent-provider">Provedor de IA</label>
                     <AppSelect
                       id="whatsapp-agent-provider"
                       value={automationForm.agentProvider}
                       ariaLabel="Provedor de IA"
-                      onValueChange={(value) => setAutomationForm((current) => ({
-                        ...current,
-                        agentProvider: value as WhatsAppAutomationProfileInput['agentProvider'],
-                        agentModel: current.agentProvider === value ? current.agentModel : '',
-                        contentApproved: false,
-                        automationEnabled: false,
-                      }))}
+                      disabled={agentProviderBusy}
+                      onValueChange={(value) => {
+                        setAutomationForm((current) => ({
+                          ...current,
+                          agentProvider: value as WhatsAppAutomationProfileInput['agentProvider'],
+                          agentModel: current.agentProvider === value ? current.agentModel : '',
+                          contentApproved: false,
+                          automationEnabled: false,
+                        }))
+                        setAgentApiKey('')
+                        setAgentProviderError('')
+                        setAgentProviderNotice('')
+                      }}
                       options={[
-                        { value: 'google', label: `Google Gemini · ${status?.agentProviders?.google ? 'API configurada' : 'configure na VPS'}` },
-                        { value: 'anthropic', label: `Anthropic · ${status?.agentProviders?.anthropic ? 'API configurada' : 'configure na VPS'}` },
-                        { value: 'openai-compatible', label: `OpenAI compatível · ${status?.agentProviders?.openaiCompatible ? 'API configurada' : 'configure na VPS'}` },
+                        { value: 'google', label: `Google Gemini · ${getAiProviderStatusLabel(status, 'google')}` },
+                        { value: 'anthropic', label: `Anthropic · ${getAiProviderStatusLabel(status, 'anthropic')}` },
+                        { value: 'openai-compatible', label: `OpenAI compatível · ${getAiProviderStatusLabel(status, 'openai-compatible')}` },
                       ]}
                     />
+                    {digiBuscaAgentProviderSource === 'panel' && <small>Esta conexão fica guardada no DigiBusca e é usada pelo agente que roda na VPS.</small>}
+                    {digiBuscaAgentProviderSource === 'server' && <small>A VPS já tem uma chave para este provedor. Salve-a no painel para centralizar a gestão da conexão; o cliente recebe a chave internamente, sem mostrá-la aqui.</small>}
+                    {digiBuscaAgentProviderSource === 'disconnected' && <small>Esta conexão foi desligada no painel. Para voltar a usar IA, conecte uma chave neste painel.</small>}
+                    {digiBuscaAgentProviderSource === 'unavailable' && <small>Não foi possível consultar o armazenamento seguro agora. A automação não usará uma chave de ambiente como alternativa até o Vault responder novamente.</small>}
+                    {automationForm.agentProvider === 'openai-compatible' && (
+                      <>
+                        <label htmlFor="whatsapp-agent-base-url">Endereço da API</label>
+                        <input
+                          id="whatsapp-agent-base-url"
+                          type="url"
+                          value={agentBaseUrl}
+                          maxLength={512}
+                          autoComplete="url"
+                          disabled={agentProviderBusy}
+                          onChange={(event) => setAgentBaseUrl(event.target.value)}
+                          placeholder="https://api.openai.com/v1"
+                        />
+                      </>
+                    )}
+                    <label htmlFor="whatsapp-agent-api-key">Chave da API</label>
+                    <input
+                      id="whatsapp-agent-api-key"
+                      type="password"
+                      value={agentApiKey}
+                      maxLength={4096}
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      disabled={agentProviderBusy}
+                      onChange={(event) => setAgentApiKey(event.target.value)}
+                      placeholder={digiBuscaAgentProviderSource === 'server' ? 'A chave existente está na VPS; migre-a ou informe outra' : digiBuscaAgentProviderConfigured ? 'Cole uma nova chave para atualizar a conexão' : 'Cole a chave de API do provedor'}
+                    />
+                    <small>A chave é enviada somente ao backend e guardada criptografada no Supabase Vault. Ela nunca é devolvida ao navegador.</small>
+                    <div className="whatsapp-provider-actions">
+                      <button className="secondary-button" type="button" onClick={() => void connectAiProvider()} disabled={agentProviderBusy || !agentApiKey.trim()}>
+                        {agentProviderBusy ? 'Validando conexão…' : 'Conectar e carregar modelos'}
+                      </button>
+                      {digiBuscaAgentProviderSource === 'server' && (
+                        <button className="secondary-button" type="button" onClick={() => void migrateAiProvider()} disabled={agentProviderBusy}>
+                          {agentProviderBusy ? 'Salvando conexão…' : 'Usar conexão atual no painel'}
+                        </button>
+                      )}
+                      {digiBuscaAgentProviderConfigured && (
+                        <button className="secondary-button" type="button" onClick={() => void disconnectAiProvider()} disabled={agentProviderBusy}>
+                          Desconectar
+                        </button>
+                      )}
+                    </div>
+                    {agentProviderError && <small role="alert" className="whatsapp-provider-feedback is-error">{agentProviderError}</small>}
+                    {agentProviderNotice && <small role="status" className="whatsapp-provider-feedback">{agentProviderNotice}</small>}
                     <label htmlFor="whatsapp-agent-model">Modelo</label>
                     <AppSelect
                       id="whatsapp-agent-model"
                       value={automationForm.agentModel}
                       ariaLabel="Modelo de IA"
                       options={agentModelOptions}
-                      disabled={!digiBuscaAgentProviderConfigured || agentModelsState === 'loading' || agentModelChoices.length === 0}
+                      disabled={agentProviderBusy || !digiBuscaAgentProviderConfigured || agentModelsState === 'loading' || agentModelChoices.length === 0}
                       placeholder={agentModelsState === 'loading' ? 'Carregando modelos…' : 'Escolha um modelo'}
                       onValueChange={(value) => setAutomationForm((current) => ({ ...current, agentModel: value, contentApproved: false, automationEnabled: false }))}
                     />
                     {agentModelsState === 'loading' && <small>Consultando os modelos disponíveis na API do provedor…</small>}
                     {agentModelsState === 'error' && <small>{agentModelsError}</small>}
                     {agentModelsState === 'ready' && digiBuscaAgentProviderConfigured && agentModelChoices.length > 0 && (
-                      <small>A lista vem da VPS. A chave da API nunca é enviada ao navegador.</small>
+                      <small>A lista é consultada pelo backend. A chave da API nunca é devolvida ao navegador.</small>
                     )}
                     {agentModelChoices.length > 0 && !selectedAgentModelAvailable && automationForm.agentModel && (
                       <small>O modelo salvo não aparece no catálogo atual. Escolha um modelo disponível antes de ativar.</small>
                     )}
                     {!status?.digiBuscaAgentStorageReady && <small>Aplique <code>019_digibot_agent_runtime.sql</code> para salvar qualificações do projeto.</small>}
                     {!status?.digiBuscaAgentRuntimeEnabled && <small>O runtime está desligado no servidor. Configure <code>WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED=true</code> depois de revisar a configuração.</small>}
-                    {!digiBuscaAgentProviderConfigured && <small>Conecte a API do provedor na VPS para carregar os modelos. A chave fica protegida no servidor e não aparece no navegador.</small>}
+                    {!digiBuscaAgentProviderConfigured && <small>Conecte a API acima para carregar os modelos disponíveis.</small>}
                   </div>
                 )}
                 {automationForm.responseMode === 'openbot' && (
@@ -1043,11 +1254,11 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </p>
               )}
               <p className="whatsapp-automation-privacy">{automationForm.responseMode === 'handoff_only'
-                ? 'Neste modo, o bot não usa Gemini. Quando uma conversa precisar de atendimento humano, ela pausa e fica marcada na caixa de entrada para você responder pelo WhatsApp conectado; o lead não recebe um aviso de transferência.'
+                ? 'Neste modo, o bot não usa um provedor de IA. Quando uma conversa precisar de atendimento humano, ela pausa e fica marcada na caixa de entrada para você responder pelo WhatsApp conectado; o lead não recebe um aviso de transferência.'
                 : automationForm.responseMode === 'openbot'
                   ? 'No modo OpenBot, só o agente dedicado recebe o histórico recente sanitizado. As conversas são processadas uma por vez para o agente; contexto não confirmado como isolado mantém o runtime desativado. Opt-out, pedidos humanos, conteúdo, consentimento e envio continuam sob controle do backend.'
                   : automationForm.responseMode === 'digibot_agent'
-                    ? 'O runtime DigiBusca usa provedores configurados na VPS. Ferramentas são limitadas a registrar qualificações verificáveis com citações do lead (por até 90 dias) e sinalizar atendimento humano; o agente não envia mensagens nem chama serviços externos diretamente. O backend continua validando consentimento, descadastro, janela de 24 horas e envio pela Evolution.'
+                    ? 'O runtime DigiBusca usa o provedor conectado neste painel. Ferramentas são limitadas a registrar qualificações verificáveis com citações do lead (por até 90 dias) e sinalizar atendimento humano; o agente não envia mensagens nem chama serviços externos diretamente. O backend continua validando consentimento, descadastro, janela de 24 horas e envio pela Evolution.'
                     : 'No modo Gemini, o histórico recente é enviado ao modelo para preparar respostas. Pedidos para falar com uma pessoa, condições comerciais não aprovadas e assuntos sensíveis pausam a automação e ficam marcados na caixa de entrada, sem aviso de transferência ao lead.'}</p>
               {automationError && <p className="whatsapp-connect-state is-error" role="alert">{automationError}</p>}
               {automationNotice && <p className="whatsapp-connect-state is-ready" role="status">{automationNotice}</p>}

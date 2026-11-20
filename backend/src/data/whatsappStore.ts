@@ -310,6 +310,17 @@ export class WhatsAppStore {
     return mapAutomationProfile(result.data as Record<string, unknown>)
   }
 
+  async pauseDigiBuscaAutomationForProviderChange(userId: string, provider: WhatsAppAutomationProfile['agentProvider']) {
+    const result = await createWhatsAppWebhookSupabaseClient().from('whatsapp_automation_profiles')
+      .update({ automation_enabled: false, content_approved_at: null, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('response_mode', 'digibot_agent')
+      .eq('agent_provider', provider)
+      .select('phone_number_id')
+    throwIfError(result.error, 'Não foi possível pausar os perfis Cristhian antes de alterar a conexão de IA.')
+    return result.data?.length ?? 0
+  }
+
   async setConversationAutomationPaused(userId: string, conversationId: string, paused: boolean, reason = 'manual') {
     const admin = createWhatsAppWebhookSupabaseClient()
     let query = admin.from('whatsapp_conversations')

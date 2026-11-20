@@ -672,6 +672,16 @@
   grid-column: 1 / -1;
 }
 
+.whatsapp-provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.whatsapp-provider-feedback.is-error {
+  color: #8b3838;
+}
+
 .whatsapp-automation-approvals {
   display: grid;
   gap: 10px;

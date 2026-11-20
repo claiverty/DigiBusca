@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { getEvolutionApiConfig, getGeminiApiKey, getWhatsAppAgentProviderConfig, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppOpenBotReplyRuntimeEnabled } from '../config/supabase.js'
+import { getEvolutionApiConfig, getGeminiApiKey, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppOpenBotReplyRuntimeEnabled } from '../config/supabase.js'
 import { WhatsAppStore, type WhatsAppAutomationRunRecord } from '../data/whatsappStore.js'
 import { autoReplyFailureDetails, buildWhatsAppAutoReplyPrompt, generateWhatsAppAutoReply, isTransparentWhatsAppIdentityAnswer, parseWhatsAppAutoReplyAnswer, simpleWhatsAppGreetingReply, WhatsAppAutoReplyError, type WhatsAppAutoReplyContext } from '../integrations/whatsappAutoReplyProvider.js'
 import { clearOpenBotWhatsAppContext, getOpenBotWhatsAppDelivery, OpenBotWhatsAppBridgeError, sendOpenBotWhatsAppMessage } from '../integrations/openBotWhatsAppBridge.js'
@@ -13,6 +13,7 @@ import { generationFailureReason } from './whatsappAutomationRetry.js'
 import { isProjectServiceCorrection, resolveWhatsAppProjectContext } from './whatsappProjectContext.js'
 import { getWhatsAppSchedulingReply } from './whatsappScheduling.js'
 import { generateWhatsAppDigiBuscaAgentReply } from '../integrations/whatsappDigiBuscaAgent.js'
+import { getWhatsAppAgentProviderConfigForUser } from '../integrations/whatsappAgentProviderConfig.js'
 import type { WhatsAppAutomationProfile, WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
 import type { WhatsAppWebhookMessage, WhatsAppWebhookEvents } from './whatsappWebhook.js'
 
@@ -787,8 +788,21 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         || (inboundProjectInquiry && context.automationStage === 'identify_responsible')
         ? 'understand_scenario' : context.automationStage
       const apiKey = getGeminiApiKey()
-      const agentConfigured = isWhatsAppDigiBuscaAgentRuntimeEnabled()
-        && Boolean(getWhatsAppAgentProviderConfig(profile.agentProvider, profile.agentModel))
+      let agentProviderConfig: Awaited<ReturnType<typeof getWhatsAppAgentProviderConfigForUser>>
+      const needsAgentProvider = profile.responseMode === 'digibot_agent'
+        && isWhatsAppDigiBuscaAgentRuntimeEnabled()
+        && !shouldHandoff
+        && !commercialQualificationRequired
+        && !leadAskedIdentity
+        && !schedulingReply
+      if (needsAgentProvider) {
+        try {
+          agentProviderConfig = await getWhatsAppAgentProviderConfigForUser(context.userId, profile.agentProvider, profile.agentModel)
+        } catch {
+          agentProviderConfig = undefined
+        }
+      }
+      const agentConfigured = Boolean(agentProviderConfig)
       const replyPlan = selectWhatsAppAutomationReplyPlan({
         responseMode: profile.responseMode,
         shouldHandoff,
@@ -846,6 +860,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
             generated = await generateWhatsAppDigiBuscaAgentReply({
               provider: profile.agentProvider,
               model: profile.agentModel,
+              providerConfig: agentProviderConfig!,
               context: { ...replyContext, verifiedLeadQualification },
               saveQualification: (fields) => store.saveAgentQualification(context!.userId, context!.conversationId, fields),
             })

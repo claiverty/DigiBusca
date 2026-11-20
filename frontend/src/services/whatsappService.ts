@@ -11,6 +11,7 @@ export type WhatsAppEvolutionSetupStatus = {
   digiBuscaAgentRuntimeEnabled: boolean
   digiBuscaAgentStorageReady: boolean
   agentProviders: { google: boolean; anthropic: boolean; openaiCompatible: boolean }
+  agentProviderSources?: Record<'google' | 'anthropic' | 'openaiCompatible', 'panel' | 'server' | 'disconnected' | 'none' | 'unavailable'>
   prospectingRuntimeEnabled: boolean
   openBotReplyRuntimeEnabled: boolean
   openBotBridgeConfigured: boolean
@@ -94,6 +95,21 @@ export type WhatsAppAutomationProfileInput = Omit<WhatsAppAutomationProfile, 'ch
 export type WhatsAppAgentModelChoice = {
   id: string
   label: string
+}
+
+export type WhatsAppAiProviderId = 'google' | 'anthropic' | 'openai-compatible'
+export type WhatsAppAiProviderSource = 'panel' | 'server' | 'disconnected' | 'none' | 'unavailable'
+export type WhatsAppAiProviderConnectionResult = {
+  provider: WhatsAppAiProviderId
+  configured: boolean
+  models: WhatsAppAgentModelChoice[]
+}
+
+export class WhatsAppAiProviderOperationError extends Error {
+  constructor(message: string, public readonly automationPaused: boolean) {
+    super(message)
+    this.name = 'WhatsAppAiProviderOperationError'
+  }
 }
 
 export type WhatsAppAgentQualification = Partial<Record<'projectType' | 'objective' | 'priority' | 'timeline' | 'serviceInterest', string>>
@@ -246,6 +262,49 @@ export async function getWhatsAppAutomationProfile(phoneNumberId: string): Promi
 
 export async function getWhatsAppAgentModels(provider: WhatsAppAutomationProfile['agentProvider']): Promise<WhatsAppAgentModelChoice[]> {
   return getWhatsAppData<WhatsAppAgentModelChoice[]>(`/whatsapp/agent-models?provider=${encodeURIComponent(provider)}`)
+}
+
+export async function connectWhatsAppAiProvider(input: {
+  provider: WhatsAppAiProviderId
+  apiKey: string
+  baseUrl?: string
+}): Promise<WhatsAppAiProviderConnectionResult> {
+  let response: Response
+  try {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/agent-providers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+  } catch {
+    throw new Error('Não foi possível conectar ao backend para validar a API do provedor.')
+  }
+  const payload = (await response.json().catch(() => null)) as { data?: WhatsAppAiProviderConnectionResult; error?: string; automationPaused?: boolean } | null
+  if (!response.ok || !payload?.data) throw new WhatsAppAiProviderOperationError(payload?.error ?? 'Não foi possível conectar este provedor de IA.', payload?.automationPaused === true)
+  return payload.data
+}
+
+export async function migrateWhatsAppAiProvider(provider: WhatsAppAiProviderId): Promise<WhatsAppAiProviderConnectionResult> {
+  let response: Response
+  try {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/agent-providers/migrate?provider=${encodeURIComponent(provider)}`, { method: 'POST' })
+  } catch {
+    throw new Error('Não foi possível conectar ao backend para migrar a conexão de IA.')
+  }
+  const payload = (await response.json().catch(() => null)) as { data?: WhatsAppAiProviderConnectionResult; error?: string; automationPaused?: boolean } | null
+  if (!response.ok || !payload?.data) throw new WhatsAppAiProviderOperationError(payload?.error ?? 'Não foi possível migrar a conexão de IA para o painel.', payload?.automationPaused === true)
+  return payload.data
+}
+
+export async function disconnectWhatsAppAiProvider(provider: WhatsAppAiProviderId): Promise<void> {
+  let response: Response
+  try {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/agent-providers?provider=${encodeURIComponent(provider)}`, { method: 'DELETE' })
+  } catch {
+    throw new Error('Não foi possível conectar ao backend para desconectar este provedor.')
+  }
+  const payload = (await response.json().catch(() => null)) as { error?: string; automationPaused?: boolean } | null
+  if (!response.ok) throw new WhatsAppAiProviderOperationError(payload?.error ?? 'Não foi possível desconectar este provedor de IA.', payload?.automationPaused === true)
 }
 
 export async function getWhatsAppOpenBotAgentStatus(agentId: string): Promise<WhatsAppOpenBotAgentStatus> {

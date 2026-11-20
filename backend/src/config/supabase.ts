@@ -62,30 +62,47 @@ export type WhatsAppAgentProviderConfig = {
   baseUrl?: string
 }
 
-export function getWhatsAppAgentProviderConfig(provider: WhatsAppAgentProvider, model: string): WhatsAppAgentProviderConfig | undefined {
+export function buildWhatsAppAgentProviderConfig(
+  provider: WhatsAppAgentProvider,
+  model: string,
+  suppliedApiKey: string,
+  suppliedBaseUrl?: string,
+  allowLocalHttp = false,
+): WhatsAppAgentProviderConfig | undefined {
   if (!/^[A-Za-z0-9_.:/-]{1,128}$/.test(model)) return undefined
-  const values = environment()
+  const apiKey = suppliedApiKey.trim()
+  if (apiKey.length < 8 || apiKey.length > 4_096) return undefined
   if (provider === 'google') {
-    const apiKey = values.GEMINI_API_KEY?.trim()
-    return apiKey ? { provider, model, apiKey } : undefined
+    return { provider, model, apiKey }
   }
   if (provider === 'anthropic') {
-    const apiKey = values.ANTHROPIC_API_KEY?.trim()
-    return apiKey ? { provider, model, apiKey } : undefined
+    return { provider, model, apiKey }
   }
 
-  const apiKey = values.OPENAI_COMPATIBLE_API_KEY?.trim()
-  const rawBaseUrl = values.OPENAI_COMPATIBLE_BASE_URL?.trim().replace(/\/+$/, '')
-  if (!apiKey || !rawBaseUrl) return undefined
+  const rawBaseUrl = suppliedBaseUrl?.trim().replace(/\/+$/, '')
+  if (!rawBaseUrl || rawBaseUrl.length > 512) return undefined
   try {
     const url = new URL(rawBaseUrl)
     const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
-    const localHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(host)
+    const localHttp = allowLocalHttp && process.env.NODE_ENV !== 'production' && url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(host)
+    const ipLiteral = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(':')
+    if (ipLiteral && !localHttp) return undefined
     if ((url.protocol !== 'https:' && !localHttp) || url.username || url.password || url.search || url.hash) return undefined
   } catch {
     return undefined
   }
   return { provider, model, apiKey, baseUrl: rawBaseUrl }
+}
+
+export function getWhatsAppAgentProviderConfig(provider: WhatsAppAgentProvider, model: string): WhatsAppAgentProviderConfig | undefined {
+  const values = environment()
+  const apiKey = provider === 'google'
+    ? values.GEMINI_API_KEY
+    : provider === 'anthropic'
+      ? values.ANTHROPIC_API_KEY
+      : values.OPENAI_COMPATIBLE_API_KEY
+  const baseUrl = provider === 'openai-compatible' ? values.OPENAI_COMPATIBLE_BASE_URL : undefined
+  return apiKey ? buildWhatsAppAgentProviderConfig(provider, model, apiKey, baseUrl, true) : undefined
 }
 
 export function getWhatsAppAgentProvidersStatus() {

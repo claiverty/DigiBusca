@@ -6,7 +6,7 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { leadStatuses, opportunityTypes, parseBulkLeadDeleteInput, parseBulkLeadStatusUpdateInput, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppAgentProviderConfig, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured } from '../config/supabase.js'
+import { authenticateRequest, buildWhatsAppAgentProviderConfig, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppAgentProviderConfig, getWhatsAppAgentProvidersStatus, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
@@ -25,7 +25,9 @@ import { whatsappWebhookMaxBodyBytes, WhatsAppWebhookBodyTooLargeError } from '.
 import { isUuid, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
 import { parseWhatsAppAutomationProfileInput, whatsappAgentProviders } from '../contracts/whatsappAutomation.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
-import { listWhatsAppAgentModels, WhatsAppAgentModelCatalogError } from '../integrations/whatsappAgentModels.js'
+import { invalidateWhatsAppAgentModelCache, listWhatsAppAgentModels, listWhatsAppAgentModelsForConfig, WhatsAppAgentModelCatalogError } from '../integrations/whatsappAgentModels.js'
+import { getDefaultWhatsAppAgentModel, getWhatsAppAgentProviderConfigForUser, getWhatsAppAgentProvidersStateForUser } from '../integrations/whatsappAgentProviderConfig.js'
+import { disableWhatsAppAiProviderCredential, saveWhatsAppAiProviderCredential, WhatsAppAiProviderCredentialStorageError } from '../data/whatsappAiProviderCredentials.js'
 import { WhatsAppProspectingError, WhatsAppProspectingStore } from '../data/whatsappProspectingStore.js'
 import { runLocalWhatsAppProspectingTick, startLocalWhatsAppProspectingScheduler } from '../application/processLocalWhatsAppProspecting.js'
 import { runWhatsAppDailyProspectingCampaign } from '../application/runWhatsAppDailyProspectingCampaign.js'
@@ -122,6 +124,18 @@ function sendRequestError(response: ServerResponse, error: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function parseWhatsAppAiProviderInput(value: unknown) {
+  if (!isRecord(value) || !whatsappAgentProviders.includes(value.provider as typeof whatsappAgentProviders[number])) return undefined
+  const provider = value.provider as typeof whatsappAgentProviders[number]
+  const apiKey = typeof value.apiKey === 'string' ? value.apiKey.trim() : ''
+  const baseUrl = typeof value.baseUrl === 'string' ? value.baseUrl.trim() : undefined
+  if (apiKey.length < 8 || apiKey.length > 4_096) return undefined
+  if (provider === 'openai-compatible' && (!baseUrl || baseUrl.length > 512)) return undefined
+  if (provider !== 'openai-compatible' && baseUrl) return undefined
+  const config = buildWhatsAppAgentProviderConfig(provider, getDefaultWhatsAppAgentModel(provider), apiKey, baseUrl)
+  return config ? { provider, apiKey, baseUrl, config } : undefined
 }
 
 function isWhatsAppIntegrationPath(pathname: string) {
@@ -686,6 +700,133 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
 
+  if (request.method === 'POST' && requestUrl.pathname === '/api/whatsapp/agent-providers') {
+    const rateLimit = checkRateLimit({ key: `whatsapp-agent-provider-connect:${user.id}`, limit: 5, windowMs: 60_000 })
+    if (!rateLimit.allowed) {
+      sendJson(response, 429, { error: 'Aguarde um instante antes de testar outra conexão de IA.' })
+      return
+    }
+    let body: unknown
+    try {
+      body = await readLimitedJsonBody(request, 16 * 1024)
+    } catch (error) {
+      sendJson(response, error instanceof RequestBodyTooLargeError ? 413 : 400, { error: 'Revise os dados da conexão e tente novamente.' })
+      return
+    }
+    const input = parseWhatsAppAiProviderInput(body)
+    if (!input) {
+      sendJson(response, 400, { error: 'Informe uma chave válida e, para APIs compatíveis com OpenAI, uma URL HTTPS válida.' })
+      return
+    }
+    let automationPaused = false
+    try {
+      const models = await listWhatsAppAgentModelsForConfig(input.provider, input.config)
+      automationPaused = (await new WhatsAppStore().pauseDigiBuscaAutomationForProviderChange(user.id, input.provider)) > 0
+      await saveWhatsAppAiProviderCredential({
+        userId: user.id,
+        provider: input.provider,
+        apiKey: input.apiKey,
+        baseUrl: input.baseUrl,
+      })
+      invalidateWhatsAppAgentModelCache(input.provider, user.id)
+      response.setHeader('Cache-Control', 'private, no-store')
+      sendJson(response, 200, { data: { provider: input.provider, configured: true, models } })
+    } catch (error) {
+      response.setHeader('Cache-Control', 'private, no-store')
+      if (error instanceof WhatsAppAiProviderCredentialStorageError) {
+        const message = error.reason === 'migration_missing'
+          ? 'Aplique a migration 021_whatsapp_ai_provider_connections.sql no Supabase para habilitar conexões pelo painel.'
+          : 'Não foi possível guardar a conexão protegida no Supabase.'
+        sendJson(response, 503, { error: message, automationPaused })
+        return
+      }
+      if (error instanceof WhatsAppAgentModelCatalogError) {
+        sendJson(response, 422, { error: error.reason === 'catalog_empty'
+          ? 'A API não retornou modelos compatíveis para esta conexão.'
+          : 'Não foi possível validar a chave e consultar os modelos. Confira a chave e o provedor.', automationPaused })
+        return
+      }
+      sendJson(response, 503, { error: 'Não foi possível concluir a conexão com este provedor agora.', automationPaused })
+    }
+    return
+  }
+
+  if (request.method === 'POST' && requestUrl.pathname === '/api/whatsapp/agent-providers/migrate') {
+    const provider = requestUrl.searchParams.get('provider') ?? ''
+    if (!whatsappAgentProviders.includes(provider as typeof whatsappAgentProviders[number])) {
+      sendJson(response, 400, { error: 'Selecione um provedor de IA válido.' })
+      return
+    }
+    const providerId = provider as typeof whatsappAgentProviders[number]
+    const rateLimit = checkRateLimit({ key: `whatsapp-agent-provider-migrate:${user.id}`, limit: 5, windowMs: 60_000 })
+    if (!rateLimit.allowed) {
+      sendJson(response, 429, { error: 'Aguarde um instante antes de migrar outra conexão.' })
+      return
+    }
+    const legacyConfig = getWhatsAppAgentProviderConfig(providerId, getDefaultWhatsAppAgentModel(providerId))
+    if (!legacyConfig) {
+      sendJson(response, 409, { error: 'Não há uma conexão deste provedor configurada no servidor para migrar.' })
+      return
+    }
+    let automationPaused = false
+    try {
+      const models = await listWhatsAppAgentModelsForConfig(providerId, legacyConfig)
+      automationPaused = (await new WhatsAppStore().pauseDigiBuscaAutomationForProviderChange(user.id, providerId)) > 0
+      await saveWhatsAppAiProviderCredential({
+        userId: user.id,
+        provider: providerId,
+        apiKey: legacyConfig.apiKey,
+        baseUrl: legacyConfig.baseUrl,
+      })
+      invalidateWhatsAppAgentModelCache(providerId, user.id)
+      response.setHeader('Cache-Control', 'private, no-store')
+      sendJson(response, 200, { data: { provider: providerId, configured: true, models } })
+    } catch (error) {
+      response.setHeader('Cache-Control', 'private, no-store')
+      if (error instanceof WhatsAppAiProviderCredentialStorageError) {
+        const message = error.reason === 'migration_missing'
+          ? 'Aplique a migration 021_whatsapp_ai_provider_connections.sql no Supabase para migrar conexões pelo painel.'
+          : 'Não foi possível guardar a conexão protegida no Supabase.'
+        sendJson(response, 503, { error: message, automationPaused })
+        return
+      }
+      if (error instanceof WhatsAppAgentModelCatalogError) {
+        sendJson(response, 422, { error: 'Não foi possível validar a conexão existente e consultar os modelos.', automationPaused })
+        return
+      }
+      sendJson(response, 503, { error: 'Não foi possível migrar a conexão do servidor para o painel agora.', automationPaused })
+    }
+    return
+  }
+
+  if (request.method === 'DELETE' && requestUrl.pathname === '/api/whatsapp/agent-providers') {
+    const provider = requestUrl.searchParams.get('provider') ?? ''
+    if (!whatsappAgentProviders.includes(provider as typeof whatsappAgentProviders[number])) {
+      sendJson(response, 400, { error: 'Selecione um provedor de IA válido.' })
+      return
+    }
+    const rateLimit = checkRateLimit({ key: `whatsapp-agent-provider-disconnect:${user.id}`, limit: 5, windowMs: 60_000 })
+    if (!rateLimit.allowed) {
+      sendJson(response, 429, { error: 'Aguarde um instante antes de desconectar outro provedor.' })
+      return
+    }
+    let automationPaused = false
+    try {
+      automationPaused = (await new WhatsAppStore().pauseDigiBuscaAutomationForProviderChange(user.id, provider as typeof whatsappAgentProviders[number])) > 0
+      await disableWhatsAppAiProviderCredential(user.id, provider as typeof whatsappAgentProviders[number])
+      invalidateWhatsAppAgentModelCache(provider as typeof whatsappAgentProviders[number], user.id)
+      const state = await getWhatsAppAgentProvidersStateForUser(user.id)
+      response.setHeader('Cache-Control', 'private, no-store')
+      sendJson(response, 200, { data: { agentProviders: state.configured, agentProviderSources: state.source } })
+    } catch (error) {
+      const message = error instanceof WhatsAppAiProviderCredentialStorageError && error.reason === 'migration_missing'
+        ? 'Aplique a migration 021_whatsapp_ai_provider_connections.sql no Supabase para gerenciar conexões pelo painel.'
+        : 'Não foi possível desconectar o provedor com segurança.'
+      sendJson(response, 503, { error: message, automationPaused })
+    }
+    return
+  }
+
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/agent-models') {
     const provider = requestUrl.searchParams.get('provider') ?? ''
     if (!whatsappAgentProviders.includes(provider as typeof whatsappAgentProviders[number])) {
@@ -698,14 +839,18 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
     try {
-      const data = await listWhatsAppAgentModels(provider as typeof whatsappAgentProviders[number])
+      const providerId = provider as typeof whatsappAgentProviders[number]
+      const config = await getWhatsAppAgentProviderConfigForUser(user.id, providerId, getDefaultWhatsAppAgentModel(providerId))
+      const data = await listWhatsAppAgentModels(providerId, { config, cacheScope: user.id })
       response.setHeader('Cache-Control', 'private, no-store')
       sendJson(response, 200, { data })
     } catch (error) {
       response.setHeader('Cache-Control', 'private, no-store')
       const statusCode = error instanceof WhatsAppAgentModelCatalogError && error.reason === 'provider_not_configured' ? 409 : 503
-      const message = error instanceof WhatsAppAgentModelCatalogError && error.reason === 'provider_not_configured'
-        ? 'Configure as credenciais deste provedor na VPS para carregar os modelos disponíveis.'
+      const message = error instanceof WhatsAppAiProviderCredentialStorageError && error.reason === 'migration_missing'
+        ? 'Aplique a migration 021_whatsapp_ai_provider_connections.sql no Supabase para carregar conexões do painel.'
+        : error instanceof WhatsAppAgentModelCatalogError && error.reason === 'provider_not_configured'
+        ? 'Conecte a API deste provedor no painel para carregar os modelos disponíveis.'
         : error instanceof WhatsAppAgentModelCatalogError && error.reason === 'catalog_empty'
           ? 'Este provedor não retornou modelos compatíveis com a automação.'
           : 'Não foi possível consultar os modelos deste provedor agora.'
@@ -750,8 +895,15 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
     if (input.automationEnabled && input.responseMode === 'digibot_agent') {
       const agentStorageReady = await new WhatsAppStore().isDigiBuscaAgentStorageReady()
-      if (!isWhatsAppDigiBuscaAgentRuntimeEnabled() || !getWhatsAppAgentProviderConfig(input.agentProvider, input.agentModel) || !agentStorageReady) {
-        sendJson(response, 503, { error: 'O agente DigiBusca ainda não está pronto. Confira a migration 019, a chave do provedor e o interruptor WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED no backend.' })
+      let providerConfig
+      try {
+        providerConfig = await getWhatsAppAgentProviderConfigForUser(user.id, input.agentProvider, input.agentModel)
+      } catch {
+        sendJson(response, 503, { error: 'Não foi possível consultar a conexão protegida da IA. Tente novamente em instantes.' })
+        return
+      }
+      if (!isWhatsAppDigiBuscaAgentRuntimeEnabled() || !providerConfig || !agentStorageReady) {
+        sendJson(response, 503, { error: 'O agente DigiBusca ainda não está pronto. Confira a migration 019, conecte uma API no painel e verifique o interruptor WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED no backend.' })
         return
       }
     }
@@ -847,7 +999,31 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     const connectionStorageReady = await new WhatsAppStore().isEvolutionStorageReady()
     const automationStorageReady = await new WhatsAppStore().isAutomationStorageReady()
     const digiBuscaAgentStorageReady = await new WhatsAppStore().isDigiBuscaAgentStorageReady()
-    sendJson(response, 200, { data: { ...getWhatsAppEvolutionSetupStatus(), connectionStorageReady, automationStorageReady, digiBuscaAgentStorageReady } })
+    let agentProviders = getWhatsAppAgentProvidersStatus()
+    let agentProviderSources = {
+      google: agentProviders.google ? 'server' : 'none',
+      anthropic: agentProviders.anthropic ? 'server' : 'none',
+      openaiCompatible: agentProviders.openaiCompatible ? 'server' : 'none',
+    }
+    try {
+      const state = await getWhatsAppAgentProvidersStateForUser(user.id)
+      agentProviders = state.configured
+      agentProviderSources = state.source
+    } catch (error) {
+      if (error instanceof WhatsAppAiProviderCredentialStorageError && error.reason === 'migration_missing') {
+        // Keep legacy VPS connections visible so the panel can offer migration, but runtime reads still fail closed.
+        agentProviders = getWhatsAppAgentProvidersStatus()
+        agentProviderSources = {
+          google: agentProviders.google ? 'server' : 'none',
+          anthropic: agentProviders.anthropic ? 'server' : 'none',
+          openaiCompatible: agentProviders.openaiCompatible ? 'server' : 'none',
+        }
+      } else {
+      agentProviders = { google: false, anthropic: false, openaiCompatible: false }
+      agentProviderSources = { google: 'unavailable', anthropic: 'unavailable', openaiCompatible: 'unavailable' }
+      }
+    }
+    sendJson(response, 200, { data: { ...getWhatsAppEvolutionSetupStatus(), agentProviders, agentProviderSources, connectionStorageReady, automationStorageReady, digiBuscaAgentStorageReady } })
     return
   }
 

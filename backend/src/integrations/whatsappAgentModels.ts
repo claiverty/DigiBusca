@@ -1,5 +1,6 @@
 import type { WhatsAppAgentProvider } from '../contracts/whatsappAutomation.js'
-import { getWhatsAppAgentProviderConfig } from '../config/supabase.js'
+import { getWhatsAppAgentProviderConfig, type WhatsAppAgentProviderConfig } from '../config/supabase.js'
+import { safeExternalApiFetch } from './externalApiFetch.js'
 
 export type WhatsAppAgentModelChoice = {
   id: string
@@ -13,10 +14,11 @@ type ModelCatalog = {
 
 type ProviderPayload = Record<string, unknown>
 
-const modelCache = new Map<WhatsAppAgentProvider, ModelCatalog>()
+const modelCache = new Map<string, ModelCatalog>()
 const modelCacheDurationMs = 5 * 60 * 1_000
 const catalogTimeoutMs = 8_000
 const maxModelCount = 500
+const maxCatalogResponseBytes = 1024 * 1024
 const defaultModelByProvider: Record<WhatsAppAgentProvider, string> = {
   google: 'gemini-3.8-flash',
   anthropic: 'claude-3-5-haiku-latest',
@@ -49,6 +51,33 @@ function uniqueModels(models: WhatsAppAgentModelChoice[]) {
   return [...new Map(models.map((model) => [model.id, model])).values()].slice(0, maxModelCount)
 }
 
+async function readCatalogJson(response: Response): Promise<unknown> {
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > maxCatalogResponseBytes) {
+    await response.body?.cancel()
+    throw new Error('Provider model catalog response is too large.')
+  }
+  if (!response.body) return undefined
+  const reader = response.body.getReader()
+  const bytes = new Uint8Array(maxCatalogResponseBytes)
+  let byteLength = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      byteLength += value.byteLength
+      if (byteLength > maxCatalogResponseBytes) {
+        await reader.cancel()
+        throw new Error('Provider model catalog response is too large.')
+      }
+      bytes.set(value, byteLength - value.byteLength)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(0, byteLength))) as unknown
+}
+
 async function requestJson(url: URL, apiKey: string, headers: Record<string, string> = {}) {
   let response: Response
   try {
@@ -56,7 +85,7 @@ async function requestJson(url: URL, apiKey: string, headers: Record<string, str
     if (!requestHeaders.Authorization && !requestHeaders['x-api-key'] && !requestHeaders['x-goog-api-key']) {
       requestHeaders.Authorization = `Bearer ${apiKey}`
     }
-    response = await fetch(url, {
+    response = await safeExternalApiFetch(url, {
       headers: requestHeaders,
       signal: AbortSignal.timeout(catalogTimeoutMs),
     })
@@ -65,7 +94,7 @@ async function requestJson(url: URL, apiKey: string, headers: Record<string, str
   }
   if (!response.ok) throw new WhatsAppAgentModelCatalogError('catalog_unavailable')
   try {
-    return await response.json() as unknown
+    return await readCatalogJson(response)
   } catch {
     throw new WhatsAppAgentModelCatalogError('catalog_unavailable')
   }
@@ -135,20 +164,40 @@ async function listOpenAICompatibleModels(apiKey: string, baseUrl: string): Prom
   }))
 }
 
-export async function listWhatsAppAgentModels(provider: WhatsAppAgentProvider): Promise<WhatsAppAgentModelChoice[]> {
-  const cached = modelCache.get(provider)
-  if (cached && cached.expiresAt > Date.now()) return cached.models
-
-  const config = getWhatsAppAgentProviderConfig(provider, defaultModelByProvider[provider])
-  if (!config) throw new WhatsAppAgentModelCatalogError('provider_not_configured')
-
+async function loadModels(provider: WhatsAppAgentProvider, config: WhatsAppAgentProviderConfig): Promise<WhatsAppAgentModelChoice[]> {
   const models = config.provider === 'google'
     ? await listGoogleModels(config.apiKey)
     : config.provider === 'anthropic'
       ? await listAnthropicModels(config.apiKey)
       : await listOpenAICompatibleModels(config.apiKey, config.baseUrl!)
   if (models.length === 0) throw new WhatsAppAgentModelCatalogError('catalog_empty')
-
-  modelCache.set(provider, { models, expiresAt: Date.now() + modelCacheDurationMs })
   return models
+}
+
+export async function listWhatsAppAgentModelsForConfig(
+  provider: WhatsAppAgentProvider,
+  config: WhatsAppAgentProviderConfig,
+): Promise<WhatsAppAgentModelChoice[]> {
+  return loadModels(provider, config)
+}
+
+export async function listWhatsAppAgentModels(
+  provider: WhatsAppAgentProvider,
+  options: { config?: WhatsAppAgentProviderConfig; cacheScope?: string } = {},
+): Promise<WhatsAppAgentModelChoice[]> {
+  const cacheKey = `${options.cacheScope ?? 'environment'}:${provider}`
+  const cached = modelCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) return cached.models
+
+  const config = options.config ?? getWhatsAppAgentProviderConfig(provider, defaultModelByProvider[provider])
+  if (!config) throw new WhatsAppAgentModelCatalogError('provider_not_configured')
+
+  const models = await loadModels(provider, config)
+
+  modelCache.set(cacheKey, { models, expiresAt: Date.now() + modelCacheDurationMs })
+  return models
+}
+
+export function invalidateWhatsAppAgentModelCache(provider: WhatsAppAgentProvider, cacheScope = 'environment') {
+  modelCache.delete(`${cacheScope}:${provider}`)
 }
