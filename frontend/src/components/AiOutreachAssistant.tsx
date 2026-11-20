@@ -1,5 +1,6 @@
 import { Check, Copy, RefreshCw, Sparkles, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { AppSelect } from './AppSelect'
 import {
   generateAiOutreach,
   generateOpenBotOutreach,
@@ -245,25 +246,46 @@ export function AiOutreachAssistant({ lead, currentStage, onUseMessage }: AiOutr
 
             <p className="ai-outreach-note">Cumprimente, apresente-se como Cristhian e confirme se falou com a pessoa responsável. Depois, entenda a necessidade e avance com uma pergunta principal por vez. O DigiBusca cria rascunhos para você revisar.</p>
             <div className="ai-outreach-form">
-              <label><span>Gerar com</span><select value={generator} disabled={isGenerating} onChange={(event) => { generatorChosenByUser.current = true; setGenerator(event.target.value as OutreachGenerator); setResult(undefined); setError('') }}>
-                <option value="gemini">Gemini</option>
-                <option value="openbot">Agente do OpenBot</option>
-              </select></label>
+              <label><span>Gerar com</span><AppSelect
+                value={generator}
+                disabled={isGenerating}
+                ariaLabel="Gerar com"
+                onValueChange={(value) => { generatorChosenByUser.current = true; setGenerator(value as OutreachGenerator); setResult(undefined); setError('') }}
+                options={[
+                  { value: 'gemini', label: 'Gemini' },
+                  { value: 'openbot', label: 'Agente do OpenBot' },
+                ]}
+              /></label>
               {generator === 'openbot' && <>
-                {openBotAgents.length > 0 ? <label><span>Agente</span><select value={selectedOpenBotAgentId} disabled={isGenerating || isLoadingOpenBotAgents} onChange={(event) => { setSelectedOpenBotAgentId(event.target.value); setResult(undefined) }}>
-                  <option value="" disabled>Selecione um agente</option>
-                  {openBotAgents.map((agent) => <option value={agent.id} key={agent.id}>{agent.name}</option>)}
-                </select></label> : <p className="ai-outreach-openbot-status" role={openBotAgentsError ? 'alert' : 'status'}>
+                {openBotAgents.length > 0 ? <label><span>Agente</span><AppSelect
+                  value={selectedOpenBotAgentId}
+                  disabled={isGenerating || isLoadingOpenBotAgents}
+                  ariaLabel="Agente OpenBot"
+                  placeholder="Selecione um agente"
+                  onValueChange={(value) => { setSelectedOpenBotAgentId(value); setResult(undefined) }}
+                  options={[
+                    { value: '', label: 'Selecione um agente', disabled: true },
+                    ...openBotAgents.map((agent) => ({ value: agent.id, label: agent.name })),
+                  ]}
+                /></label> : <p className="ai-outreach-openbot-status" role={openBotAgentsError ? 'alert' : 'status'}>
                   {isLoadingOpenBotAgents ? 'Conectando ao OpenBot…' : openBotAgentsError || 'Nenhum agente com Local scripts ativo foi encontrado.'}
                 </p>}
               </>}
-              <label><span>Etapa da conversa</span><select value={stage} disabled={isGenerating} onChange={(event) => { setStage(event.target.value as ConversationStage); setResult(undefined); setError('') }}>
-                {conversationStages.map((item) => <option key={item}>{item}</option>)}
-              </select></label>
+              <label><span>Etapa da conversa</span><AppSelect
+                value={stage}
+                disabled={isGenerating}
+                ariaLabel="Etapa da conversa"
+                onValueChange={(value) => { setStage(value as ConversationStage); setResult(undefined); setError('') }}
+                options={conversationStages.map((item) => ({ value: item, label: item }))}
+              /></label>
               {(stage === 'Abertura' || stage === 'Identificar responsável' || stage === 'Pedir permissão') && <label><span>Nome de quem atende</span><input value={senderName} required={stage !== 'Pedir permissão'} maxLength={80} disabled={isGenerating} onChange={(event) => { setSenderName(event.target.value); setResult(undefined) }} placeholder="Ex.: Cristhian" /></label>}
-              {stage === 'Abertura' ? <label><span>Saudação</span><select value={greeting} disabled={isGenerating} onChange={(event) => { setGreeting(event.target.value as OutreachGreeting); setResult(undefined) }}>
-                {greetingOptions.map((item) => <option key={item}>{item}</option>)}
-              </select></label> : <label><span>O que a pessoa respondeu?</span><textarea value={lastReply} disabled={isGenerating} maxLength={2000} onChange={(event) => { setLastReply(event.target.value); setResult(undefined) }} placeholder="Cole ou resuma a resposta para contextualizar a próxima mensagem" /></label>}
+              {stage === 'Abertura' ? <label><span>Saudação</span><AppSelect
+                value={greeting}
+                disabled={isGenerating}
+                ariaLabel="Saudação"
+                onValueChange={(value) => { setGreeting(value as OutreachGreeting); setResult(undefined) }}
+                options={greetingOptions.map((item) => ({ value: item, label: item }))}
+              /></label> : <label><span>O que a pessoa respondeu?</span><textarea value={lastReply} disabled={isGenerating} maxLength={2000} onChange={(event) => { setLastReply(event.target.value); setResult(undefined) }} placeholder="Cole ou resuma a resposta para contextualizar a próxima mensagem" /></label>}
               {(stage === 'Pedir permissão' || stage === 'Apresentar ideia' || stage === 'Qualificar interesse') && <label>
                 <span>Serviço que você oferece</span>
                 <input

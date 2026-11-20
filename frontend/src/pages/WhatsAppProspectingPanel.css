@@ -75,17 +75,6 @@
   font-weight: 600;
 }
 
-.prospecting-limit-field select,
-.prospecting-phone-field select {
-  min-height: 38px;
-  padding: 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  color: var(--color-text);
-  background: #fff;
-  font: inherit;
-}
-
 .prospecting-toggle {
   display: inline-flex;
   min-height: 38px;

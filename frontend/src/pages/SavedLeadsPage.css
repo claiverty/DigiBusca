@@ -343,14 +343,6 @@
   font-weight: 600;
 }
 
-.saved-leads-bulk-status select {
-  min-height: 38px;
-  padding: 0 38px 0 11px !important;
-  border: 1px solid var(--color-border);
-  border-radius: 9px;
-  font-size: 12px;
-}
-
 .saved-leads-bulk-update,
 .saved-leads-bulk-delete {
   display: inline-flex;
@@ -383,7 +375,7 @@
 
 .saved-leads-bulk-update:disabled,
 .saved-leads-bulk-delete:disabled,
-.saved-leads-bulk-status select:disabled {
+.saved-leads-bulk-status .app-select-trigger:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
@@ -736,7 +728,7 @@
     justify-content: space-between;
   }
 
-  .saved-leads-bulk-status select {
+  .saved-leads-bulk-status .app-select-trigger {
     min-height: 44px;
     flex: 1;
     font-size: 16px;
@@ -854,7 +846,7 @@
   color:var(--color-text-subtle);
 }
 
-.portfolio-controls :is(input, select) {
+.portfolio-controls input {
   width:100%;
   min-width:0;
   min-height:44px;
@@ -866,7 +858,10 @@
   font:inherit;
 }
 
-.portfolio-controls select {
+.portfolio-controls .app-select-trigger {
+  min-height:44px;
+  border-radius:var(--radius-control);
+  font:inherit;
   cursor:pointer;
 }
 
@@ -876,7 +871,7 @@
     padding-inline:16px;
   }
 
-  .portfolio-controls :is(input,select) {
+  .portfolio-controls :is(input, .app-select-trigger) {
     font-size:16px;
   }
 

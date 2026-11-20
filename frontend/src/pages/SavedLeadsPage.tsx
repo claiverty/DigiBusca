@@ -10,6 +10,7 @@ import {
 import { exportLeadsCsv } from '../services/exportLeadsCsv'
 import { localDateKey, localDay, isOpenStatus } from '../lib/dates'
 import type { Lead, LeadStatus } from '../types'
+import { AppSelect } from '../components/AppSelect'
 import './SavedLeadsPage.css'
 
 type SavedLeadsPageProps = {
@@ -481,7 +482,16 @@ export function SavedLeadsPage({
 
           <div className="portfolio-controls">
             <label><span>Buscar na carteira</span><input type="search" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Empresa, segmento ou pessoa de contato" /></label>
-            <label><span>Ordenar por</span><select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}><option value="followUp">Próximo contato</option><option value="recent">Atualização recente</option><option value="name">Nome da empresa</option></select></label>
+            <label><span>Ordenar por</span><AppSelect
+              value={sortOrder}
+              ariaLabel="Ordenar leads por"
+              onValueChange={setSortOrder}
+              options={[
+                { value: 'followUp', label: 'Próximo contato' },
+                { value: 'recent', label: 'Atualização recente' },
+                { value: 'name', label: 'Nome da empresa' },
+              ]}
+            /></label>
           </div>
           <div className="lead-status-tabs-shell">
             <div className="lead-status-tabs" role="group" aria-label="Filtrar por status" ref={statusTabsRef}>
@@ -545,14 +555,14 @@ export function SavedLeadsPage({
             <div className="saved-leads-bulk-actions">
               <label className="saved-leads-bulk-status">
                 <span>Novo status</span>
-                <select
-                  aria-label="Novo status para leads selecionados"
+                <AppSelect
+                  ariaLabel="Novo status para leads selecionados"
                   value={bulkStatus}
-                  onChange={(event) => setBulkStatus(event.target.value as LeadStatus)}
+                  onValueChange={(value) => setBulkStatus(value as LeadStatus)}
                   disabled={selectedVisibleCount === 0 || bulkBusy !== null}
-                >
-                  {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
+                  size="compact"
+                  options={statuses.map((item) => ({ value: item, label: item }))}
+                />
               </label>
               <button
                 className="saved-leads-bulk-update"

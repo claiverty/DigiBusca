@@ -6,6 +6,7 @@ import { createApproachMessage } from '../lib/approachMessage'
 import { hasContactPhone } from '../lib/phone'
 import { createLeadInteraction, getLeadInteractions, getSiteHealth, type SiteHealthResult } from '../services/leadsService'
 import { CurrencyInput, currencyCentsToNumber } from './CurrencyInput'
+import { AppSelect } from './AppSelect'
 import { DatePicker } from './DatePicker'
 import { SaleServiceField } from './SaleServiceField'
 import { AiOutreachAssistant } from './AiOutreachAssistant'
@@ -335,11 +336,17 @@ export function LeadDetail({
             )}
             <label className="detail-field">
               <span>Status do consentimento</span>
-              <select value={whatsappConsentStatus} onChange={(event) => handleConsentStatusChange(event.target.value as NonNullable<Lead['whatsappConsentStatus']>)} disabled={!isSaved}>
-                <option value="unknown">Não registrado</option>
-                <option value="opted_in">Autorizou contato</option>
-                <option value="opted_out">Pediu para não contatar</option>
-              </select>
+              <AppSelect
+                value={whatsappConsentStatus}
+                onValueChange={(value) => handleConsentStatusChange(value as NonNullable<Lead['whatsappConsentStatus']>)}
+                ariaLabel="Status do consentimento para WhatsApp"
+                disabled={!isSaved}
+                options={[
+                  { value: 'unknown', label: 'Não registrado' },
+                  { value: 'opted_in', label: 'Autorizou contato' },
+                  { value: 'opted_out', label: 'Pediu para não contatar' },
+                ]}
+              />
             </label>
             {whatsappConsentStatus === 'opted_in' && (
               <div className="detail-form-grid">
@@ -367,16 +374,12 @@ export function LeadDetail({
             <div className="detail-form-grid">
               <label className="detail-field">
                 <span>Status</span>
-                <select
+                <AppSelect
                   value={status}
-                  onChange={(event) => setStatus(event.target.value as LeadStatus)}
-                >
-                  {leadStatuses.map((leadStatus) => (
-                    <option key={leadStatus} value={leadStatus}>
-                      {leadStatus}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(value) => setStatus(value as LeadStatus)}
+                  ariaLabel="Status do lead"
+                  options={leadStatuses.map((leadStatus) => ({ value: leadStatus, label: leadStatus }))}
+                />
               </label>
               <label className="detail-field">
                 <span>Próximo contato</span>
@@ -384,7 +387,15 @@ export function LeadDetail({
               </label>
             </div>
             <div className="detail-form-grid">
-              <label className="detail-field"><span>Etapa da conversa</span><select value={conversationStage} onChange={(event) => setConversationStage(event.target.value)}>{conversationStages.map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="detail-field">
+                <span>Etapa da conversa</span>
+                <AppSelect
+                  value={conversationStage}
+                  onValueChange={setConversationStage}
+                  ariaLabel="Etapa da conversa"
+                  options={conversationStages.map((item) => ({ value: item, label: item }))}
+                />
+              </label>
               <label className="detail-field"><span>Pessoa de contato</span><input value={contactName} maxLength={120} onChange={(event) => setContactName(event.target.value)} placeholder="Nome e função, se informados" /></label>
             </div>
             <label className="detail-field"><span>Próximo passo</span><input value={nextAction} maxLength={500} onChange={(event) => setNextAction(event.target.value)} placeholder="Ex.: confirmar escopo e prazo; enviar proposta após validar as condições" /></label>
@@ -443,14 +454,12 @@ export function LeadDetail({
                   <div className="detail-form-grid">
                     <label className="detail-field">
                       <span>Canal</span>
-                      <select
+                      <AppSelect
                         value={interactionChannel}
-                        onChange={(event) => setInteractionChannel(event.target.value as InteractionChannel)}
-                      >
-                        {interactionChannels.map((channel) => (
-                          <option key={channel} value={channel}>{channel}</option>
-                        ))}
-                      </select>
+                        onValueChange={(value) => setInteractionChannel(value as InteractionChannel)}
+                        ariaLabel="Canal da interação"
+                        options={interactionChannels.map((channel) => ({ value: channel, label: channel }))}
+                      />
                     </label>
                     <label className="detail-field">
                       <span>Data do contato</span>

@@ -24,6 +24,7 @@ import {
   type WhatsAppOpenBotAgentStatus,
 } from '../services/whatsappService'
 import { WhatsAppProspectingPanel } from './WhatsAppProspectingPanel'
+import { AppSelect } from '../components/AppSelect'
 import './WhatsAppPage.css'
 
 type PageTab = 'inbox' | 'settings' | 'prospecting'
@@ -836,9 +837,15 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               {connections.length > 1 && (
                 <label className="whatsapp-form-field">
                   <span>Número WhatsApp</span>
-                  <select value={automationPhoneNumberId} onChange={(event) => setAutomationPhoneNumberId(event.target.value)}>
-                    {connections.map((connection) => <option key={connection.phoneNumberId} value={connection.phoneNumberId}>{connection.displayPhoneNumber || connection.phoneNumberId}</option>)}
-                  </select>
+                  <AppSelect
+                    value={automationPhoneNumberId}
+                    onValueChange={setAutomationPhoneNumberId}
+                    ariaLabel="Número WhatsApp para respostas automáticas"
+                    options={connections.map((connection) => ({
+                      value: connection.phoneNumberId,
+                      label: connection.displayPhoneNumber || connection.phoneNumberId,
+                    }))}
+                  />
                 </label>
               )}
               {connections.length === 0 && <p className="whatsapp-connect-state is-pending">Conecte um número WhatsApp antes de configurar as respostas automáticas.</p>}
@@ -857,19 +864,21 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               <div className="whatsapp-automation-fields">
                 <label className="whatsapp-form-field is-wide">
                   <span>Como o bot deve operar</span>
-                  <select
+                  <AppSelect
                     value={automationForm.responseMode}
-                    onChange={(event) => {
-                      const responseMode = event.target.value as WhatsAppAutomationProfileInput['responseMode']
+                    ariaLabel="Como o bot deve operar"
+                    onValueChange={(value) => {
+                      const responseMode = value as WhatsAppAutomationProfileInput['responseMode']
                       setAutomationForm((current) => ({ ...current, responseMode, contentApproved: false, automationEnabled: false }))
                       setOpenBotAgentStatus(null)
                     }}
-                  >
-                    <option value="handoff_only">Somente atendimento humano</option>
-                    <option value="digibot_agent">Agente Cristhian gerenciado pelo DigiBusca</option>
-                    <option value="gemini">Responder com Gemini dentro dos fatos aprovados</option>
-                    <option value="openbot">Responder com o agente OpenBot Cristhian</option>
-                  </select>
+                    options={[
+                      { value: 'handoff_only', label: 'Somente atendimento humano' },
+                      { value: 'digibot_agent', label: 'Agente Cristhian gerenciado pelo DigiBusca' },
+                      { value: 'gemini', label: 'Responder com Gemini dentro dos fatos aprovados' },
+                      { value: 'openbot', label: 'Responder com o agente OpenBot Cristhian' },
+                    ]}
+                  />
                   <small>{automationForm.responseMode === 'handoff_only'
                     ? 'O texto da conversa não é enviado ao Gemini. Quando precisar de você, a conversa pausa e aparece como atendimento humano pendente na caixa de entrada; o lead não recebe aviso de transferência.'
                     : automationForm.responseMode === 'openbot'
@@ -882,15 +891,17 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <div className="whatsapp-form-field is-wide">
                     <strong>Agente Cristhian · runtime do DigiBusca</strong>
                     <label htmlFor="whatsapp-agent-provider">Provedor configurado no backend</label>
-                    <select
+                    <AppSelect
                       id="whatsapp-agent-provider"
                       value={automationForm.agentProvider}
-                      onChange={(event) => setAutomationForm((current) => ({ ...current, agentProvider: event.target.value as WhatsAppAutomationProfileInput['agentProvider'], contentApproved: false, automationEnabled: false }))}
-                    >
-                      <option value="google">Google Gemini {status?.agentProviders?.google ? '· configurado' : '· sem chave no backend'}</option>
-                      <option value="anthropic">Anthropic {status?.agentProviders?.anthropic ? '· configurado' : '· sem chave no backend'}</option>
-                      <option value="openai-compatible">OpenAI compatível {status?.agentProviders?.openaiCompatible ? '· configurado' : '· sem chave/base URL no backend'}</option>
-                    </select>
+                      ariaLabel="Provedor configurado no backend"
+                      onValueChange={(value) => setAutomationForm((current) => ({ ...current, agentProvider: value as WhatsAppAutomationProfileInput['agentProvider'], contentApproved: false, automationEnabled: false }))}
+                      options={[
+                        { value: 'google', label: `Google Gemini ${status?.agentProviders?.google ? '· configurado' : '· sem chave no backend'}` },
+                        { value: 'anthropic', label: `Anthropic ${status?.agentProviders?.anthropic ? '· configurado' : '· sem chave no backend'}` },
+                        { value: 'openai-compatible', label: `OpenAI compatível ${status?.agentProviders?.openaiCompatible ? '· configurado' : '· sem chave/base URL no backend'}` },
+                      ]}
+                    />
                     <label htmlFor="whatsapp-agent-model">Modelo</label>
                     <input
                       id="whatsapp-agent-model"

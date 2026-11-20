@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { getCities, getCountries, getStates } from '../services/locationsService'
 import type { OpportunityType } from '../types'
 import type { LocationCity, LocationCountry, LocationState } from '../types/locations'
+import { AppSelect } from './AppSelect'
 import './SearchPanel.css'
 
 export type SearchLocation = {
@@ -74,8 +75,6 @@ function matchesCountry(country: LocationCountry, value: string) {
 }
 
 type LocationOption = { value: string; label: string; searchTerms?: string[] }
-
-type ChoiceOption = { value: string; label: string }
 
 type LocationComboboxProps = {
   id: string
@@ -237,62 +236,6 @@ function LocationCombobox({
               Usar segmento “{customValue}”
             </button>
           )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-type ChoiceDropdownProps = {
-  id: string
-  value: string
-  options: ChoiceOption[]
-  ariaLabel: string
-  onChange: (value: string) => void
-}
-
-function ChoiceDropdown({ id, value, options, ariaLabel, onChange }: ChoiceDropdownProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const selectedOption = options.find((option) => option.value === value) ?? options[0]
-
-  return (
-    <div className="location-combobox choice-dropdown">
-      <button
-        id={id}
-        className="choice-dropdown-trigger"
-        type="button"
-        role="combobox"
-        aria-label={ariaLabel}
-        aria-controls={`${id}-suggestions`}
-        aria-expanded={isOpen}
-        onBlur={() => window.setTimeout(() => setIsOpen(false), 120)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            setIsOpen(false)
-          }
-        }}
-        onClick={() => setIsOpen((current) => !current)}
-      >
-        <span>{selectedOption.label}</span>
-        <ChevronDown size={17} aria-hidden="true" />
-      </button>
-      {isOpen && (
-        <div id={`${id}-suggestions`} className="location-suggestions" role="listbox">
-          {options.map((option) => (
-            <button
-              key={`${id}-${option.value || 'all'}`}
-              type="button"
-              role="option"
-              aria-selected={option.value === value}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onChange(option.value)
-                setIsOpen(false)
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
         </div>
       )}
     </div>
@@ -579,12 +522,13 @@ export function SearchPanel({
         onClear={() => onSegmentChange('')}
         onSelect={(option) => onSegmentChange(option.value)}
       />
-      <ChoiceDropdown
+      <AppSelect
         id="opportunity"
         value={opportunity}
         options={opportunityOptions}
         ariaLabel="Prioridade da busca"
-        onChange={(nextOpportunity) =>
+        className="search-opportunity-select"
+        onValueChange={(nextOpportunity) =>
           onOpportunityChange(nextOpportunity as '' | OpportunityType)
         }
       />

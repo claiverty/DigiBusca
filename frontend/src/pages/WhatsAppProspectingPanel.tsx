@@ -11,6 +11,7 @@ import {
   type WhatsAppProspectingQueueItem,
   type WhatsAppConnection,
 } from '../services/whatsappService'
+import { AppSelect } from '../components/AppSelect'
 import './WhatsAppProspectingPanel.css'
 
 type Props = {
@@ -233,9 +234,17 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
         <div className="prospecting-controls">
           <label className="prospecting-limit-field">
             <span>Limite diário</span>
-            <select value={dailyLimit} onChange={(event) => setDailyLimit(Number(event.target.value))} disabled={busyKey === 'settings'}>
-              {Array.from({ length: 9 }, (_, index) => index + 17).map((limit) => <option value={limit} key={limit}>{limit} leads</option>)}
-            </select>
+            <AppSelect
+              value={String(dailyLimit)}
+              onValueChange={(value) => setDailyLimit(Number(value))}
+              ariaLabel="Limite diário de novos leads"
+              disabled={busyKey === 'settings'}
+              size="compact"
+              options={Array.from({ length: 9 }, (_, index) => index + 17).map((limit) => ({
+                value: String(limit),
+                label: `${limit} leads`,
+              }))}
+            />
           </label>
           <button className="secondary-button" type="button" disabled={busyKey === 'settings' || loadState !== 'ready'} onClick={() => void updateSettings(dashboard?.settings.enabled === true, dailyLimit)}>
             {busyKey === 'settings' ? 'Salvando…' : 'Salvar limite'}
@@ -260,9 +269,16 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
         {readyConnections.length > 1 && (
           <label className="prospecting-phone-field">
             <span>Número de envio</span>
-            <select value={selectedPhoneNumberId} onChange={(event) => setSelectedPhoneNumberId(event.target.value)}>
-              {readyConnections.map((connection) => <option key={connection.phoneNumberId} value={connection.phoneNumberId}>{connection.displayPhoneNumber || connection.phoneNumberId}</option>)}
-            </select>
+            <AppSelect
+              value={selectedPhoneNumberId}
+              onValueChange={setSelectedPhoneNumberId}
+              ariaLabel="Número de envio"
+              options={readyConnections.map((connection) => ({
+                value: connection.phoneNumberId,
+                label: connection.displayPhoneNumber || connection.phoneNumberId,
+              }))}
+              size="compact"
+            />
           </label>
         )}
         <p className="prospecting-policy-note">A fila envia em dias úteis, entre 9h e 14h (horário de São Paulo), até o limite diário selecionado. Os leads retornados pela busca configurada no DigiBusca entram como autorizados; pedidos de descadastro continuam bloqueados.</p>
