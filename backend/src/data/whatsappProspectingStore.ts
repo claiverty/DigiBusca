@@ -135,7 +135,10 @@ type DailyCampaignRow = {
 function mapDailyCampaign(row: DailyCampaignRow): WhatsAppDailyProspectingCampaign {
   const messages = Array.isArray(row.messages) ? row.messages.flatMap((message) => {
     if (!isRecord(message) || (message.role !== 'assistant' && message.role !== 'user') || typeof message.text !== 'string' || typeof message.createdAt !== 'string') return []
-    return [{ role: message.role as WhatsAppProspectingChatMessage['role'], text: message.text.slice(0, 1_024), createdAt: message.createdAt }]
+    const text = (row.status === 'awaiting_city' || row.status === 'failed') && message.text.includes('busco negócios locais em geral.')
+      ? 'Bom dia, qual cidade vamos prospectar hoje? Brasília, DF está como sugestão inicial. Se quiser, informe também um segmento; vou buscar empresas cujo perfil do Google não informa um site.'
+      : message.text
+    return [{ role: message.role as WhatsAppProspectingChatMessage['role'], text: text.slice(0, 1_024), createdAt: message.createdAt }]
   }) : []
   return {
     id: row.id,
@@ -159,7 +162,7 @@ export class WhatsAppProspectingStore {
     const createdAt = now.toISOString()
     const prompt: WhatsAppProspectingChatMessage = {
       role: 'assistant',
-      text: 'Bom dia, qual cidade vamos prospectar hoje? Brasília, DF está como sugestão inicial. Se quiser, informe também um segmento; se deixar em branco, busco negócios locais em geral.',
+      text: 'Bom dia, qual cidade vamos prospectar hoje? Brasília, DF está como sugestão inicial. Se quiser, informe também um segmento; vou buscar empresas cujo perfil do Google não informa um site.',
       createdAt,
     }
     const inserted = await admin.from('whatsapp_prospecting_daily_campaigns').upsert({
@@ -225,7 +228,7 @@ export class WhatsAppProspectingStore {
     const messages = [
       ...current.messages.slice(-7),
       { role: 'user', text: segment === 'Todos os segmentos' ? city : `${city} — ${segment}`, createdAt },
-      { role: 'assistant', text: `Certo, vou procurar ${segment === 'Todos os segmentos' ? 'negócios locais' : segment} em ${city} e preparar os contatos elegíveis.`, createdAt },
+      { role: 'assistant', text: `Certo, vou procurar ${segment === 'Todos os segmentos' ? 'empresas' : segment} sem site informado no Google em ${city} e preparar os contatos elegíveis.`, createdAt },
     ]
     const result = await admin.from('whatsapp_prospecting_daily_campaigns')
       .update({ city, segment, status: 'processing', messages, error_code: null, updated_at: createdAt })

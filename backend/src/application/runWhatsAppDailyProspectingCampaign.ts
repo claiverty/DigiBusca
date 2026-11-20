@@ -68,6 +68,7 @@ export async function runWhatsAppDailyProspectingCampaign(input: {
       const result: SearchLeadsResponse = await executeSearchLeads(input.provider, {
         city: input.city,
         segment: input.segment,
+        opportunity: 'Sem site',
         languageCode: 'pt-BR',
         regionCode: 'BR',
         ...(pageToken ? { pageToken } : {}),
@@ -114,14 +115,14 @@ export async function runWhatsAppDailyProspectingCampaign(input: {
 
     const unsaved = Math.max(0, leads.length - savedCount)
     const message = queuedCount > 0
-      ? `Encontrei ${leads.length} leads em ${input.city}, salvei ${savedCount} e coloquei ${queuedCount} contatos novos na fila. Os envios respeitam o limite e o horário que você configurou.`
+      ? `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city}, salvei ${savedCount} e coloquei ${queuedCount} contatos novos na fila. Os envios respeitam o limite e o horário que você configurou.`
       : !input.queueSendingAvailable
-        ? `Encontrei ${leads.length} leads em ${input.city} e salvei ${savedCount}. Não coloquei mensagens na fila porque o WhatsApp não está conectado ou o runtime de prospecção não está pronto.`
+        ? `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city} e salvei ${savedCount}. Não coloquei mensagens na fila porque o WhatsApp não está conectado ou o runtime de prospecção não está pronto.`
         : !settings.enabled
-          ? `Encontrei ${leads.length} leads em ${input.city} e salvei ${savedCount}. A fila está pausada, então nenhum contato foi agendado para envio.`
+          ? `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city} e salvei ${savedCount}. A fila está pausada, então nenhum contato foi agendado para envio.`
           : availableSlots === 0
-            ? `Encontrei ${leads.length} leads em ${input.city} e salvei ${savedCount}. O limite diário já está reservado por envios feitos ou itens que aguardam na fila.`
-            : `Encontrei ${leads.length} leads em ${input.city} e salvei ${savedCount}, mas não achei novos contatos elegíveis para a fila.`
+            ? `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city} e salvei ${savedCount}. O limite diário já está reservado por envios feitos ou itens que aguardam na fila.`
+            : `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city} e salvei ${savedCount}, mas não achei novos contatos elegíveis para a fila.`
     const completedCampaign = await prospectingStore.finishDailyCampaign(input.userId, campaign.id, {
       searched: leads.length,
       saved: savedCount,

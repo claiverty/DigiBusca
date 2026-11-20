@@ -296,7 +296,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
         ) : (
           <p className="prospecting-chat-hint">O chat de amanhã aparece quando você abrir esta aba. A busca só começa depois que você informar a cidade.</p>
         )}
-        <p className="prospecting-chat-policy">A cidade de hoje é <strong>{dashboard?.campaign.city ?? 'ainda não escolhida'}</strong>. A fila respeita seu limite, a janela das 9h às 14h e os bloqueios de descadastro.</p>
+        <p className="prospecting-chat-policy">A busca considera empresas cujo perfil do Google não informa um site. A cidade de hoje é <strong>{dashboard?.campaign.city ?? 'ainda não escolhida'}</strong>. A fila respeita seu limite, a janela das 9h às 14h e os bloqueios de descadastro.</p>
       </section>
 
       {(error || notice) && <div className={`prospecting-feedback${error ? ' is-error' : ''}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
