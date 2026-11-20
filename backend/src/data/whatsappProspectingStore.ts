@@ -48,7 +48,11 @@ export type WhatsAppDailyProspectingCampaign = {
 }
 
 export class WhatsAppProspectingError extends Error {
-  constructor(message: string, readonly status: 400 | 403 | 404 | 409 | 422 | 503) {
+  constructor(
+    message: string,
+    readonly status: 400 | 403 | 404 | 409 | 422 | 503,
+    readonly code = 'dispatch_precondition_failed',
+  ) {
     super(message)
     this.name = 'WhatsAppProspectingError'
   }
@@ -519,14 +523,14 @@ export class WhatsAppProspectingStore {
     throwIfError(leadResult.error, 'Não foi possível revalidar o consentimento do lead antes do envio.')
     throwIfError(settingsResult.error, 'Não foi possível revalidar as configurações de prospecção.')
     throwIfError(conversationResult.error, 'Não foi possível revalidar o histórico deste contato.')
-    if (!connectionResult.data || !leadResult.data) throw new WhatsAppProspectingError('A conexão ou o lead não está mais disponível.', 404)
+    if (!connectionResult.data || !leadResult.data) throw new WhatsAppProspectingError('A conexão ou o lead não está mais disponível.', 404, 'lead_or_connection_missing')
     const conversations = (conversationResult.data ?? []) as Array<{ id: string; automation_opted_out: boolean | null }>
     if (conversations.some((conversation) => conversation.automation_opted_out === true)) {
-      throw new WhatsAppProspectingError('Este contato pediu para parar. O envio está bloqueado em todos os números conectados.', 403)
+      throw new WhatsAppProspectingError('Este contato pediu para parar. O envio está bloqueado em todos os números conectados.', 403, 'contact_opted_out')
     }
-    if (conversations.length > 0) throw new WhatsAppProspectingError('Este número já iniciou uma conversa; continue pela caixa de entrada.', 409)
+    if (conversations.length > 0) throw new WhatsAppProspectingError('Este número já iniciou uma conversa; continue pela caixa de entrada.', 409, 'conversation_exists')
     if ((settingsResult.data as { enabled?: boolean } | null)?.enabled !== true) {
-      throw new WhatsAppProspectingError('A fila foi pausada antes do envio.', 409)
+      throw new WhatsAppProspectingError('A fila foi pausada antes do envio.', 409, 'prospecting_paused')
     }
 
     const connection = connectionResult.data as { phone_number_id: string; platform_type: string | null }
@@ -541,26 +545,26 @@ export class WhatsAppProspectingStore {
       lead.whatsapp_consent_status !== 'opted_in' || !lead.whatsapp_consent_source?.trim() || !lead.whatsapp_consent_at ||
       !Number.isFinite(Date.parse(lead.whatsapp_consent_at)) || Date.parse(lead.whatsapp_consent_at) > Date.now()
     ) {
-      throw new WhatsAppProspectingError('O consentimento não está mais válido para este contato.', 403)
+      throw new WhatsAppProspectingError('O consentimento não está mais válido para este contato.', 403, 'consent_invalid')
     }
-    if (lead.status !== 'Novo') throw new WhatsAppProspectingError('O status do lead mudou antes do envio.', 409)
+    if (lead.status !== 'Novo') throw new WhatsAppProspectingError('O status do lead mudou antes do envio.', 409, 'lead_status_changed')
     const currentPhone = isRecord(lead.lead_data) && typeof lead.lead_data.phone === 'string'
       ? normalizeBrazilianPhone(lead.lead_data.phone)
       : undefined
     if (!currentPhone || currentPhone !== item.recipientPhone) {
-      throw new WhatsAppProspectingError('O telefone do lead mudou ou está inválido. Revise o contato antes de enviar.', 409)
+      throw new WhatsAppProspectingError('O telefone do lead mudou ou está inválido. Revise o contato antes de enviar.', 409, 'phone_invalid_or_changed')
     }
     if (connection.platform_type !== 'EVOLUTION_API') {
-      throw new WhatsAppProspectingError('Conecte a Evolution API antes de enviar pela fila.', 503)
+      throw new WhatsAppProspectingError('Conecte a Evolution API antes de enviar pela fila.', 503, 'evolution_not_connected')
     }
     let connectionState: Awaited<ReturnType<typeof getEvolutionConnectionState>>
     try {
       connectionState = await getEvolutionConnectionState(item.phoneNumberId)
     } catch {
-      throw new WhatsAppProspectingError('A Evolution API não está disponível agora.', 503)
+      throw new WhatsAppProspectingError('A Evolution API não está disponível agora.', 503, 'evolution_status_unavailable')
     }
     if (connectionState.state.toLowerCase() !== 'open') {
-      throw new WhatsAppProspectingError('A instância Evolution está desconectada. Reconecte o WhatsApp antes de enviar.', 503)
+      throw new WhatsAppProspectingError('A instância Evolution está desconectada. Reconecte o WhatsApp antes de enviar.', 503, 'evolution_disconnected')
     }
     return { userId }
   }

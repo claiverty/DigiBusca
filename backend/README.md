@@ -32,7 +32,7 @@ API TypeScript responsável pela autenticação, regras de negócio, integraçõ
 - `GET /api/whatsapp/prospecting`: retorna configurações, uso do limite diário, fila e chat da campanha do dia.
 - `POST /api/whatsapp/prospecting/campaign`: pesquisa a cidade escolhida no chat, salva até três páginas de resultados e enfileira novos contatos elegíveis dentro da capacidade diária disponível.
 - `POST /api/whatsapp/prospecting/settings`: ativa/pausa a fila e define o limite de 17 a 25 novos leads por dia.
-- `POST /api/whatsapp/prospecting/queue`: agenda um primeiro contato de um lead salvo com consentimento registrado.
+- `POST /api/whatsapp/prospecting/queue`: agenda um primeiro contato de um lead salvo com consentimento registrado. No horário de envio, a fila confirma pela Evolution se o telefone está registrado no WhatsApp; telefones sem conta são ignorados e identificados no painel.
 - `DELETE /api/whatsapp/prospecting/queue/:id`: cancela um item ainda não enviado.
 
 Todas as rotas de negócio exigem um token Bearer do Supabase Auth. O backend valida o token e executa as consultas com o contexto do usuário; o PostgreSQL aplica RLS para impedir acesso cruzado entre contas.

@@ -35,8 +35,20 @@ function formatDate(value: string) {
 function queueErrorLabel(errorCode?: string) {
   if (errorCode === 'provider_rejected') return 'A Evolution API recusou o número ou a mensagem.'
   if (errorCode === 'contact_not_eligible_or_connection_unavailable') return 'Revise autorização, telefone, conexão e status do lead.'
+  if (errorCode === 'recipient_not_on_whatsapp') return 'Este telefone não tem uma conta WhatsApp; o sistema não tentou enviar.'
+  if (errorCode === 'contact_opted_out') return 'Contato bloqueado porque pediu para não receber mensagens.'
+  if (errorCode === 'consent_invalid') return 'A autorização de contato não está válida; o envio foi bloqueado.'
+  if (errorCode === 'phone_invalid_or_changed') return 'O telefone salvo mudou ou está inválido; o envio foi bloqueado.'
+  if (errorCode === 'evolution_disconnected' || errorCode === 'evolution_status_unavailable' || errorCode === 'evolution_not_connected') return 'A Evolution estava desconectada ou indisponível no momento do envio.'
+  if (errorCode === 'dispatch_context_unavailable') return 'Não foi possível revalidar o lead antes do envio. A fila registrou a falha para revisão.'
   if (errorCode === 'history_sync_failed') return 'A Evolution aceitou o envio; confira a conversa e o histórico.'
   if (errorCode === 'local_worker_interrupted') return 'O processo local foi interrompido; confira a conversa.'
+  const providerStatus = errorCode?.match(/^provider_rejected_http_(\d{3})$/)?.[1]
+  if (providerStatus === '400') return 'A Evolution recusou o número ou a mensagem (HTTP 400); o envio não foi aceito.'
+  if (providerStatus === '401' || providerStatus === '403') return `A Evolution recusou a chave ou a permissão (HTTP ${providerStatus}); revise a configuração.`
+  if (providerStatus === '404') return 'A Evolution não encontrou a instância ou a rota do envio (HTTP 404).'
+  if (providerStatus === '429') return 'A Evolution limitou o envio (HTTP 429); revise o ritmo da fila.'
+  if (providerStatus) return `A Evolution recusou a operação (HTTP ${providerStatus}).`
   return errorCode ? 'Confira a conversa e a conexão antes de tentar novamente.' : undefined
 }
 

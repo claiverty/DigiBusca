@@ -101,6 +101,21 @@ export async function getEvolutionConnectionState(instanceName: string): Promise
   return { state, ...(owner ? { owner } : {}) }
 }
 
+export async function isEvolutionWhatsAppNumberRegistered(instanceName: string, phone: string) {
+  const result = await evolutionRequest<unknown>(`/chat/whatsappNumbers/${encodeURIComponent(instanceName)}`, {
+    method: 'POST',
+    body: JSON.stringify({ numbers: [phone] }),
+  })
+  if (!Array.isArray(result) || result.length !== 1 || typeof result[0] !== 'object' || result[0] === null) {
+    throw new EvolutionApiError('A Evolution não retornou uma verificação válida do telefone.', 502)
+  }
+  const registered = (result[0] as Record<string, unknown>).exists
+  if (typeof registered !== 'boolean') {
+    throw new EvolutionApiError('A Evolution não confirmou se o telefone está registrado no WhatsApp.', 502)
+  }
+  return registered
+}
+
 export async function sendEvolutionTextMessage(instanceName: string, phone: string, text: string) {
   const result = await evolutionRequest<Record<string, unknown>>(`/message/sendText/${encodeURIComponent(instanceName)}`, {
     method: 'POST',

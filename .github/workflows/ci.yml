@@ -227,7 +227,12 @@ jobs:
   evolution-image:
     name: Publicar imagem Evolution fixada para a VPS
     needs: quality
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+      (contains(toJSON(github.event.commits), 'evolution/patches/') ||
+      contains(toJSON(github.event.commits), 'scripts/build-evolution-candidate.sh'))))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

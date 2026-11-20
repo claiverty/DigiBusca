@@ -4,9 +4,9 @@ import {
   isWhatsAppOpenBotReplyRecoveryConfigured,
   isWhatsAppProspectingRuntimeEnabled,
 } from '../config/supabase.js'
-import { WhatsAppProspectingStore, type WhatsAppProspectingQueueItem } from '../data/whatsappProspectingStore.js'
+import { WhatsAppProspectingError, WhatsAppProspectingStore, type WhatsAppProspectingQueueItem } from '../data/whatsappProspectingStore.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
-import { EvolutionApiError, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
+import { EvolutionApiError, isEvolutionWhatsAppNumberRegistered, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
 import { logWarning } from '../observability/logger.js'
 import { processWhatsAppAutomation } from './processWhatsAppAutomation.js'
 
@@ -51,10 +51,17 @@ async function processQueuedNewLeadContacts() {
     if (!item) continue
 
     let providerMessageId: string | undefined
+    let dispatchStage: 'context' | 'number_check' | 'send' | 'history' = 'context'
     try {
       const context = await store.getDispatchContext(item)
+      dispatchStage = 'number_check'
+      if (!await isEvolutionWhatsAppNumberRegistered(item.phoneNumberId, item.recipientPhone)) {
+        throw new WhatsAppProspectingError('Este telefone não está registrado no WhatsApp; o envio foi ignorado.', 422, 'recipient_not_on_whatsapp')
+      }
+      dispatchStage = 'send'
       providerMessageId = await sendEvolutionTextMessage(item.phoneNumberId, item.recipientPhone, item.message)
       const sentAt = new Date().toISOString()
+      dispatchStage = 'history'
       try {
         await store.persistSentMessage(item, context.userId, providerMessageId, sentAt)
       } catch {
@@ -67,12 +74,14 @@ async function processQueuedNewLeadContacts() {
       }
       await store.finishQueueItem(item.id, 'sent', { providerMessageId })
     } catch (error) {
-      const unknownOutcome = Boolean(providerMessageId) || (error instanceof EvolutionApiError && error.status >= 500)
+      const unknownOutcome = Boolean(providerMessageId) || (dispatchStage === 'send' && error instanceof EvolutionApiError && error.status >= 500)
       const errorCode = providerMessageId
         ? 'history_sync_failed'
         : error instanceof EvolutionApiError
-        ? error.status >= 500 ? 'provider_outcome_unknown' : 'provider_rejected'
-        : 'contact_not_eligible_or_connection_unavailable'
+        ? dispatchStage === 'send' && error.status >= 500 ? 'provider_outcome_unknown' : `provider_rejected_http_${error.status}`
+        : error instanceof WhatsAppProspectingError
+        ? error.code
+        : 'dispatch_context_unavailable'
       try {
         await store.finishQueueItem(item.id, unknownOutcome ? 'unknown' : 'failed', {
           ...(providerMessageId ? { providerMessageId } : {}),
@@ -81,7 +90,7 @@ async function processQueuedNewLeadContacts() {
       } catch {
         logWarning('whatsapp_local_prospecting_result_failed', { reason: 'queue_result_unavailable' })
       }
-      logWarning('whatsapp_local_prospecting_send_failed', { reason: errorCode })
+      logWarning('whatsapp_local_prospecting_send_failed', { reason: errorCode, stage: dispatchStage })
     }
   }
 }
