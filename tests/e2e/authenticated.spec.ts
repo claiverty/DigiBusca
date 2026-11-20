@@ -204,7 +204,9 @@ test.describe('área autenticada — fluxos de negócio isolados', () => {
     await page.getByRole('button', { name: 'Salvar lead', exact: true }).first().click()
     await expect(page.getByRole('button', { name: 'Lead salvo', exact: true })).toBeVisible()
 
-    await page.locator('.detail-follow-up').getByRole('combobox').first().selectOption('Contatado')
+    const leadStatus = page.locator('.detail-follow-up').getByRole('combobox', { name: 'Status do lead' })
+    await leadStatus.click()
+    await page.getByRole('option', { name: 'Contatado', exact: true }).click()
     await page.getByLabel('Observações do lead').fill('Contato iniciado pelo teste isolado.')
     await page.getByRole('button', { name: 'Salvar acompanhamento' }).click()
     await expect(page.locator('.detail-follow-up').getByRole('status').filter({ hasText: 'Alterações salvas.' })).toBeVisible()

@@ -218,7 +218,8 @@ export function AppSelect({
         className="app-select-trigger"
         type="button"
         role="combobox"
-        aria-label={`${ariaLabel}: ${selectedOption?.label ?? placeholder}`}
+        aria-label={ariaLabel}
+        aria-valuetext={selectedOption?.label ?? placeholder}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listboxId}

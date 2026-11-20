@@ -3,6 +3,11 @@ import { readFile } from 'node:fs/promises'
 
 const projectRoot = process.cwd()
 
+async function selectAppOption(page: Page, label: string, value: string) {
+  await page.getByRole('combobox', { name: label }).click()
+  await page.getByRole('option', { name: value, exact: true }).click()
+}
+
 const baseLead = {
   id: 'lead-one', name: 'Clínica Exemplo', category: 'Clínica', address: 'Rua Exemplo',
   phone: '+55 11 99999-9999', rating: 4.7, reviews: 50, source: 'Google Maps',
@@ -59,10 +64,10 @@ async function mountWorkflow(page: Page, view: 'assistant' | 'portfolio' | 'sear
 test('cold chat começa curto, identifica responsável e usa resposta na IA', async ({ page }, testInfo) => {
   await mountWorkflow(page, 'assistant')
   await page.getByRole('button', { name: 'Gerar abordagem', exact: true }).click()
-  await page.getByLabel('Saudação').selectOption('Boa tarde')
+  await selectAppOption(page, 'Saudação', 'Boa tarde')
   await page.getByRole('button', { name: 'Usar modelo sem IA' }).click()
   await expect(page.locator('.ai-outreach-results')).toContainText('Você cuida da presença digital da empresa?')
-  await page.getByLabel('Etapa da conversa').selectOption('Identificar responsável')
+  await selectAppOption(page, 'Etapa da conversa', 'Identificar responsável')
   await page.getByLabel('Nome de quem atende').fill('Guilherme, da DigiUP')
   await page.getByLabel('O que a pessoa respondeu?').fill('Boa tarde, tudo sim! Sou eu quem cuido da presença digital.')
   await page.getByRole('button', { name: 'Gerar com IA', exact: true }).click()
@@ -105,7 +110,7 @@ test('carteira seleciona leads e aplica status e exclusão em lote', async ({ pa
 
   await page.getByLabel('Selecionar Empresa 0').check()
   await page.getByLabel('Selecionar Empresa 1').check()
-  await page.getByLabel('Novo status para leads selecionados').selectOption('Proposta')
+  await selectAppOption(page, 'Novo status para leads selecionados', 'Proposta')
   await page.getByRole('button', { name: 'Aplicar status', exact: true }).click()
 
   await expect(page.getByLabel('Lead Empresa 0').locator('.saved-lead-status')).toHaveText('Proposta')
@@ -133,7 +138,7 @@ test('filtro que esvazia uma página mantém próxima página acessível', async
 
 test('ficha salva etapa, contato e próximo passo e limpa follow-up', async ({ page }) => {
   await mountWorkflow(page, 'detail')
-  await page.getByLabel('Etapa da conversa').selectOption('Entender cenário')
+  await selectAppOption(page, 'Etapa da conversa', 'Entender cenário')
   await page.getByLabel('Pessoa de contato').fill('Maria, proprietária')
   await page.getByLabel('Próximo passo').fill('Perguntar como recebe contatos')
   await page.getByRole('button', { name: 'Retornar em 3 dia(s)', exact: true }).click()
