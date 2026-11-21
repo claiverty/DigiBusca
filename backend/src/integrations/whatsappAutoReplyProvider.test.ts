@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isMisleadingHumanIdentityClaim, isUnsolicitedAutomationDisclosure, WhatsAppAutoReplyProvider, type WhatsAppAutoReplyContext } from './whatsappAutoReplyProvider.js'
+import { isMisleadingHumanIdentityClaim, isUnsolicitedAutomationDisclosure, simpleWhatsAppGreetingReply, WhatsAppAutoReplyProvider, type WhatsAppAutoReplyContext } from './whatsappAutoReplyProvider.js'
 
 test('permite que o agente use o nome Cristhian sem alegar ser humano', () => {
   assert.equal(isUnsolicitedAutomationDisclosure('Aqui é o Cristhian, da DigiUP.'), false)
@@ -101,10 +101,18 @@ test('responde a uma saudação simples sem esperar pelo Gemini', async () => {
   })
   assert.deepEqual(reply, {
     action: 'reply',
-    replyText: 'Opa, aqui é o Cristhian da DigiUP. Como posso te ajudar?',
+    replyText: 'Boa tarde, como posso te ajudar?',
     nextStage: 'identify_responsible',
   })
   assert.equal(calls, 0)
+})
+
+test('responde a saudações sem horário sem se reapresentar e sem exagerar no tom', () => {
+  const reply = simpleWhatsAppGreetingReply('Oi', 'identify_responsible')
+  assert.equal(reply?.replyText, 'Oi, como posso te ajudar?')
+
+  const wellbeing = simpleWhatsAppGreetingReply('Tudo bem?', 'identify_responsible')
+  assert.equal(wellbeing?.replyText, 'Tudo bem por aqui. Como posso te ajudar?')
 })
 
 test('uma saudação dentro de uma solicitação não impede a resposta do Gemini', async () => {
@@ -127,5 +135,5 @@ test('uma saudação que ficou pendente recebe um pedido de desculpas pela demor
     inboundReceivedAt: new Date(now - 5 * 60_000).toISOString(),
     messages: [{ direction: 'inbound', body: 'Opa boa tarde' }],
   })
-  assert.equal(reply.replyText, 'Desculpa a demora. Aqui é o Cristhian da DigiUP. Como posso te ajudar?')
+  assert.equal(reply.replyText, 'Desculpa a demora. Boa tarde, como posso te ajudar?')
 })
