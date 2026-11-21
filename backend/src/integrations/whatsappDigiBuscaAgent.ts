@@ -83,7 +83,7 @@ export async function generateWhatsAppDigiBuscaAgentReply(request: WhatsAppDigiB
     const startedAt = Date.now()
     try {
       const model = createAgentModel(request.providerConfig, modelId)
-      const generated = await generateWithAgentModel(model, request, inboundTexts, modelTimeoutMs)
+      const generated = await generateWithAgentModel(model, request, inboundTexts, modelTimeoutMs, modelId)
       logInfo('whatsapp_digibot_agent_model_succeeded', {
         model: modelId,
         elapsedMs: Date.now() - startedAt,
@@ -108,9 +108,10 @@ export async function generateWhatsAppDigiBuscaAgentReply(request: WhatsAppDigiB
 
 async function generateWithAgentModel(
   model: LanguageModel,
-  request: Pick<WhatsAppDigiBuscaAgentRequest, 'context' | 'saveQualification'>,
+  request: Pick<WhatsAppDigiBuscaAgentRequest, 'context' | 'saveQualification' | 'provider'>,
   inboundTexts: string[],
   timeoutMs: number,
+  modelId: string,
 ): Promise<WhatsAppAutoReply> {
   let requestedHumanReview = false
   const pendingQualifications: WhatsAppAgentQualification = {}
@@ -155,6 +156,9 @@ async function generateWithAgentModel(
     maxRetries: 0,
     maxOutputTokens: 600,
     temperature: 0.25,
+    ...(request.provider === 'google' && modelId === 'gemini-3.8-flash'
+      ? { providerOptions: { google: { thinkingConfig: { thinkingLevel: 'low' } } } }
+      : {}),
     output: Output.object({ schema: whatsappAgentReplySchema }),
   })
 

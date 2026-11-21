@@ -20,6 +20,7 @@ import { getOpenBotDelivery, listOpenBotAgents, OpenBotAutomationError, sendOpen
 import { getOpenBotWhatsAppAgentStatus, OpenBotWhatsAppBridgeError } from '../integrations/openBotWhatsAppBridge.js'
 import { getEvolutionConnections, getEvolutionPairingStatus, startEvolutionConnection } from '../application/evolutionConnections.js'
 import { persistEvolutionWebhook } from '../application/evolutionWebhook.js'
+import { processWhatsAppAutomation } from '../application/processWhatsAppAutomation.js'
 import { evolutionWebhookSecretMatches, EvolutionApiError } from '../integrations/evolutionApi.js'
 import { whatsappWebhookMaxBodyBytes, WhatsAppWebhookBodyTooLargeError } from '../application/whatsappWebhook.js'
 import { isUuid, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
@@ -403,11 +404,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
     try {
-      const shouldProcessInboundNow = await persistEvolutionWebhook(body)
+      const persistedWebhook = await persistEvolutionWebhook(body)
       sendJson(response, 200, { received: true })
-      if (shouldProcessInboundNow) {
+      if (persistedWebhook?.shouldProcessInboundNow) {
         setImmediate(() => {
-          void runLocalWhatsAppProspectingTick().catch(() => {
+          void processWhatsAppAutomation(persistedWebhook.events, { stopRequestsAlreadyPersisted: true }).catch(() => {
             logWarning('whatsapp_webhook_followup_failed', { reason: 'inbound_processing_unavailable' })
           })
         })

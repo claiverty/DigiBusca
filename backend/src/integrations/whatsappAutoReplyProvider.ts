@@ -1,9 +1,9 @@
 import type { WhatsAppAutomationStage } from '../contracts/whatsappAutomation.js'
-import { logWarning } from '../observability/logger.js'
+import { logInfo, logWarning } from '../observability/logger.js'
 import { resolveWhatsAppProjectContext } from '../application/whatsappProjectContext.js'
 import { normalizeWhatsAppReplyText } from '../domain/whatsappTextStyle.js'
 
-const models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
+const models = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
 const modelCooldownMs = 60_000
 const modelRequestTimeoutMs = 8_000
 const generationBudgetMs = 20_000
@@ -254,15 +254,17 @@ export class WhatsAppAutoReplyProvider {
     for (const model of available) {
       const remainingMs = deadline - this.now()
       if (remainingMs <= 0) break
+      const startedAt = this.now()
       try {
         const reply = await generateWithModel(apiKey, context, model, this.fetcher, Math.min(modelRequestTimeoutMs, remainingMs))
         this.unavailableUntil.delete(model)
+        logInfo('whatsapp_gemini_model_succeeded', { model, elapsedMs: Math.max(0, this.now() - startedAt) })
         return reply
       } catch (error) {
         if (!shouldUseFallback(error)) throw error
         lastError = error
         this.unavailableUntil.set(model, this.now() + modelCooldownMs)
-        logWarning('whatsapp_gemini_model_unavailable', { model, ...autoReplyFailureDetails(error) })
+        logWarning('whatsapp_gemini_model_unavailable', { model, elapsedMs: Math.max(0, this.now() - startedAt), ...autoReplyFailureDetails(error) })
       }
     }
     throw lastError ?? new WhatsAppAutoReplyError('gemini_generation_timeout', 408)

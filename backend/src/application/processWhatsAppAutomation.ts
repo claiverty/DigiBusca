@@ -6,7 +6,7 @@ import { clearOpenBotWhatsAppContext, getOpenBotWhatsAppDelivery, OpenBotWhatsAp
 import { normalizeWhatsAppReplyText } from '../domain/whatsappTextStyle.js'
 import { selectWhatsAppAutomationReplyPlan } from './whatsappAutomationPolicy.js'
 import { getEvolutionConnectionState, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
-import { logWarning } from '../observability/logger.js'
+import { logInfo, logWarning } from '../observability/logger.js'
 import { asksForCristhian, asksForHumanHandoff, asksForUnapprovedCommercialTerms, requiresHumanReview } from './whatsappEscalationRules.js'
 import { sanitizeWhatsAppHistoryForGemini } from './whatsappConversationPrivacy.js'
 import { generationFailureReason } from './whatsappAutomationRetry.js'
@@ -673,13 +673,16 @@ export async function persistWhatsAppStopRequests(events: WhatsAppWebhookEvents)
   }
 }
 
-export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
+export async function processWhatsAppAutomation(
+  events: WhatsAppWebhookEvents,
+  options: { stopRequestsAlreadyPersisted?: boolean } = {},
+) {
   const allInboundMessages = events.messages.filter((message) => (
     message.source === 'live' && message.direction === 'inbound' && message.messageType === 'text' && Boolean(message.body?.trim())
   ))
   const store = new WhatsAppStore()
   if (!(await store.isAutomationStorageReady())) return
-  await persistWhatsAppStopRequests(events)
+  if (!options.stopRequestsAlreadyPersisted) await persistWhatsAppStopRequests(events)
 
   for (const message of allInboundMessages.filter((candidate) => candidate.automationRunId)) {
     await resumeOpenBotAutomationRun(store, message, events)
@@ -707,6 +710,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
   }
 
   for (const message of messages) {
+    const processingStartedAt = Date.now()
     let runId: string | undefined
     let sendingStarted = false
     let acceptedReplyId: string | undefined
@@ -787,6 +791,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       const requestStage = projectContext.startsNewRequest || projectContext.clarificationReply
         || (inboundProjectInquiry && context.automationStage === 'identify_responsible')
         ? 'understand_scenario' : context.automationStage
+      const greetingReply = simpleWhatsAppGreetingReply(message.body ?? '', requestStage, message.occurredAt)
       const apiKey = getGeminiApiKey()
       let agentProviderConfig: Awaited<ReturnType<typeof getWhatsAppAgentProviderConfigForUser>>
       const needsAgentProvider = profile.responseMode === 'digibot_agent'
@@ -809,11 +814,12 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         geminiConfigured: Boolean(apiKey),
         agentConfigured,
       })
+      const useQuickGreetingReply = Boolean(greetingReply) && (replyPlan === 'gemini' || replyPlan === 'digibot_agent')
       const repeatedQuestionRecovery = (replyPlan === 'gemini' || replyPlan === 'digibot_agent')
         && !shouldHandoff
         && isRepeatedQuestionComplaint(message.body ?? '')
       const identityDisclosureResponse = leadAskedIdentity && !shouldHandoff && replyPlan !== 'openbot'
-      const deterministicReply = commercialQualificationRequired || repeatedQuestionRecovery || identityDisclosureResponse || (Boolean(schedulingReply) && replyPlan !== 'openbot')
+      const deterministicReply = commercialQualificationRequired || repeatedQuestionRecovery || identityDisclosureResponse || (Boolean(schedulingReply) && replyPlan !== 'openbot') || useQuickGreetingReply
       let generated: Awaited<ReturnType<typeof generateWhatsAppAutoReply>>
       if (replyPlan === 'openbot') {
         await resumeOpenBotAutomationRun(store, { ...message, automationRunId: runId }, events)
@@ -824,6 +830,7 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
           replyText: commercialQualificationRequired
             ? commercialQualificationReply(handoffMessages)
             : [
+            useQuickGreetingReply ? greetingReply?.replyText : undefined,
             repeatedQuestionRecovery ? 'Você tem razão, desculpa por repetir. Vou seguir com o que você já me contou' : undefined,
             identityDisclosureResponse ? identityReply(message.body ?? '') : undefined,
           schedulingReply?.replyText,
@@ -950,8 +957,10 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
       await store.persistGeneratedAutomationResponse(runId, generated, body)
       await store.markAutomationRunSending(runId)
       sendingStarted = true
+      const evolutionSendStartedAt = Date.now()
       const replyId = await sendEvolutionTextMessage(message.phoneNumberId, message.contactWaId, body)
       acceptedReplyId = replyId
+      logInfo('whatsapp_automation_evolution_send_succeeded', { elapsedMs: Date.now() - evolutionSendStartedAt })
       await store.recordAutomationReplyAccepted(runId, replyId)
       const sentAt = new Date().toISOString()
       await store.persistAutomatedReply({
@@ -967,6 +976,11 @@ export async function processWhatsAppAutomation(events: WhatsAppWebhookEvents) {
         }
       }
       await store.completeAutomationRun(runId, 'sent', undefined, replyId)
+      logInfo('whatsapp_automation_reply_sent', {
+        processingMs: Date.now() - processingStartedAt,
+        inboundAgeMs: Math.max(0, Date.now() - Date.parse(message.occurredAt)),
+        responseMode: profile.responseMode,
+      })
     } catch (error) {
       if (runId) {
         if (sendingStarted) {
