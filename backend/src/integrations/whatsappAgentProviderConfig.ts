@@ -14,7 +14,7 @@ export type WhatsAppAgentProvidersState = {
 }
 
 const defaultModelByProvider: Record<WhatsAppAgentProvider, string> = {
-  google: 'gemini-3.8-flash',
+  google: 'gemini-4-hydrogen',
   anthropic: 'claude-3-5-haiku-latest',
   'openai-compatible': 'gpt-4o-mini',
 }

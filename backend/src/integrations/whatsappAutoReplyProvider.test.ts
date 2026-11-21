@@ -30,7 +30,7 @@ function replyResponse(reply = safeReply) {
   return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(reply) }] }, finishReason: 'STOP' }] })
 }
 
-test('usa Gemini 3.5 Flash quando os modelos anteriores falham e evita repetir modelos indisponíveis', async () => {
+test('usa Hydrogen primeiro, mantém fallback para 3.8 e 3.5 e evita repetir modelos indisponíveis', async () => {
   const calls: string[] = []
   const provider = new WhatsAppAutoReplyProvider(async (url) => {
     const model = String(url).split('/models/')[1]!.split(':')[0]!
@@ -38,7 +38,7 @@ test('usa Gemini 3.5 Flash quando os modelos anteriores falham e evita repetir m
     return model === 'gemini-3.5-flash' ? replyResponse() : Response.json({}, { status: 503 })
   })
   assert.deepEqual(await provider.generate('test-key', context), safeReply)
-  assert.deepEqual(calls, ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash'])
+  assert.deepEqual(calls, ['gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.5-flash'])
   calls.length = 0
   await provider.generate('test-key', context)
   assert.deepEqual(calls, ['gemini-3.5-flash'])

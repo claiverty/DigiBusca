@@ -107,7 +107,7 @@ export function getWhatsAppAgentProviderConfig(provider: WhatsAppAgentProvider, 
 
 export function getWhatsAppAgentProvidersStatus() {
   return {
-    google: Boolean(getWhatsAppAgentProviderConfig('google', 'gemini-3.8-flash')),
+    google: Boolean(getWhatsAppAgentProviderConfig('google', 'gemini-4-hydrogen')),
     anthropic: Boolean(getWhatsAppAgentProviderConfig('anthropic', 'claude-3-5-haiku-latest')),
     openaiCompatible: Boolean(getWhatsAppAgentProviderConfig('openai-compatible', 'gpt-4o-mini')),
   }

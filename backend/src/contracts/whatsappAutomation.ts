@@ -52,7 +52,7 @@ export function parseWhatsAppAutomationProfileInput(value: unknown): WhatsAppAut
   const responseMode = candidate.responseMode === undefined ? 'handoff_only' : candidate.responseMode
   const openBotAgentId = candidate.openBotAgentId === undefined ? '' : boundedText('openBotAgentId', 128)
   const agentProvider = candidate.agentProvider === undefined ? 'google' : candidate.agentProvider
-  const agentModel = candidate.agentModel === undefined ? 'gemini-3.8-flash' : boundedText('agentModel', 128)
+  const agentModel = candidate.agentModel === undefined ? 'gemini-4-hydrogen' : boundedText('agentModel', 128)
   const automationEnabled = candidate.automationEnabled
   const channelApproved = candidate.channelApproved
   const contentApproved = candidate.contentApproved

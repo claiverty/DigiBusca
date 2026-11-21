@@ -22,9 +22,9 @@ type WhatsAppDigiBuscaAgentRequest = {
 }
 
 type QualificationToolInput = Partial<Record<WhatsAppAgentQualificationField, { value: string; sourceQuote: string }>>
-const googleFallbackModel = 'gemini-3.5-flash'
-const generationDeadlineMs = 30_000
-const perModelTimeoutMs = 20_000
+const googleFallbackModels = ['gemini-3.8-flash', 'gemini-3.5-flash']
+const generationDeadlineMs = 24_000
+const perModelTimeoutMs = 10_000
 const whatsappAutomationStages = [
   'identify_responsible', 'request_permission', 'understand_scenario', 'explore_need',
   'present_idea', 'qualify_interest', 'present_conditions', 'confirm_decision', 'closed',
@@ -71,8 +71,9 @@ export async function generateWhatsAppDigiBuscaAgentReply(request: WhatsAppDigiB
   const inboundTexts = request.context.messages
     .filter((message) => message.direction === 'inbound' && message.body?.trim())
     .map((message) => message.body!.trim())
-  const models = [request.model]
-  if (request.provider === 'google' && request.model !== googleFallbackModel) models.push(googleFallbackModel)
+  const models = request.provider === 'google'
+    ? [...new Set([request.model, ...googleFallbackModels])]
+    : [request.model]
 
   let lastError: unknown
   const deadlineAt = Date.now() + generationDeadlineMs
@@ -108,7 +109,7 @@ export async function generateWhatsAppDigiBuscaAgentReply(request: WhatsAppDigiB
 
 async function generateWithAgentModel(
   model: LanguageModel,
-  request: Pick<WhatsAppDigiBuscaAgentRequest, 'context' | 'saveQualification'>,
+  request: Pick<WhatsAppDigiBuscaAgentRequest, 'context' | 'saveQualification' | 'provider'>,
   inboundTexts: string[],
   timeoutMs: number,
 ): Promise<WhatsAppAutoReply> {
@@ -154,13 +155,16 @@ async function generateWithAgentModel(
     stopWhen: stepCountIs(4),
     maxRetries: 0,
     maxOutputTokens: 600,
-    temperature: 0.25,
+    ...(request.provider === 'google' ? {} : { temperature: 0.25 }),
     output: Output.object({ schema: whatsappAgentReplySchema }),
   })
 
   const result = await agent.generate({
     prompt: buildWhatsAppAutoReplyPrompt(request.context, true),
     abortSignal: AbortSignal.timeout(timeoutMs),
+    ...(request.provider === 'google'
+      ? { providerOptions: { google: { thinkingConfig: { thinkingLevel: 'low' } } } }
+      : {}),
   })
   if (requestedHumanReview) {
     await persistPendingQualifications(request.saveQualification, pendingQualifications)

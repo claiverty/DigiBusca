@@ -3,7 +3,7 @@ import { logWarning } from '../observability/logger.js'
 import { resolveWhatsAppProjectContext } from '../application/whatsappProjectContext.js'
 import { normalizeWhatsAppReplyText } from '../domain/whatsappTextStyle.js'
 
-const models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
+const models = ['gemini-4-hydrogen', 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
 const modelCooldownMs = 60_000
 const modelRequestTimeoutMs = 8_000
 const generationBudgetMs = 20_000

@@ -20,7 +20,7 @@ const catalogTimeoutMs = 8_000
 const maxModelCount = 500
 const maxCatalogResponseBytes = 1024 * 1024
 const defaultModelByProvider: Record<WhatsAppAgentProvider, string> = {
-  google: 'gemini-3.8-flash',
+  google: 'gemini-4-hydrogen',
   anthropic: 'claude-3-5-haiku-latest',
   'openai-compatible': 'gpt-4o-mini',
 }
