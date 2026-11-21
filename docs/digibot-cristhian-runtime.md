@@ -5,7 +5,7 @@ O runtime DigiBusca executa o Cristhian dentro do backend já hospedado na VPS. 
 ## Limites do agente
 
 - Responde conversas recebidas usando o histórico recente e os fatos aprovados do perfil.
-- Com Google selecionado, usa raciocínio `low` para reduzir latência. Se Hydrogen falhar, tenta `gemini-3.8-flash` e depois `gemini-3.5-flash`. Falhas de autenticação não geram repetição com a mesma chave.
+- Com Google selecionado, tenta `gemini-3.5-flash` quando o modelo principal falha por indisponibilidade, limite, timeout ou resposta inválida. Falhas de autenticação não geram repetição com a mesma chave.
 - Pode registrar tipo de projeto, objetivo, prioridade, prazo e interesse de serviço somente quando o valor aparece literalmente em uma citação de mensagem recebida do lead.
 - Guarda essa qualificação por até 90 dias e a remove ao registrar descadastro.
 - Pode sinalizar atendimento humano. A pausa, o estado da conversa, a janela de atendimento e o envio de mensagem continuam sob controle do backend.
@@ -25,12 +25,12 @@ O titular da conta confirmou que os leads retornados pela busca do DigiBusca sã
 3. No backend da VPS, habilite `WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED=true`. `WHATSAPP_AUTOMATION_RUNTIME_ENABLED` já está ativo em produção. O deploy reinicia o backend e carrega as variáveis privadas.
 4. Na tela **WhatsApp → Conexão**, selecione **Agente Cristhian gerenciado pelo DigiBusca**, escolha provedor e modelo, confira os fatos comerciais e rota humana e salve as aprovações do canal e conteúdo antes de ativar respostas.
 
-As chaves nunca são enviadas ao navegador. Alterar o modo, provedor ou modelo invalida a aprovação de conteúdo e desativa respostas até que sejam aprovadas novamente. A migration `022_whatsapp_gemini_4_hydrogen.sql` atualiza perfis Google do Cristhian para Hydrogen, limpa a aprovação anterior e pausa o envio para revisão no painel. A seleção do runtime DigiBusca não ativa a fila de prospecção.
+As chaves nunca são enviadas ao navegador. Alterar o modo, provedor ou modelo invalida a aprovação de conteúdo e desativa respostas até que sejam aprovadas novamente. A seleção do runtime DigiBusca não ativa a fila de prospecção.
 
 ## Estado deste código
 
-O runtime permanece desligado por padrão no código. Após aplicar a migration `022_whatsapp_gemini_4_hydrogen.sql`, o perfil usa Gemini 4 Hydrogen com raciocínio baixo e fallback para 3.8 Flash e 3.5 Flash. A troca pausa respostas e invalida a aprovação anterior; revise o modelo no painel, aprove o conteúdo novamente e reative a automação. A sessão da Evolution está `open`. O deploy não ativa respostas por conta própria.
+O runtime permanece desligado por padrão no código. Em produção, a migration está aplicada, o perfil usa o agente Cristhian do DigiBusca com Google Gemini 3.8 Flash e fallback 3.5 Flash, e as respostas estão aprovadas e ativas. A sessão da Evolution está `open`. O deploy não troca o modo persistido nem ativa respostas por conta própria.
 
 As chamadas do agente usam a chave da Gemini API cadastrada no painel de conexões; essa chave herda o tier do projeto do Google AI Studio. Uma assinatura usada pelo Gemini CLI com login Google pode seguir outra autenticação e não altera o tier da chave da API. Confirme o projeto e o tier em [Rate limits](https://aistudio.google.com/rate-limit) e [Billing](https://aistudio.google.com/billing). Em 20/11/2026, a API respondeu ao DigiBusca com `429 RESOURCE_EXHAUSTED` para a cota `GenerateRequestsPerDayPerProjectPerModel-FreeTier` do Gemini 3.5 Flash (limite diário de 20); o Gemini 3.8 Flash também retornou `503 UNAVAILABLE`. Para habilitar o tier pago da Gemini API, vincule uma conta de faturamento ao projeto da chave em AI Studio. Isso é uma configuração de cobrança separada e pode gerar custos.
 
-O agente usa saída estruturada validada por schema, solicita raciocínio baixo ao Google, limita cada tentativa a 10 segundos e a execução a 24 segundos, e tenta os modelos de contingência quando há erro recuperável. Um `429` de cota esgotada não é mascarado por resposta pronta: a conversa fica pendente para nova tentativa quando a cota for liberada ou o projeto tiver o tier adequado.
+O agente usa saída estruturada validada por schema, tenta uma vez novamente quando o Gemini retorna `503`, e limita uma execução a 30 segundos somando o modelo principal e o fallback. Um `429` de cota esgotada não é mascarado por resposta pronta: a conversa fica pendente para nova tentativa quando a cota for liberada ou o projeto tiver o tier adequado.

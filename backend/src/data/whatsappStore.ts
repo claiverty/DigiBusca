@@ -57,7 +57,7 @@ function mapAutomationProfile(row: Record<string, unknown>): WhatsAppAutomationP
     responseMode: row.response_mode === 'gemini' || row.response_mode === 'openbot' || row.response_mode === 'digibot_agent' ? row.response_mode : 'handoff_only',
     openBotAgentId: typeof row.openbot_agent_id === 'string' ? row.openbot_agent_id : '',
     agentProvider: row.agent_provider === 'anthropic' || row.agent_provider === 'openai-compatible' ? row.agent_provider : 'google',
-    agentModel: typeof row.agent_model === 'string' && row.agent_model ? row.agent_model : 'gemini-4-hydrogen',
+    agentModel: typeof row.agent_model === 'string' && row.agent_model ? row.agent_model : 'gemini-3.8-flash',
     automationEnabled: row.automation_enabled === true,
     channelApprovedAt: row.channel_approved_at as string | null,
     contentApprovedAt: row.content_approved_at as string | null,

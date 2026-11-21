@@ -78,7 +78,7 @@ function newAutomationProfileDraft(phoneNumberId: string): WhatsAppAutomationPro
     responseMode: 'digibot_agent',
     openBotAgentId: '',
     agentProvider: 'google',
-    agentModel: 'gemini-4-hydrogen',
+    agentModel: 'gemini-3.8-flash',
     automationEnabled: false,
     channelApproved: false,
     contentApproved: false,
@@ -190,7 +190,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [automationPersistedResponseMode, setAutomationPersistedResponseMode] = useState<'handoff_only' | 'gemini' | 'openbot' | 'digibot_agent'>('handoff_only')
   const [automationPersistedOpenBotAgentId, setAutomationPersistedOpenBotAgentId] = useState('')
   const [automationPersistedAgentProvider, setAutomationPersistedAgentProvider] = useState<'google' | 'anthropic' | 'openai-compatible'>('google')
-  const [automationPersistedAgentModel, setAutomationPersistedAgentModel] = useState('gemini-4-hydrogen')
+  const [automationPersistedAgentModel, setAutomationPersistedAgentModel] = useState('gemini-3.8-flash')
   const [conversationQualification, setConversationQualification] = useState<WhatsAppAgentQualification | null>(null)
   const [openBotAgentStatus, setOpenBotAgentStatus] = useState<WhatsAppOpenBotAgentStatus | null>(null)
   const [openBotAgentCheckBusy, setOpenBotAgentCheckBusy] = useState(false)
@@ -308,7 +308,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         setAutomationPersistedResponseMode(profile?.responseMode ?? 'handoff_only')
         setAutomationPersistedOpenBotAgentId(profile?.openBotAgentId ?? '')
         setAutomationPersistedAgentProvider(profile?.agentProvider ?? 'google')
-        setAutomationPersistedAgentModel(profile?.agentModel ?? 'gemini-4-hydrogen')
+        setAutomationPersistedAgentModel(profile?.agentModel ?? 'gemini-3.8-flash')
         setOpenBotAgentStatus(null)
         setAutomationProfileSaved(Boolean(profile))
         setAutomationForm(profile ? {
@@ -334,7 +334,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         setAutomationPersistedResponseMode('handoff_only')
         setAutomationPersistedOpenBotAgentId('')
         setAutomationPersistedAgentProvider('google')
-        setAutomationPersistedAgentModel('gemini-4-hydrogen')
+        setAutomationPersistedAgentModel('gemini-3.8-flash')
         setOpenBotAgentStatus(null)
         setAutomationProfileSaved(false)
         setAutomationError(error instanceof Error ? error.message : 'Não foi possível carregar as regras da automação.')
@@ -1077,7 +1077,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     : automationForm.responseMode === 'openbot'
                       ? 'O agente dedicado redige a resposta em JSON com os fatos aprovados e o histórico recente sanitizado. O backend aplica as validações e é o único componente que pode enviar pela Evolution.'
                       : automationForm.responseMode === 'digibot_agent'
-                        ? 'O Cristhian roda no backend do DigiBusca, usa o histórico recente e fatos aprovados, pode registrar dados do projeto que o lead declarou e pedir sua entrada quando necessário. Conecte a API do provedor neste painel. No Google, o Gemini 4 Hydrogen usa raciocínio baixo para responder mais rápido; se falhar, o backend tenta o Gemini 3.8 Flash e depois o 3.5 Flash.'
+                        ? 'O Cristhian roda no backend do DigiBusca, usa o histórico recente e fatos aprovados, pode registrar dados do projeto que o lead declarou e pedir sua entrada quando necessário. Conecte a API do provedor neste painel; no Google, Gemini 3.5 Flash assume se o modelo principal falhar.'
                         : 'O Gemini recebe o histórico recente para responder com base nos fatos aprovados. Pedidos comerciais sem condições aprovadas, pedidos de atendimento humano e assuntos sensíveis ficam pendentes para você, sem aviso de transferência ao lead.'}</small>
                 </label>
                 {automationForm.responseMode === 'digibot_agent' && (
