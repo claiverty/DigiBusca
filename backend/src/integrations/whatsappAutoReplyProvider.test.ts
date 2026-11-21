@@ -101,7 +101,7 @@ test('responde a uma saudação simples sem esperar pelo Gemini', async () => {
   })
   assert.deepEqual(reply, {
     action: 'reply',
-    replyText: 'Boa tarde, como posso te ajudar?',
+    replyText: 'Opa, como posso te ajudar?',
     nextStage: 'identify_responsible',
   })
   assert.equal(calls, 0)
@@ -110,6 +110,10 @@ test('responde a uma saudação simples sem esperar pelo Gemini', async () => {
 test('responde a saudações sem horário sem se reapresentar e sem exagerar no tom', () => {
   const reply = simpleWhatsAppGreetingReply('Oi', 'identify_responsible')
   assert.equal(reply?.replyText, 'Oi, como posso te ajudar?')
+
+  assert.equal(simpleWhatsAppGreetingReply('eae', 'identify_responsible')?.replyText, 'E aí, como posso te ajudar?')
+  assert.equal(simpleWhatsAppGreetingReply('oioi', 'identify_responsible')?.replyText, 'Oii, como posso te ajudar?')
+  assert.equal(simpleWhatsAppGreetingReply('olá boa tarde', 'identify_responsible')?.replyText, 'Opa, como posso te ajudar?')
 
   const wellbeing = simpleWhatsAppGreetingReply('Tudo bem?', 'identify_responsible')
   assert.equal(wellbeing?.replyText, 'Tudo bem por aqui. Como posso te ajudar?')
@@ -135,5 +139,5 @@ test('uma saudação que ficou pendente recebe um pedido de desculpas pela demor
     inboundReceivedAt: new Date(now - 5 * 60_000).toISOString(),
     messages: [{ direction: 'inbound', body: 'Opa boa tarde' }],
   })
-  assert.equal(reply.replyText, 'Desculpa a demora. Boa tarde, como posso te ajudar?')
+  assert.equal(reply.replyText, 'Desculpa a demora. Opa, como posso te ajudar?')
 })
