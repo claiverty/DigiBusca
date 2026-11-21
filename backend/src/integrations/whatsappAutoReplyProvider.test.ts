@@ -111,8 +111,8 @@ test('responde a saudações sem horário sem se reapresentar e sem exagerar no 
   const reply = simpleWhatsAppGreetingReply('Oi', 'identify_responsible')
   assert.equal(reply?.replyText, 'Oi, como posso te ajudar?')
 
-  assert.equal(simpleWhatsAppGreetingReply('eae', 'identify_responsible')?.replyText, 'E aí, como posso te ajudar?')
-  assert.equal(simpleWhatsAppGreetingReply('oioi', 'identify_responsible')?.replyText, 'Oii, como posso te ajudar?')
+  assert.equal(simpleWhatsAppGreetingReply('eae', 'identify_responsible')?.replyText, 'Eae, como posso te ajudar?')
+  assert.equal(simpleWhatsAppGreetingReply('oioi', 'identify_responsible')?.replyText, 'Oioi, como posso te ajudar?')
   assert.equal(simpleWhatsAppGreetingReply('olá boa tarde', 'identify_responsible')?.replyText, 'Opa, como posso te ajudar?')
 
   const wellbeing = simpleWhatsAppGreetingReply('Tudo bem?', 'identify_responsible')

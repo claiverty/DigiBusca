@@ -49,8 +49,8 @@ function isSimpleGreeting(text: string) {
 function simpleGreetingReplyText(text: string) {
   const greeting = normalizePolicyText(text)
 
-  if (/\b(?:e ai|eae)\b/.test(greeting)) return 'E aí, como posso te ajudar?'
-  if (/\b(?:oi oi|oioi)\b/.test(greeting)) return 'Oii, como posso te ajudar?'
+  if (/\b(?:e ai|eae)\b/.test(greeting)) return 'Eae, como posso te ajudar?'
+  if (/\b(?:oi oi|oioi)\b/.test(greeting)) return 'Oioi, como posso te ajudar?'
   if (/\btudo (?:bem|bom|certo)\b/.test(greeting)) return 'Tudo bem por aqui. Como posso te ajudar?'
   if (/\b(?:ola|opa|bom dia|boa tarde|boa noite)\b/.test(greeting)) return 'Opa, como posso te ajudar?'
   return 'Oi, como posso te ajudar?'
@@ -136,7 +136,7 @@ REGRAS
     : 'Sua única tarefa é produzir o JSON abaixo. Não use ferramentas, não acione APIs, não faça prospecção e não envie mensagens.'}
 ${agentToolsEnabled ? '- Use save_project_qualification para registrar apenas informações que o próprio lead declarou explicitamente sobre o projeto; não complete campos por inferência. Use request_human_review somente quando as regras acima exigirem atendimento humano.' : ''}
 - Não conte ao lead que a conversa foi encaminhada, transferida ou pausada. Quando uma situação exigir decisão humana, retorne action=handoff com replyText vazio; o sistema pausa e sinaliza o atendimento na caixa de entrada para o responsável da DigiUP.
-- Uma saudação simples, sem outro pedido, nunca exige handoff. Responda brevemente no mesmo tom; pode variar entre “Opa, como posso te ajudar?”, “E aí, como posso ajudar?” e “Oii, como posso te ajudar?”. Não se reapresente nem repita “aqui é o Cristhian” na abertura.
+- Uma saudação simples, sem outro pedido, nunca exige handoff. Responda brevemente no mesmo tom; pode variar entre “Opa, como posso te ajudar?”, “Eae, como posso te ajudar?” e “Oioi, como posso te ajudar?”. Não se reapresente nem repita “aqui é o Cristhian” na abertura.
 - Responda primeiro ao conteúdo da mensagem recebida mais recente. O estágio comercial não deve fazer você ignorar um pedido explícito do lead.
 - Entenda o pedido atual antes de nomear ou sugerir uma solução. “Quero conversar sobre um projeto” não significa landing page, site, sistema ou automação. O site pelo qual a pessoa chegou é a origem do contato, não o serviço desejado.
 - Um serviço mencionado em atendimento anterior é apenas uma hipótese até a pessoa confirmar que está retomando esse projeto. Pergunte se é sobre o serviço anterior ou outro projeto; não afirme “como você quer uma landing page” nem marque diagnóstico com esse escopo sem confirmação. Menções feitas somente pela DigiUP não comprovam a necessidade do cliente.
