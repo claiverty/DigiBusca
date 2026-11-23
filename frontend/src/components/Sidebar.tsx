@@ -1,4 +1,4 @@
-import { Bookmark, Compass, LayoutDashboard, LogOut, Menu, MessageCircle, Plus, Wallet, X } from 'lucide-react'
+import { Bookmark, Bot, Compass, ExternalLink, LayoutDashboard, LogOut, Menu, MessageCircle, Plus, Wallet, X } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import './Sidebar.css'
 
@@ -11,6 +11,9 @@ const links = [
   { label: 'WhatsApp', icon: MessageCircle, view: 'whatsapp' as AppView },
   { label: 'Financeiro', icon: Wallet, view: 'finance' as AppView },
 ]
+
+const openClawControlUrl = 'https://openclaw.digiuptech.com.br'
+const openClawOwnerEmail = 'claiverty14@gmail.com'
 
 type SidebarProps = {
   activeView: AppView
@@ -30,6 +33,7 @@ export function Sidebar({ activeView, onNavigate, userEmail, onSignOut, onShowLa
   const isRailViewport = window.matchMedia('(min-width: 1025px) and (max-width: 1280px)').matches
   const navigationExpanded = isMobileOpen || (isRailViewport ? isPinnedOpen : !isCollapsed)
   const activeLabel = links.find((link) => link.view === activeView)?.label ?? 'DigiBusca'
+  const canOpenOpenClaw = userEmail.trim().toLowerCase() === openClawOwnerEmail
 
   useEffect(() => {
     if (!isAccountMenuOpen) return
@@ -118,6 +122,19 @@ export function Sidebar({ activeView, onNavigate, userEmail, onSignOut, onShowLa
           {isAccountMenuOpen && (
             <div className="account-menu-popover" id="account-menu">
               <span className="account-menu-email" title={userEmail}>{userEmail}</span>
+              {canOpenOpenClaw && (
+                <a
+                  className="account-menu-openclaw"
+                  href={openClawControlUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Abrir o painel do OpenClaw em uma nova aba"
+                >
+                  <Bot size={17} strokeWidth={1.8} aria-hidden="true" />
+                  <span>Painel do OpenClaw</span>
+                  <ExternalLink className="account-menu-openclaw-external" size={14} strokeWidth={1.8} aria-hidden="true" />
+                </a>
+              )}
               <button
                 className="account-menu-signout"
                 type="button"

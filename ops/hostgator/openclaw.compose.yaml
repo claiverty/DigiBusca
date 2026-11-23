@@ -26,8 +26,10 @@ services:
       - openclaw_auth_profiles:/home/node/.config/openclaw
       - ./openclaw-workspace/extensions/digibusca-sync:/home/node/.openclaw/extensions/digibusca-sync:ro
     networks:
-      - openclaw_agent
-      - openclaw_egress
+      openclaw_agent: {}
+      openclaw_egress: {}
+      openclaw_ui:
+        ipv4_address: 10.0.12.3
     read_only: true
     cap_drop: [ALL]
     security_opt:
@@ -49,6 +51,31 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  openclaw-panel-auth:
+    profiles: ["openclaw"]
+    image: ${OPENCLAW_PANEL_PROXY_IMAGE:?Pin the official Caddy image by immutable digest}
+    pull_policy: always
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 64m
+    cpus: 0.10
+    tmpfs:
+      - /tmp:size=8m,noexec,nosuid,nodev
+      - /data:size=8m,noexec,nosuid,nodev
+      - /config:size=8m,noexec,nosuid,nodev
+    env_file:
+      - path: /etc/digibusca/hostgator/openclaw-panel.env
+        format: raw
+    volumes:
+      - ./openclaw-panel.Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      openclaw_ui:
+        ipv4_address: 10.0.12.2
 
 networks:
   openclaw_egress:

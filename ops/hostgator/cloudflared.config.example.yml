@@ -4,4 +4,6 @@ protocol: quic
 ingress:
   - hostname: whatsapp-api.digiuptech.com.br
     service: http://digibusca-backend:3001
+  - hostname: openclaw.digiuptech.com.br
+    service: http://openclaw-panel-auth:8789
   - service: http_status:404

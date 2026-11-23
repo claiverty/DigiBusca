@@ -132,6 +132,7 @@ services:
     networks:
       - backend_origin
       - tunnel_egress
+      - openclaw_ui
 
 networks:
   backend_origin:
@@ -166,6 +167,14 @@ networks:
     driver: overlay
     attachable: true
     internal: true
+  openclaw_ui:
+    name: digibusca-openclaw-ui
+    driver: overlay
+    attachable: true
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.0.12.0/24
 volumes:
   evolution_instances:
     name: digibusca-hostgator-evolution-instances

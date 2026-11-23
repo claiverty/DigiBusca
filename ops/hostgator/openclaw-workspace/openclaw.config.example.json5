@@ -3,9 +3,17 @@
     mode: "local",
     bind: "lan",
     port: 18789,
+    publicOrigin: "https://openclaw.digiuptech.com.br",
     auth: {
       mode: "token",
       token: "${OPENCLAW_GATEWAY_TOKEN}",
+    },
+    trustedProxies: ["10.0.12.2"],
+    controlUi: {
+      allowedOrigins: [
+        "https://openclaw.digiuptech.com.br",
+        "http://127.0.0.1:18790",
+      ],
     },
   },
   agents: {

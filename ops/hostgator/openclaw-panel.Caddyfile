@@ -1,0 +1,19 @@
+{
+	admin off
+	auto_https off
+}
+
+:8789 {
+	basic_auth {
+		claiverty14@gmail.com {$OPENCLAW_UI_PASSWORD_HASH}
+	}
+
+	reverse_proxy openclaw-gateway:18789 {
+		header_up X-Forwarded-Proto https
+		header_up -X-Real-IP
+		header_up -X-Forwarded-User
+		header_up -X-Forwarded-Email
+		header_up -Authorization
+		header_up -Proxy-Authorization
+	}
+}
