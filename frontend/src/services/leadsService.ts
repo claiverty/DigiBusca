@@ -30,6 +30,9 @@ export type SavedLeadState = {
   whatsappConsentStatus: 'unknown' | 'opted_in' | 'opted_out'
   whatsappConsentSource?: string
   whatsappConsentAt?: string
+  whatsappOutboundAuthorizationStatus: 'not_authorized' | 'authorized_by_owner'
+  whatsappOutboundAuthorizationSource?: string
+  whatsappOutboundAuthorizationAt?: string
   updatedAt: string
 }
 

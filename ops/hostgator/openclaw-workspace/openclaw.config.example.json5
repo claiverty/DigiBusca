@@ -1,0 +1,87 @@
+{
+  mcp: {
+    servers: {
+      digibusca: {
+        url: "http://digibusca-backend:3001/mcp",
+        transport: "streamable-http",
+        enabled: true,
+        connectionTimeoutMs: 5000,
+        requestTimeoutMs: 20000,
+        headers: {
+          Authorization: "Bearer ${OPENCLAW_MCP_TOKEN}",
+        },
+        toolFilter: {
+          include: [
+            "get_runtime_status",
+            "search_leads_without_site",
+            "list_leads",
+            "update_lead",
+            "queue_prospect",
+          ],
+        },
+      },
+    },
+  },
+  plugins: {
+    load: {
+      paths: ["/home/node/.openclaw/extensions/digibusca-sync"],
+    },
+    entries: {
+      "digibusca-sync": {
+        enabled: true,
+        hooks: {
+          allowConversationAccess: true,
+        },
+      },
+    },
+  },
+  channels: {
+    whatsapp: {
+      enabled: true,
+      // Leads podem iniciar uma conversa por DM; grupos permanecem bloqueados.
+      dmPolicy: "open",
+      allowFrom: ["*"],
+      groupPolicy: "disabled",
+    },
+  },
+  session: {
+    // Cada cliente recebe seu próprio contexto de conversa.
+    dmScope: "per-channel-peer",
+  },
+  agents: {
+    defaults: {
+      tools: {
+        profile: "messaging",
+        deny: [
+          "group:runtime",
+          "group:fs",
+          "group:web",
+          "group:automation",
+          "group:ui",
+          "group:nodes",
+          "group:sessions",
+          "group:agents",
+          "gateway",
+        ],
+      },
+    },
+  },
+  tools: {
+    toolsBySender: {
+      "*": {
+        deny: ["group:plugins"],
+      },
+      // Troque pelo celular pessoal do titular, no formato e164:+55DDDNUMERO.
+      "e164:+55XXXXXXXXXXX": {
+        alsoAllow: ["group:plugins"],
+      },
+    },
+  },
+  hooks: {
+    enabled: true,
+    path: "/hooks",
+    token: "${OPENCLAW_GATEWAY_HOOK_TOKEN}",
+    allowedAgentIds: ["main"],
+    allowRequestSessionKey: false,
+  },
+}

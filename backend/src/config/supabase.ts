@@ -21,6 +21,15 @@ export type RuntimeEnvironment = {
   WHATSAPP_DIGIBOT_AGENT_RUNTIME_ENABLED?: string
   WHATSAPP_OPENBOT_BRIDGE_URL?: string
   WHATSAPP_OPENBOT_BRIDGE_TOKEN?: string
+  WHATSAPP_OPENCLAW_RUNTIME_ENABLED?: string
+  OPENCLAW_GATEWAY_HOOK_URL?: string
+  OPENCLAW_GATEWAY_HOOK_TOKEN?: string
+  OPENCLAW_CRISTHIAN_AGENT_ID?: string
+  OPENCLAW_MCP_TOKEN?: string
+  OPENCLAW_BRIDGE_TOKEN?: string
+  OPENCLAW_OWNER_USER_ID?: string
+  OPENCLAW_PHONE_NUMBER_ID?: string
+  OPENCLAW_OPERATOR_E164?: string
   DIGIBUSCA_APP_ORIGINS?: string
   EVOLUTION_API_URL?: string
   EVOLUTION_API_KEY?: string
@@ -168,6 +177,10 @@ export function getWhatsAppEvolutionSetupStatus() {
     openBotReplyRuntimeEnabled: isWhatsAppOpenBotReplyRuntimeEnabled(),
     openBotBridgeConfigured: Boolean(getWhatsAppOpenBotBridgeConfig()),
     openBotAgentSafetyConfirmed: environment().WHATSAPP_OPENBOT_AGENT_SAFETY_CONFIRMED?.trim().toLowerCase() === 'true',
+    openClawRuntimeEnabled: isWhatsAppOpenClawRuntimeEnabled(),
+    openClawMcpConfigured: Boolean(getOpenClawMcpConfig()),
+    openClawBridgeConfigured: Boolean(getOpenClawBridgeConfig()),
+    openClawProspectingDispatcherConfigured: isWhatsAppOpenClawProspectingRuntimeEnabled(),
   }
 }
 
@@ -181,6 +194,115 @@ export function isWhatsAppAutomationRuntimeEnabled() {
 
 export function isWhatsAppProspectingRuntimeEnabled() {
   return isWhatsAppIntegrationEnabled() && environment().WHATSAPP_PROSPECTING_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
+}
+
+export type OpenClawMcpConfig = {
+  token: string
+  ownerUserId: string
+  phoneNumberId: string
+  operatorE164: string
+}
+
+export type OpenClawBridgeConfig = OpenClawMcpConfig & { bridgeToken: string }
+
+export type OpenClawGatewayHookConfig = {
+  url: string
+  readinessUrl: string
+  token: string
+  agentId: string
+}
+
+function validOpenClawIdentity() {
+  const values = environment()
+  const ownerUserId = values.OPENCLAW_OWNER_USER_ID?.trim().toLowerCase()
+  const phoneNumberId = values.OPENCLAW_PHONE_NUMBER_ID?.trim()
+  const operatorDigits = values.OPENCLAW_OPERATOR_E164?.replace(/\D/g, '')
+  if (!ownerUserId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(ownerUserId)) return undefined
+  if (!phoneNumberId || !/^[-_a-zA-Z0-9]{1,128}$/.test(phoneNumberId)) return undefined
+  if (!operatorDigits || operatorDigits.length < 10 || operatorDigits.length > 15) return undefined
+  return { ownerUserId, phoneNumberId, operatorE164: `+${operatorDigits}` }
+}
+
+export function getOpenClawMcpConfig(): OpenClawMcpConfig | undefined {
+  const token = environment().OPENCLAW_MCP_TOKEN?.trim()
+  const identity = validOpenClawIdentity()
+  if (!identity || !token || !/^[a-f0-9]{64}$/i.test(token)) return undefined
+  return { ...identity, token }
+}
+
+export function getOpenClawBridgeConfig(): OpenClawBridgeConfig | undefined {
+  const base = getOpenClawMcpConfig()
+  const bridgeToken = environment().OPENCLAW_BRIDGE_TOKEN?.trim()
+  if (!base || !bridgeToken || !/^[a-f0-9]{64}$/i.test(bridgeToken)) return undefined
+  return { ...base, bridgeToken }
+}
+
+function constantTimeTokenMatches(expected: string | undefined, supplied: string | undefined) {
+  if (!expected || !supplied) return false
+  let difference = expected.length ^ supplied.length
+  const length = Math.max(expected.length, supplied.length)
+  for (let index = 0; index < length; index += 1) {
+    difference |= (expected.charCodeAt(index) || 0) ^ (supplied.charCodeAt(index) || 0)
+  }
+  return difference === 0
+}
+
+export function openClawMcpAuthorizationMatches(authorization: string | undefined) {
+  const config = getOpenClawMcpConfig()
+  const match = authorization?.match(/^Bearer\s+(.+)$/i)
+  return Boolean(config && match && constantTimeTokenMatches(config.token, match[1]))
+}
+
+export function openClawBridgeAuthorizationMatches(suppliedToken: string | undefined) {
+  const config = getOpenClawBridgeConfig()
+  return Boolean(config && constantTimeTokenMatches(config.bridgeToken, suppliedToken))
+}
+
+export function isWhatsAppOpenClawRuntimeEnabled() {
+  return isWhatsAppIntegrationEnabled() &&
+    environment().WHATSAPP_OPENCLAW_RUNTIME_ENABLED?.trim().toLowerCase() === 'true' &&
+    Boolean(getOpenClawMcpConfig()) && Boolean(getOpenClawBridgeConfig())
+}
+
+export function getOpenClawGatewayHookConfig(): OpenClawGatewayHookConfig | undefined {
+  const values = environment()
+  const rawUrl = values.OPENCLAW_GATEWAY_HOOK_URL?.trim()
+  const token = values.OPENCLAW_GATEWAY_HOOK_TOKEN?.trim()
+  const configuredAgentId = values.OPENCLAW_CRISTHIAN_AGENT_ID?.trim() || 'main'
+  if (!isWhatsAppOpenClawRuntimeEnabled() || !rawUrl || !token || !/^[a-f0-9]{64}$/i.test(token)) return undefined
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(configuredAgentId)) return undefined
+
+  try {
+    const url = new URL(rawUrl)
+    const hostname = url.hostname.toLowerCase()
+    if (
+      url.protocol !== 'http:' || hostname !== 'openclaw-gateway' || url.port !== '18789' ||
+      url.pathname.replace(/\/+$/, '') !== '/hooks/agent' || url.search || url.hash || url.username || url.password
+    ) return undefined
+    return {
+      url: url.toString().replace(/\/$/, ''),
+      readinessUrl: new URL('/readyz', url).toString(),
+      token,
+      agentId: configuredAgentId,
+    }
+  } catch {
+    return undefined
+  }
+}
+
+export async function isOpenClawGatewayReady() {
+  const hook = getOpenClawGatewayHookConfig()
+  if (!hook) return false
+  try {
+    const response = await fetch(hook.readinessUrl, { signal: AbortSignal.timeout(2_000) })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+export function isWhatsAppOpenClawProspectingRuntimeEnabled() {
+  return isWhatsAppOpenClawRuntimeEnabled() && Boolean(getOpenClawGatewayHookConfig())
 }
 
 export function getWhatsAppOpenBotBridgeConfig() {

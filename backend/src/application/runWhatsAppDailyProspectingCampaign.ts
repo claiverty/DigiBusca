@@ -3,6 +3,7 @@ import type { SupabaseStore, SavedLeadState } from '../data/supabaseStore.js'
 import type { WhatsAppProspectingStore, WhatsAppDailyProspectingCampaign } from '../data/whatsappProspectingStore.js'
 import type { LeadProvider } from './searchLeads.js'
 import { executeSearchLeads } from './searchLeads.js'
+import { buildWhatsAppProspectingOpening } from '../domain/whatsappProspectingOpening.js'
 
 const maxSearchPages = 3
 
@@ -11,16 +12,6 @@ export type DailyProspectingCampaignResult = {
   searchedCount: number
   savedCount: number
   queuedCount: number
-}
-
-function prospectingOpening(lead: Lead, index: number) {
-  const name = lead.name.trim().replace(/[\r\n]+/g, ' ').slice(0, 100)
-  const messages = [
-    `Oi, aqui é o Cristhian da DigiUP. Quem cuida da presença digital da ${name}?`,
-    `Bom dia, aqui é o Cristhian, da DigiUP. Falo com quem cuida do site e do digital da ${name}?`,
-    `Oi, Cristhian da DigiUP por aqui. Você consegue me orientar sobre quem cuida da presença digital da ${name}?`,
-  ]
-  return messages[index % messages.length]
 }
 
 async function saveWithLimitedConcurrency(
@@ -53,6 +44,7 @@ export async function runWhatsAppDailyProspectingCampaign(input: {
   city: string
   segment: string
   phoneNumberId?: string
+  queuePlatformType?: 'EVOLUTION_API' | 'OPENCLAW_WEB'
   queueSendingAvailable: boolean
   campaign: WhatsAppDailyProspectingCampaign
   provider: LeadProvider
@@ -97,14 +89,17 @@ export async function runWhatsAppDailyProspectingCampaign(input: {
       for (let index = 0; index < savedResults.length && availableSlots > 0; index += 1) {
         const { lead, saved } = savedResults[index]
         if (
-          !saved || saved.status !== 'Novo' || saved.whatsappConsentStatus !== 'opted_in' ||
-          !saved.whatsappConsentSource?.trim() || !saved.whatsappConsentAt || !lead.phone.trim()
+          !saved || saved.status !== 'Novo' || saved.whatsappConsentStatus === 'opted_out' || !lead.phone.trim() ||
+          !(
+            (saved.whatsappConsentStatus === 'opted_in' && Boolean(saved.whatsappConsentSource?.trim()) && Boolean(saved.whatsappConsentAt)) ||
+            (saved.whatsappOutboundAuthorizationStatus === 'authorized_by_owner' && Boolean(saved.whatsappOutboundAuthorizationSource?.trim()) && Boolean(saved.whatsappOutboundAuthorizationAt))
+          )
         ) continue
 
-        const message = prospectingOpening(lead, index)
+        const message = buildWhatsAppProspectingOpening(lead.name, index)
         try {
           await input.persistenceStore.saveLeadState(input.accessToken, input.userId, lead.id, undefined, { draftMessage: message })
-          await prospectingStore.enqueueNewLead(input.userId, input.phoneNumberId, lead.id, message)
+          await prospectingStore.enqueueNewLead(input.userId, input.phoneNumberId, lead.id, message, input.queuePlatformType)
           queuedCount += 1
           availableSlots -= 1
         } catch {

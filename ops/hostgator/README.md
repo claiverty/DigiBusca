@@ -14,7 +14,7 @@
 - As migrations `016_whatsapp_openbot_replies.sql` a `021_whatsapp_ai_provider_connections.sql` foram aplicadas no Supabase de produção até 20/11/2026; a 021 cria as conexões protegidas de IA via Supabase Vault. A 018 restringe novos contatos a dias úteis, das 9h às 14h em `America/Sao_Paulo`, distribuindo os envios até o limite configurado e contando mensagens em envio, enviadas ou de resultado incerto.
 - A instância da Evolution API na VPS está conectada (`open`). O runtime do Cristhian permanece na VPS. O provedor e modelo podem ser conectados no painel DigiBusca; credenciais novas ficam no Supabase Vault e são lidas pelo backend da VPS. A chave Gemini em `backend.env` continua como configuração global legada até a migração pelo painel; depois da conexão por usuário, essa conexão tem prioridade e alterações pausam o perfil e exigem nova aprovação.
 - `Local scripts` está habilitado somente para Cristhian e a ponte privada do OpenBot está configurada. Os runtimes de resposta e prospecção estão habilitados; a fila de prospecção usa limite diário de 20 e a janela de dias úteis das 9h às 14h. O envio automático despacha itens já enfileirados; a seleção, a mensagem e a inclusão na fila ainda são feitas pela tela.
-- O titular da conta confirmou que os leads retornados pela busca do DigiBusca são autorizados para contato. O backend registra essa origem automaticamente nos resultados Google Maps salvos e nos leads antigos da mesma origem que ainda estão como `unknown`; nunca altera `opted_out`. Esse registro autoriza o lead no fluxo da conta, mas não significa que o Google Places forneça um campo de consentimento.
+- O titular da conta autorizou o primeiro contato com leads retornados pela busca DigiBusca. O modelo preparado registra essa decisão em `whatsapp_outbound_authorization_*`, separada do consentimento declarado pelo destinatário. Descadastros continuam bloqueando o contato; a migration 022 converte o marcador legado sem tratá-lo como consentimento do destinatário.
 - A rotina local do DigiBot Ops e a rotina remota do agente Ops estão ativas diariamente às 09:00 (`America/Sao_Paulo`). A rotina remota avisa 14, 7, 3 e 1 dia antes e no dia do vencimento previsto para 16/02/2027; se o OpenBot for interrompido no horário, roda uma vez quando reabrir. Ela não lê nem armazena a chave.
 
 ## Arquivos
@@ -31,21 +31,31 @@
 - `dokploy-mcp-firewall.sh` e `.service`: política estreita e reaplicável após reinícios do Docker.
 - `dokploy-mcp-access.md`: topologia, ativação, verificações e reversão.
 - `dokploy-mcp-key-rotation.md`: processo dos avisos e troca de chave.
-- `backup-evolution.sh`, timer e instalador: exportam o PostgreSQL, arquivam as sessões da Evolution, os dados dos agentes OpenBot Ops e Cristhian e as configurações privadas de recuperação, criptografam tudo com `age`, validam os artefatos e mantêm 14 dias de cópias locais. O timer executa diariamente às 03:00 (horário de São Paulo).
+- `backup-evolution.sh`, timer e instalador: exportam o PostgreSQL, arquivam as sessões da Evolution, incluem os dados de OpenBot que ainda estiverem online e, quando instalado, criam o backup consistente do OpenClaw pelo CLI oficial. Os arquivos são criptografados com `age`, validados e mantidos por 14 dias. O timer executa diariamente às 03:00 (horário de São Paulo).
 - `backend.env.example`, `evolution-api.env.example`, `evolution-db.env.example`, `dokploy-mcp.env.example` e `compose.env.example`: modelos sem credenciais.
+- `openclaw.compose.yaml`: serviço opcional do Gateway principal do Cristhian, sem porta pública e conectado ao backend pela rede privada. O arquivo ainda não foi aplicado na VPS.
+- `openclaw.env.example`, `openclaw-workspace/AGENTS.md` e `openclaw-migration.md`: modelo sem credenciais, perfil de conversa PT-BR e plano da migração reversível.
 
 ## Segurança operacional
 
 - Nunca adicionar `.env` preenchidos, tokens, senhas, QR codes, chaves Dokploy ou dados de clientes ao Git.
-- Os dumps, sessões do WhatsApp, dados do OpenBot e arquivos de configuração são sensíveis. O backup diário fica criptografado em `/var/backups/digibusca/evolution`, `root:root`, modo `0700`; a chave privada de recuperação fica fora da VPS. O backup diário local cobre falha de aplicativo/volume, mas não substitui uma cópia fora da VPS. O plano gratuito da HostGator aparece semanal no painel e pode ser configurado para guardar somente os arquivos `.age` criptografados; a retenção externa precisa ser verificada separadamente.
+- Os dumps, sessões do WhatsApp, dados de OpenBot/OpenClaw e arquivos de configuração são sensíveis. O backup diário fica criptografado em `/var/backups/digibusca/evolution`, `root:root`, modo `0700`; a chave privada de recuperação fica fora da VPS. O backup diário local cobre falha de aplicativo/volume, mas não substitui uma cópia fora da VPS. O plano gratuito da HostGator aparece semanal no painel e pode ser configurado para guardar somente os arquivos `.age` criptografados; a retenção externa precisa ser verificada separadamente.
 - Não colocar service-role Supabase, token Cloudflare ou API key Dokploy no OpenBot.
 - A chave privada `HOSTGATOR_VPS_DEPLOY_KEY` e a chave pública pinada `HOSTGATOR_VPS_KNOWN_HOSTS` ficam somente nos secrets do GitHub. A chave autorizada na VPS usa `restrict` e `command=` para permitir apenas o script de deploy, sem shell ou encaminhamento SSH.
 - O MCP não publica porta e não recebe rota pública. O endpoint HTTP do MCP não autentica o cliente, portanto o acesso é limitado por firewall a um contêiner OpenBot Ops dedicado.
 - O agente Cristhian não recebe o MCP; Computer Use continua desligado e `Local scripts` fica habilitado somente nesse agente para a ponte privada, com aprovações de ferramenta mantidas. A instância segue isolada do endpoint de Dokploy.
 - Manter os runtimes ativos, mas só validar envios depois de parear a instância da VPS e confirmar a conexão `open`.
 
+## Migração para OpenClaw — em preparação
+
+- O OpenClaw deve tornar-se o runtime principal do Cristhian, conectado ao WhatsApp Web por QR. O serviço, plugin de sincronização, MCP privado e registro da conexão no painel estão preparados no repositório; ainda não foram instalados na VPS.
+- Em 24/11, o console da HostGator mostrou repetidos encerramentos por OOM de processos OpenBot e OpenCode. Antes de subir o OpenClaw, medir a memória no host e não manter os runtimes OpenBot/OpenCode pesados ativos ao mesmo tempo; preservar volumes e backup para rollback. Usar a imagem pré-compilada fixada em `compose.env` — não compilar OpenClaw na VPS de 4 GB.
+- O DigiBusca backend continua responsável por dados, autorização do titular, consentimento declarado pelo destinatário, opt-out, estágios, limites de prospecção e fila. O plugin exige autorização do backend antes do envio; a integração ainda depende da migration 022, do QR e de validação no Gateway real.
+- O Gateway permanece sem porta pública; o agente chega ao WhatsApp e ao backend pelas redes privada e de saída definidas no override opcional. O MCP administrativo do Dokploy não deve ser ligado ao atendimento.
+- Seguir `openclaw-migration.md` para a ordem de backup, instalação, QR, troca do despachante e rollback. Não remover os volumes OpenBot antes da validação e da retenção do backup.
+
 ## Próximas etapas
 
 1. Acompanhar a próxima conversa recebida para confirmar o ciclo completo do agente com a Evolution.
-2. Enfileirar apenas leads com autorização explícita registrada; resultados do Google Places não indicam consentimento para WhatsApp.
+2. A busca do DigiBusca registra a autorização operacional do titular para primeiro contato. Isso não é consentimento declarado pelo destinatário; opt-outs e limites continuam bloqueando envios.
 3. Configurar uma cópia externa para os arquivos `.age`. O backup diário atual fica criptografado na VPS; o plano gratuito cWatch aparece semanal e ainda precisa ser configurado/verificado para incluir essa pasta.

@@ -16,6 +16,11 @@ export type WhatsAppEvolutionSetupStatus = {
   openBotReplyRuntimeEnabled: boolean
   openBotBridgeConfigured: boolean
   openBotAgentSafetyConfirmed: boolean
+  openClawRuntimeEnabled: boolean
+  openClawMcpConfigured: boolean
+  openClawBridgeConfigured: boolean
+  openClawProspectingDispatcherConfigured: boolean
+  openClawStorageReady: boolean
 }
 
 export type WhatsAppProspectingSettings = {
@@ -68,6 +73,7 @@ export type WhatsAppProspectingDashboard = {
   campaign: WhatsAppDailyProspectingCampaign
   localRuntimeEnabled: boolean
   evolutionConfigured: boolean
+  openClawProspectingDispatcherReady: boolean
 }
 
 export type WhatsAppAutomationProfile = {
@@ -77,7 +83,7 @@ export type WhatsAppAutomationProfile = {
   serviceSummary: string
   approvedFacts: string
   escalationContact: string
-  responseMode: 'handoff_only' | 'gemini' | 'openbot' | 'digibot_agent'
+  responseMode: 'handoff_only' | 'gemini' | 'openbot' | 'digibot_agent' | 'openclaw'
   openBotAgentId: string
   agentProvider: 'google' | 'anthropic' | 'openai-compatible'
   agentModel: string
@@ -193,6 +199,23 @@ export async function getWhatsAppConnections(): Promise<WhatsAppConnection[]> {
   return getWhatsAppData<WhatsAppConnection[]>('/whatsapp/connections')
 }
 
+export async function registerOpenClawWhatsAppConnection(): Promise<Pick<WhatsAppConnection, 'phoneNumberId' | 'platformType' | 'connectionState'>> {
+  let response: Response
+  try {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/connections/openclaw`, { method: 'POST' })
+  } catch {
+    throw new Error('Não foi possível conectar ao backend para registrar o pareamento do OpenClaw.')
+  }
+  const payload = (await response.json().catch(() => null)) as {
+    data?: Pick<WhatsAppConnection, 'phoneNumberId' | 'platformType' | 'connectionState'>
+    error?: string
+  } | null
+  if (!response.ok || !payload?.data) {
+    throw new Error(payload?.error ?? 'Não foi possível registrar o pareamento do OpenClaw.')
+  }
+  return payload.data
+}
+
 export async function getWhatsAppProspectingDashboard(): Promise<WhatsAppProspectingDashboard> {
   return getWhatsAppData<WhatsAppProspectingDashboard>('/whatsapp/prospecting')
 }
@@ -229,7 +252,7 @@ export async function saveWhatsAppProspectingSettings(input: Pick<WhatsAppProspe
   return payload.data
 }
 
-export async function enqueueWhatsAppNewLead(input: { phoneNumberId: string; leadId: string; message: string }): Promise<WhatsAppProspectingQueueItem> {
+export async function enqueueWhatsAppNewLead(input: { phoneNumberId: string; leadId: string; message?: string }): Promise<WhatsAppProspectingQueueItem> {
   let response: Response
   try {
     response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/prospecting/queue`, {

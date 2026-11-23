@@ -54,7 +54,7 @@ function mapAutomationProfile(row: Record<string, unknown>): WhatsAppAutomationP
     serviceSummary: row.service_summary as string,
     approvedFacts: row.approved_facts as string,
     escalationContact: row.escalation_contact as string,
-    responseMode: row.response_mode === 'gemini' || row.response_mode === 'openbot' || row.response_mode === 'digibot_agent' ? row.response_mode : 'handoff_only',
+    responseMode: row.response_mode === 'gemini' || row.response_mode === 'openbot' || row.response_mode === 'digibot_agent' || row.response_mode === 'openclaw' ? row.response_mode : 'handoff_only',
     openBotAgentId: typeof row.openbot_agent_id === 'string' ? row.openbot_agent_id : '',
     agentProvider: row.agent_provider === 'anthropic' || row.agent_provider === 'openai-compatible' ? row.agent_provider : 'google',
     agentModel: typeof row.agent_model === 'string' && row.agent_model ? row.agent_model : 'gemini-3.8-flash',
@@ -92,7 +92,7 @@ export type WhatsAppAutomationRunRecord = {
   status: 'processing' | 'sent' | 'skipped' | 'needs_human' | 'failed'
   reason: string | null
   replyProviderMessageId: string | null
-  responseProvider: 'gemini' | 'openbot' | 'digibot_agent' | null
+  responseProvider: 'gemini' | 'openbot' | 'digibot_agent' | 'openclaw' | null
   openBotAgentId: string | null
   openBotClientMessageId: string | null
   openBotPrompt: string | null
@@ -222,6 +222,43 @@ export class WhatsAppStore {
     throwIfError(saved.error, 'Não foi possível associar a instância Evolution à conta DigiBusca.')
   }
 
+  async saveOpenClawConnection(userId: string, phoneNumberId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const [existing, pendingQueue] = await Promise.all([
+      admin.from('whatsapp_phone_number_connections')
+        .select('user_id')
+        .eq('phone_number_id', phoneNumberId)
+        .maybeSingle(),
+      admin.from('whatsapp_prospecting_queue')
+        .select('id')
+        .eq('phone_number_id', phoneNumberId)
+        .in('status', ['queued', 'sending'])
+        .limit(1),
+    ])
+    throwIfError(existing.error, 'Não foi possível verificar a conexão WhatsApp existente.')
+    throwIfError(pendingQueue.error, 'Não foi possível verificar a fila antes da troca de transporte.')
+    if (existing.data && (existing.data as { user_id: string }).user_id !== userId) {
+      throw new WhatsAppConnectionConflictError()
+    }
+    if ((pendingQueue.data ?? []).length > 0) {
+      throw new Error('Cancele ou conclua os itens pendentes da fila Evolution antes de registrar o OpenClaw.')
+    }
+
+    const saved = await admin.from('whatsapp_phone_number_connections').upsert({
+      user_id: userId,
+      phone_number_id: phoneNumberId,
+      waba_id: null,
+      display_phone_number: null,
+      is_on_biz_app: false,
+      platform_type: 'OPENCLAW_WEB',
+      access_token_ciphertext: null,
+      access_token_iv: null,
+      access_token_expires_at: null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'phone_number_id' })
+    throwIfError(saved.error, 'Não foi possível registrar a sessão WhatsApp Web do OpenClaw no DigiBusca.')
+  }
+
   async getEvolutionInstanceName(userId: string) {
     const admin = createWhatsAppWebhookSupabaseClient()
     const result = await admin.from('whatsapp_phone_number_connections')
@@ -231,6 +268,27 @@ export class WhatsAppStore {
     return (result.data as { phone_number_id: string } | null)?.phone_number_id
   }
 
+  async getConnectionPlatformType(userId: string, phoneNumberId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_phone_number_connections')
+      .select('platform_type')
+      .eq('user_id', userId)
+      .eq('phone_number_id', phoneNumberId)
+      .maybeSingle()
+    throwIfError(result.error, 'Não foi possível validar o transporte do WhatsApp conectado.')
+    return (result.data as { platform_type: string | null } | null)?.platform_type ?? undefined
+  }
+
+  async getPlatformTypeForPhoneNumberId(phoneNumberId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_phone_number_connections')
+      .select('platform_type')
+      .eq('phone_number_id', phoneNumberId)
+      .maybeSingle()
+    throwIfError(result.error, 'Não foi possível validar o transporte do WhatsApp recebido.')
+    return (result.data as { platform_type: string | null } | null)?.platform_type ?? undefined
+  }
+
   async isAutomationStorageReady() {
     try {
       const admin = createWhatsAppWebhookSupabaseClient()
@@ -238,6 +296,19 @@ export class WhatsAppStore {
       if (result.error) return false
       const runs = await admin.from('whatsapp_automation_runs').select('id, response_provider, openbot_delivery_id').limit(0)
       return !runs.error
+    } catch {
+      return false
+    }
+  }
+
+  async isOpenClawStorageReady() {
+    try {
+      const admin = createWhatsAppWebhookSupabaseClient()
+      const [connection, runs] = await Promise.all([
+        admin.from('whatsapp_phone_number_connections').select('platform_type').limit(0),
+        admin.from('whatsapp_automation_runs').select('openclaw_run_id').limit(0),
+      ])
+      return !connection.error && !runs.error
     } catch {
       return false
     }
@@ -499,12 +570,136 @@ export class WhatsAppStore {
     }
   }
 
+  async claimOpenClawAutomationRun(
+    userId: string,
+    phoneNumberId: string,
+    conversationId: string,
+    inboundProviderMessageId: string,
+    openClawRunId: string,
+    openClawSessionKey?: string,
+  ) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_automation_runs')
+      .insert({
+        user_id: userId,
+        phone_number_id: phoneNumberId,
+        conversation_id: conversationId,
+        inbound_provider_message_id: inboundProviderMessageId,
+        response_provider: 'openclaw',
+        openclaw_run_id: openClawRunId,
+        openclaw_session_key: openClawSessionKey ?? null,
+        status: 'processing',
+      })
+      .select('id')
+      .maybeSingle()
+    if (result.error?.code === '23505') return undefined
+    throwIfError(result.error, 'Não foi possível registrar a entrada do Cristhian no DigiBusca.')
+    return (result.data as { id: string } | null)?.id
+  }
+
+  async reserveOpenClawReplySend(
+    userId: string,
+    phoneNumberId: string,
+    openClawRunId: string | undefined,
+    openClawSessionKey: string | undefined,
+    conversationId: string,
+    inboundProviderMessageId: string,
+  ) {
+    if (!openClawRunId && !openClawSessionKey) return false
+    if (!conversationId || !inboundProviderMessageId) return false
+    const admin = createWhatsAppWebhookSupabaseClient()
+    let pendingQuery = admin.from('whatsapp_automation_runs')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('phone_number_id', phoneNumberId)
+      .eq('conversation_id', conversationId)
+      .eq('inbound_provider_message_id', inboundProviderMessageId)
+      .eq('response_provider', 'openclaw')
+      .eq('status', 'processing')
+      .is('openclaw_send_reserved_at', null)
+    if (openClawRunId) pendingQuery = pendingQuery.eq('openclaw_run_id', openClawRunId)
+    else pendingQuery = pendingQuery.eq('openclaw_session_key', openClawSessionKey).order('created_at', { ascending: false }).limit(1)
+    const pendingResult = await pendingQuery.maybeSingle()
+    throwIfError(pendingResult.error, 'Não foi possível localizar a resposta pendente do Cristhian.')
+    const runId = (pendingResult.data as { id: string } | null)?.id
+    if (!runId) return false
+    const result = await admin.from('whatsapp_automation_runs')
+      .update({ openclaw_send_reserved_at: new Date().toISOString() })
+      .eq('id', runId)
+      .eq('status', 'processing')
+      .is('openclaw_send_reserved_at', null)
+      .select('id')
+    throwIfError(result.error, 'Não foi possível autorizar a resposta do Cristhian.')
+    return (result.data ?? []).length === 1
+  }
+
+  async settleOpenClawAutomationRun(
+    userId: string,
+    phoneNumberId: string,
+    openClawRunId: string,
+    result: { success: boolean; providerMessageId?: string; replyBody?: string },
+  ) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const now = new Date().toISOString()
+    const updated = await admin.from('whatsapp_automation_runs')
+      .update({
+        status: result.success ? 'sent' : 'failed',
+        reason: result.success ? null : 'openclaw_delivery_failed',
+        ...(result.success && result.providerMessageId ? { reply_provider_message_id: result.providerMessageId } : {}),
+        ...(result.success && result.replyBody ? { generated_reply_body: result.replyBody.slice(0, 8_000) } : {}),
+        completed_at: now,
+      })
+      .eq('user_id', userId)
+      .eq('phone_number_id', phoneNumberId)
+      .eq('response_provider', 'openclaw')
+      .eq('openclaw_run_id', openClawRunId)
+      .eq('status', 'processing')
+      .select('id')
+    throwIfError(updated.error, 'Não foi possível registrar o resultado da resposta do Cristhian.')
+    return (updated.data ?? []).length > 0
+  }
+
+  async settleLatestOpenClawAutomationRunBySession(
+    userId: string,
+    phoneNumberId: string,
+    openClawSessionKey: string,
+    result: { success: boolean; providerMessageId?: string; replyBody?: string },
+  ) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const pending = await admin.from('whatsapp_automation_runs')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('phone_number_id', phoneNumberId)
+      .eq('response_provider', 'openclaw')
+      .eq('openclaw_session_key', openClawSessionKey)
+      .eq('status', 'processing')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    throwIfError(pending.error, 'Não foi possível localizar a resposta pendente do Cristhian.')
+    const runId = (pending.data as { id: string } | null)?.id
+    if (!runId) return false
+    const updated = await admin.from('whatsapp_automation_runs')
+      .update({
+        status: result.success ? 'sent' : 'failed',
+        reason: result.success ? null : 'openclaw_delivery_failed',
+        ...(result.success && result.providerMessageId ? { reply_provider_message_id: result.providerMessageId } : {}),
+        ...(result.success && result.replyBody ? { generated_reply_body: result.replyBody.slice(0, 8_000) } : {}),
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', runId)
+      .eq('status', 'processing')
+      .select('id')
+    throwIfError(updated.error, 'Não foi possível registrar o resultado da resposta do Cristhian.')
+    return (updated.data ?? []).length > 0
+  }
+
   async claimAutomationRun(
     userId: string,
     phoneNumberId: string,
     conversationId: string,
     inboundProviderMessageId: string,
-    responseProvider?: 'gemini' | 'openbot' | 'digibot_agent',
+    responseProvider?: 'gemini' | 'openbot' | 'digibot_agent' | 'openclaw',
     openBotAgentId?: string,
     profileUpdatedAt?: string,
   ) {
@@ -876,7 +1071,7 @@ export class WhatsAppStore {
       .from('whatsapp_phone_number_connections')
       .select('phone_number_id, display_phone_number, platform_type, created_at')
       .eq('user_id', userId)
-      .eq('platform_type', 'EVOLUTION_API')
+      .in('platform_type', ['EVOLUTION_API', 'OPENCLAW_WEB'])
       .order('created_at', { ascending: false })
     throwIfError(result.error, 'Não foi possível carregar as conexões WhatsApp desta conta.')
     return (result.data ?? []).map((row) => ({

@@ -1,5 +1,6 @@
 import { createWhatsAppWebhookSupabaseClient } from '../config/supabase.js'
 import { getEvolutionConnectionState } from '../integrations/evolutionApi.js'
+import { buildWhatsAppProspectingOpening } from '../domain/whatsappProspectingOpening.js'
 
 const brazilTimeZone = 'America/Sao_Paulo'
 const staleDailyCampaignMs = 30 * 60 * 1_000
@@ -370,23 +371,32 @@ export class WhatsAppProspectingStore {
     return ((result.data ?? []) as QueueRow[]).map(mapQueueRow)
   }
 
-  async enqueueNewLead(userId: string, phoneNumberId: string, leadId: string, message: string) {
-    const trimmedMessage = message.trim()
-    if (!trimmedMessage || trimmedMessage.length > 1_024) {
+  async enqueueNewLead(
+    userId: string,
+    phoneNumberId: string,
+    leadId: string,
+    message?: string,
+    expectedPlatformType?: 'EVOLUTION_API' | 'OPENCLAW_WEB',
+  ) {
+    const suppliedMessage = message?.trim()
+    if (message !== undefined && (!suppliedMessage || suppliedMessage.length > 1_024)) {
       throw new WhatsAppProspectingError('A mensagem precisa ter entre 1 e 1.024 caracteres.', 400)
     }
 
     const admin = createWhatsAppWebhookSupabaseClient()
     const connectionResult = await admin.from('whatsapp_phone_number_connections')
-      .select('phone_number_id')
+      .select('phone_number_id, platform_type')
       .eq('phone_number_id', phoneNumberId)
       .eq('user_id', userId)
       .maybeSingle()
     throwIfError(connectionResult.error, 'Não foi possível validar a conexão WhatsApp selecionada.')
     if (!connectionResult.data) throw new WhatsAppProspectingError('Conecte um número WhatsApp Business antes de enfileirar contatos.', 404)
+    if (expectedPlatformType && (connectionResult.data as { platform_type: string | null }).platform_type !== expectedPlatformType) {
+      throw new WhatsAppProspectingError('O transporte WhatsApp conectado mudou. Atualize a página e tente novamente.', 409, 'transport_changed')
+    }
 
     const leadResult = await admin.from('saved_leads')
-      .select('lead_data, status, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at')
+      .select('lead_data, status, draft_message, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at, whatsapp_outbound_authorization_status, whatsapp_outbound_authorization_source, whatsapp_outbound_authorization_at')
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .maybeSingle()
@@ -395,16 +405,23 @@ export class WhatsAppProspectingStore {
     const lead = leadResult.data as {
       lead_data: unknown
       status: string
+      draft_message: string | null
       whatsapp_consent_status: string | null
       whatsapp_consent_source: string | null
       whatsapp_consent_at: string | null
+      whatsapp_outbound_authorization_status: string | null
+      whatsapp_outbound_authorization_source: string | null
+      whatsapp_outbound_authorization_at: string | null
     }
-    if (lead.whatsapp_consent_status !== 'opted_in' || !lead.whatsapp_consent_source?.trim() || !lead.whatsapp_consent_at) {
-      throw new WhatsAppProspectingError('Registre o consentimento explícito deste contato antes de enfileirar.', 403)
+    const recipientConsent = lead.whatsapp_consent_status === 'opted_in' && Boolean(lead.whatsapp_consent_source?.trim()) && Boolean(lead.whatsapp_consent_at)
+    const ownerAuthorization = lead.whatsapp_outbound_authorization_status === 'authorized_by_owner' && Boolean(lead.whatsapp_outbound_authorization_source?.trim()) && Boolean(lead.whatsapp_outbound_authorization_at)
+    if (lead.whatsapp_consent_status === 'opted_out' || (!recipientConsent && !ownerAuthorization)) {
+      throw new WhatsAppProspectingError('Este lead ainda não foi autorizado para contato pelo titular da conta.', 403)
     }
-    const consentAt = Date.parse(lead.whatsapp_consent_at)
-    if (!Number.isFinite(consentAt) || consentAt > Date.now()) {
-      throw new WhatsAppProspectingError('A data do consentimento está inválida.', 403)
+    const authorizationAt = recipientConsent ? lead.whatsapp_consent_at : lead.whatsapp_outbound_authorization_at
+    const authorizationTime = Date.parse(authorizationAt ?? '')
+    if (!Number.isFinite(authorizationTime) || authorizationTime > Date.now()) {
+      throw new WhatsAppProspectingError('A data da autorização de contato está inválida.', 403)
     }
     if (lead.status !== 'Novo') {
       throw new WhatsAppProspectingError('A fila de novos contatos aceita apenas leads com status Novo.', 409)
@@ -414,6 +431,11 @@ export class WhatsAppProspectingStore {
     }
     const recipientPhone = normalizeBrazilianPhone(lead.lead_data.phone)
     if (!recipientPhone) throw new WhatsAppProspectingError('O telefone do lead não está em um formato brasileiro válido.', 422)
+    const leadName = typeof lead.lead_data.name === 'string' ? lead.lead_data.name : ''
+    const finalMessage = suppliedMessage || lead.draft_message?.trim() || buildWhatsAppProspectingOpening(leadName)
+    if (!finalMessage || finalMessage.length > 1_024) {
+      throw new WhatsAppProspectingError('Não foi possível preparar uma mensagem inicial válida para este lead.', 422)
+    }
 
     const existingConversation = await admin.from('whatsapp_conversations')
       .select('id, automation_opted_out')
@@ -428,13 +450,19 @@ export class WhatsAppProspectingStore {
       throw new WhatsAppProspectingError('Este número já tem uma conversa no WhatsApp. Continue pelo atendimento da caixa de entrada.', 409)
     }
 
+    const savedDraft = await admin.from('saved_leads')
+      .update({ draft_message: finalMessage, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('lead_id', leadId)
+    throwIfError(savedDraft.error, 'Não foi possível salvar a abordagem preparada para este lead.')
+
     const result = await admin.from('whatsapp_prospecting_queue')
       .insert({
         user_id: userId,
         phone_number_id: phoneNumberId,
         lead_id: leadId,
         recipient_phone: recipientPhone,
-        message: trimmedMessage,
+        message: finalMessage,
         status: 'queued',
         scheduled_at: new Date().toISOString(),
       })
@@ -460,22 +488,34 @@ export class WhatsAppProspectingStore {
     return Boolean(result.data)
   }
 
-  async listDueQueueItems(now = new Date(), limit = 25) {
+  async listDueQueueItems(now = new Date(), limit = 25, platformType: 'EVOLUTION_API' | 'OPENCLAW_WEB' = 'EVOLUTION_API') {
     const admin = createWhatsAppWebhookSupabaseClient()
-    const result = await admin.rpc('list_whatsapp_prospecting_queue_candidates', {
+    const result = await admin.rpc('list_whatsapp_prospecting_queue_candidates_for_platform', {
       p_now: now.toISOString(),
       p_limit: limit,
+      p_platform_type: platformType,
     })
     throwIfError(result.error, 'Não foi possível consultar a fila de prospecção.')
     return ((result.data ?? []) as Array<{ queue_id: string }>).map((row) => row.queue_id)
   }
 
-  async markStaleSendingAsUnknown(now = new Date()) {
-    const cutoff = new Date(now.getTime() - 10 * 60 * 1_000).toISOString()
+  async markStaleSendingAsUnknown(
+    now = new Date(),
+    platformType: 'EVOLUTION_API' | 'OPENCLAW_WEB' = 'EVOLUTION_API',
+    staleAfterMs = 10 * 60 * 1_000,
+  ) {
+    const cutoff = new Date(now.getTime() - staleAfterMs).toISOString()
     const admin = createWhatsAppWebhookSupabaseClient()
+    const connections = await admin.from('whatsapp_phone_number_connections')
+      .select('phone_number_id')
+      .eq('platform_type', platformType)
+    throwIfError(connections.error, 'Não foi possível localizar as conexões da fila para recuperar envios interrompidos.')
+    const phoneNumberIds = ((connections.data ?? []) as Array<{ phone_number_id: string }>).map((row) => row.phone_number_id)
+    if (phoneNumberIds.length === 0) return
     const result = await admin.from('whatsapp_prospecting_queue')
       .update({ status: 'unknown', error_code: 'local_worker_interrupted', updated_at: now.toISOString() })
       .eq('status', 'sending')
+      .in('phone_number_id', phoneNumberIds)
       .lt('claimed_at', cutoff)
     throwIfError(result.error, 'Não foi possível recuperar envios interrompidos da fila.')
   }
@@ -491,7 +531,7 @@ export class WhatsAppProspectingStore {
     return rows?.[0] ? mapQueueRow(rows[0]) : undefined
   }
 
-  async getDispatchContext(item: WhatsAppProspectingQueueItem) {
+  async getDispatchContext(item: WhatsAppProspectingQueueItem, expectedPlatformType: 'EVOLUTION_API' | 'OPENCLAW_WEB' = 'EVOLUTION_API') {
     const admin = createWhatsAppWebhookSupabaseClient()
     const ownerResult = await admin.from('whatsapp_prospecting_queue')
       .select('user_id')
@@ -506,7 +546,7 @@ export class WhatsAppProspectingStore {
         .eq('user_id', userId)
         .maybeSingle(),
       admin.from('saved_leads')
-        .select('lead_data, status, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at')
+        .select('lead_data, status, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at, whatsapp_outbound_authorization_status, whatsapp_outbound_authorization_source, whatsapp_outbound_authorization_at')
         .eq('user_id', userId)
         .eq('lead_id', item.leadId)
         .maybeSingle(),
@@ -540,12 +580,18 @@ export class WhatsAppProspectingStore {
       whatsapp_consent_status: string | null
       whatsapp_consent_source: string | null
       whatsapp_consent_at: string | null
+      whatsapp_outbound_authorization_status: string | null
+      whatsapp_outbound_authorization_source: string | null
+      whatsapp_outbound_authorization_at: string | null
     }
+    const recipientConsent = lead.whatsapp_consent_status === 'opted_in' && Boolean(lead.whatsapp_consent_source?.trim()) && Boolean(lead.whatsapp_consent_at)
+    const ownerAuthorization = lead.whatsapp_outbound_authorization_status === 'authorized_by_owner' && Boolean(lead.whatsapp_outbound_authorization_source?.trim()) && Boolean(lead.whatsapp_outbound_authorization_at)
+    const authorizationAt = recipientConsent ? lead.whatsapp_consent_at : lead.whatsapp_outbound_authorization_at
     if (
-      lead.whatsapp_consent_status !== 'opted_in' || !lead.whatsapp_consent_source?.trim() || !lead.whatsapp_consent_at ||
-      !Number.isFinite(Date.parse(lead.whatsapp_consent_at)) || Date.parse(lead.whatsapp_consent_at) > Date.now()
+      lead.whatsapp_consent_status === 'opted_out' || (!recipientConsent && !ownerAuthorization) ||
+      !Number.isFinite(Date.parse(authorizationAt ?? '')) || Date.parse(authorizationAt ?? '') > Date.now()
     ) {
-      throw new WhatsAppProspectingError('O consentimento não está mais válido para este contato.', 403, 'consent_invalid')
+      throw new WhatsAppProspectingError('A autorização de contato não está mais válida.', 403, 'authorization_invalid')
     }
     if (lead.status !== 'Novo') throw new WhatsAppProspectingError('O status do lead mudou antes do envio.', 409, 'lead_status_changed')
     const currentPhone = isRecord(lead.lead_data) && typeof lead.lead_data.phone === 'string'
@@ -554,22 +600,104 @@ export class WhatsAppProspectingStore {
     if (!currentPhone || currentPhone !== item.recipientPhone) {
       throw new WhatsAppProspectingError('O telefone do lead mudou ou está inválido. Revise o contato antes de enviar.', 409, 'phone_invalid_or_changed')
     }
-    if (connection.platform_type !== 'EVOLUTION_API') {
-      throw new WhatsAppProspectingError('Conecte a Evolution API antes de enviar pela fila.', 503, 'evolution_not_connected')
+    if (connection.platform_type !== expectedPlatformType) {
+      throw new WhatsAppProspectingError('O transporte do WhatsApp mudou antes do envio. Atualize a conexão e tente novamente.', 503, 'transport_changed')
     }
-    let connectionState: Awaited<ReturnType<typeof getEvolutionConnectionState>>
-    try {
-      connectionState = await getEvolutionConnectionState(item.phoneNumberId)
-    } catch {
-      throw new WhatsAppProspectingError('A Evolution API não está disponível agora.', 503, 'evolution_status_unavailable')
-    }
-    if (connectionState.state.toLowerCase() !== 'open') {
-      throw new WhatsAppProspectingError('A instância Evolution está desconectada. Reconecte o WhatsApp antes de enviar.', 503, 'evolution_disconnected')
+    if (expectedPlatformType === 'EVOLUTION_API') {
+      let connectionState: Awaited<ReturnType<typeof getEvolutionConnectionState>>
+      try {
+        connectionState = await getEvolutionConnectionState(item.phoneNumberId)
+      } catch {
+        throw new WhatsAppProspectingError('A Evolution API não está disponível agora.', 503, 'evolution_status_unavailable')
+      }
+      if (connectionState.state.toLowerCase() !== 'open') {
+        throw new WhatsAppProspectingError('A instância Evolution está desconectada. Reconecte o WhatsApp antes de enviar.', 503, 'evolution_disconnected')
+      }
     }
     return { userId }
   }
 
-  async persistSentMessage(item: WhatsAppProspectingQueueItem, userId: string, providerMessageId: string, sentAt: string) {
+  async getQueueItem(userId: string, queueId: string) {
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_prospecting_queue')
+      .select('id, lead_id, phone_number_id, recipient_phone, message, status, scheduled_at, claimed_at, sent_at, provider_message_id, error_code, created_at')
+      .eq('id', queueId)
+      .eq('user_id', userId)
+      .maybeSingle()
+    throwIfError(result.error, 'Não foi possível carregar este item da fila.')
+    return result.data ? mapQueueRow(result.data as QueueRow) : undefined
+  }
+
+  async authorizeOpenClawQueueSend(userId: string, phoneNumberId: string, recipientE164: string, message: string) {
+    const recipientPhone = normalizeBrazilianPhone(recipientE164)
+    if (!recipientPhone || !message.trim()) return false
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_prospecting_queue')
+      .select('id, lead_id, phone_number_id, recipient_phone, message, status, scheduled_at, claimed_at, sent_at, provider_message_id, error_code, created_at')
+      .eq('user_id', userId)
+      .eq('phone_number_id', phoneNumberId)
+      .eq('recipient_phone', recipientPhone)
+      .eq('message', message)
+      .eq('status', 'sending')
+      .order('claimed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    throwIfError(result.error, 'Não foi possível verificar se a mensagem está reservada na fila.')
+    if (!result.data) return false
+    const item = mapQueueRow(result.data as QueueRow)
+    await this.getDispatchContext(item, 'OPENCLAW_WEB')
+    const reserved = await admin.from('whatsapp_prospecting_queue')
+      .update({ outbound_send_authorized_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', item.id)
+      .eq('status', 'sending')
+      .is('outbound_send_authorized_at', null)
+      .select('id')
+    throwIfError(reserved.error, 'Não foi possível reservar a autorização de envio da fila.')
+    return (reserved.data ?? []).length === 1
+  }
+
+  async settleAuthorizedOpenClawQueueSend(
+    userId: string,
+    phoneNumberId: string,
+    recipientE164: string,
+    message: string,
+    success: boolean,
+    providerMessageId: string,
+  ) {
+    const recipientPhone = normalizeBrazilianPhone(recipientE164)
+    if (!recipientPhone) return false
+    const admin = createWhatsAppWebhookSupabaseClient()
+    const result = await admin.from('whatsapp_prospecting_queue')
+      .select('id, lead_id, phone_number_id, recipient_phone, message, status, scheduled_at, claimed_at, sent_at, provider_message_id, error_code, created_at')
+      .eq('user_id', userId)
+      .eq('phone_number_id', phoneNumberId)
+      .eq('recipient_phone', recipientPhone)
+      .eq('message', message)
+      .eq('status', 'sending')
+      .not('outbound_send_authorized_at', 'is', null)
+      .order('claimed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    throwIfError(result.error, 'Não foi possível localizar o envio autorizado na fila.')
+    if (!result.data) return false
+    const item = mapQueueRow(result.data as QueueRow)
+    if (success) {
+      const sentAt = new Date().toISOString()
+      await this.persistSentMessage(item, userId, providerMessageId, sentAt, 'WhatsApp Web do OpenClaw')
+      await this.finishQueueItem(item.id, 'sent', { providerMessageId })
+    } else {
+      await this.finishQueueItem(item.id, 'failed', { errorCode: 'openclaw_delivery_failed' })
+    }
+    return true
+  }
+
+  async persistSentMessage(
+    item: WhatsAppProspectingQueueItem,
+    userId: string,
+    providerMessageId: string,
+    sentAt: string,
+    transportLabel = 'Evolution API',
+  ) {
     const admin = createWhatsAppWebhookSupabaseClient()
     const conversationResult = await admin.from('whatsapp_conversations')
       .upsert({
@@ -610,7 +738,7 @@ export class WhatsAppProspectingStore {
       lead_id: item.leadId,
       channel: 'WhatsApp',
       occurred_at: sentAt.slice(0, 10),
-      notes: `Primeiro contato enviado pela Evolution API. Mensagem: ${item.message}`,
+      notes: `Primeiro contato enviado pelo ${transportLabel}. Mensagem: ${item.message}`,
       outcome: 'Enviado pelo DigiBusca',
     })
     throwIfError(interactionResult.error, 'A mensagem foi enviada, mas não foi possível registrar a interação no CRM.')

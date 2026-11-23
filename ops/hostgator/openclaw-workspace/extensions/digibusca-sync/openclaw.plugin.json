@@ -1,0 +1,12 @@
+{
+  "id": "digibusca-sync",
+  "name": "DigiBusca Sync",
+  "description": "Aplica as regras do DigiBusca ao WhatsApp e sincroniza o histórico do Cristhian.",
+  "activation": {
+    "onCapabilities": ["hook"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,77 @@
+name: digibusca-hostgator
+
+services:
+  # Merge this file with compose.yaml only during the staged OpenClaw migration.
+  digibusca-backend:
+    env_file:
+      - /etc/digibusca/hostgator/backend.env
+      - /etc/digibusca/hostgator/openclaw-backend.env
+    networks:
+      - backend_origin
+      - evolution_app
+      - whatsapp_agent
+      - backend_egress
+      - openclaw_agent
+
+  openclaw-gateway:
+    profiles: ["openclaw"]
+    image: ${OPENCLAW_IMAGE:?Pin the official OpenClaw image by immutable digest}
+    pull_policy: always
+    restart: unless-stopped
+    init: true
+    command: ["gateway", "--bind", "lan", "--port", "18789"]
+    env_file:
+      - /etc/digibusca/hostgator/openclaw.env
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_PORT: "18789"
+      OPENCLAW_DISABLE_BONJOUR: "1"
+      TZ: America/Sao_Paulo
+    volumes:
+      - openclaw_state:/home/node/.openclaw
+      - openclaw_auth_profiles:/home/node/.config/openclaw
+      - ./openclaw-workspace/extensions/digibusca-sync:/home/node/.openclaw/extensions/digibusca-sync:ro
+    networks:
+      - openclaw_agent
+      - openclaw_egress
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=128m,noexec,nosuid,nodev
+    pids_limit: 256
+    mem_limit: 1024m
+    cpus: 0.75
+    healthcheck:
+      test: ["CMD", "node", "dist/docker-healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  openclaw_agent:
+    name: digibusca-openclaw-agent
+    driver: overlay
+    attachable: true
+    internal: true
+  openclaw_egress:
+    name: digibusca-openclaw-egress
+    driver: bridge
+
+volumes:
+  openclaw_state:
+    name: digibusca-hostgator-openclaw-state
+  openclaw_auth_profiles:
+    name: digibusca-hostgator-openclaw-auth

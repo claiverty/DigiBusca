@@ -77,10 +77,12 @@ export async function persistEvolutionWebhook(body: unknown): Promise<{ events: 
   const event = typeof body.event === 'string' ? body.event.toLowerCase() : ''
   const instance = typeof body.instance === 'string' ? body.instance.trim() : ''
   if (!instance || !/^[-_a-zA-Z0-9]{1,128}$/.test(instance) || event !== 'messages.upsert') return undefined
+  const store = new WhatsAppStore()
+  if (await store.getPlatformTypeForPhoneNumberId(instance) !== 'EVOLUTION_API') return undefined
   const messages = mapEvolutionMessages(instance, body.data)
   if (messages.length === 0) return undefined
   const events = { messages, statuses: [], contacts: [] }
-  await new WhatsAppStore().persistWebhookEvents(events)
+  await store.persistWebhookEvents(events)
   // Opt-outs are safety state and must be recorded even while reply automation
   // and prospecting are disabled. This runs before acknowledging the webhook.
   await persistWhatsAppStopRequests(events)

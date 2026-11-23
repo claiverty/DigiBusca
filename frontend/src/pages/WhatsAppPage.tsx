@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, Send, ShieldCheck } from 'lucide-react'
 import {
   connectWhatsAppEvolution,
+  registerOpenClawWhatsAppConnection,
   clearWhatsAppScheduleReview,
   getWhatsAppEvolutionPairingStatus,
   getWhatsAppEvolutionSetupStatus,
@@ -172,10 +173,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [connectionsState, setConnectionsState] = useState<LoadState>('loading')
   const [connectionsError, setConnectionsError] = useState('')
   const [connectBusy, setConnectBusy] = useState(false)
+  const [openClawRegisterBusy, setOpenClawRegisterBusy] = useState(false)
   const [connectError, setConnectError] = useState('')
   const [connectNotice, setConnectNotice] = useState('')
   const [connectQrCode, setConnectQrCode] = useState('')
   const qrActive = Boolean(connectQrCode)
+  const [openClawRegisterError, setOpenClawRegisterError] = useState('')
+  const [openClawRegisterNotice, setOpenClawRegisterNotice] = useState('')
   const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
   const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(newAutomationProfileDraft(''))
   const [agentModelChoices, setAgentModelChoices] = useState<AppSelectOption[]>([])
@@ -187,7 +191,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [agentProviderError, setAgentProviderError] = useState('')
   const [agentProviderNotice, setAgentProviderNotice] = useState('')
   const [automationPersistedEnabled, setAutomationPersistedEnabled] = useState(false)
-  const [automationPersistedResponseMode, setAutomationPersistedResponseMode] = useState<'handoff_only' | 'gemini' | 'openbot' | 'digibot_agent'>('handoff_only')
+  const [automationPersistedResponseMode, setAutomationPersistedResponseMode] = useState<WhatsAppAutomationProfileInput['responseMode']>('handoff_only')
   const [automationPersistedOpenBotAgentId, setAutomationPersistedOpenBotAgentId] = useState('')
   const [automationPersistedAgentProvider, setAutomationPersistedAgentProvider] = useState<'google' | 'anthropic' | 'openai-compatible'>('google')
   const [automationPersistedAgentModel, setAutomationPersistedAgentModel] = useState('gemini-3.8-flash')
@@ -225,7 +229,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
       .then((items) => {
         if (!active) return
         setConnections(items)
-        if (items.some((connection) => connection.connectionState?.toLowerCase() === 'open')) {
+        if (items.some((connection) => connection.platformType === 'EVOLUTION_API' && connection.connectionState?.toLowerCase() === 'open')) {
           setConnectQrCode('')
           setConnectNotice('WhatsApp conectado à Evolution API.')
         }
@@ -520,7 +524,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   }, [activeTab, selectedConversationId])
 
   const sendReady = loadState === 'ready' && status?.evolutionConfigured === true
-  const connectionReady = connections.some((connection) => connection.connectionState?.toLowerCase() === 'open')
+  const evolutionConnectionReady = connections.some((connection) => connection.platformType === 'EVOLUTION_API' && connection.connectionState?.toLowerCase() === 'open')
+  const openClawConnectionRegistered = connections.some((connection) => connection.platformType === 'OPENCLAW_WEB' && ['registered', 'open'].includes(connection.connectionState?.toLowerCase() ?? ''))
+  const connectionReady = evolutionConnectionReady || openClawConnectionRegistered
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId)
 
   useLayoutEffect(() => {
@@ -755,6 +761,24 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     }
   }
 
+  async function registerOpenClawConnection() {
+    setOpenClawRegisterBusy(true)
+    setOpenClawRegisterError('')
+    setOpenClawRegisterNotice('')
+    try {
+      const registered = await registerOpenClawWhatsAppConnection()
+      const items = await getWhatsAppConnections()
+      setConnections(items)
+      setConnectionsState('ready')
+      setAutomationPhoneNumberId(registered.phoneNumberId)
+      setOpenClawRegisterNotice('Pareamento registrado no DigiBusca. Confirme no terminal do OpenClaw que a sessão do WhatsApp permanece conectada.')
+    } catch (error) {
+      setOpenClawRegisterError(error instanceof Error ? error.message : 'Não foi possível registrar o pareamento do OpenClaw.')
+    } finally {
+      setOpenClawRegisterBusy(false)
+    }
+  }
+
   const openBotCanEnable = Boolean(
     status?.openBotReplyRuntimeEnabled &&
     status.openBotBridgeConfigured &&
@@ -783,12 +807,12 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         <div>
           <span className="eyebrow">ATENDIMENTO</span>
           <h1>WhatsApp Business</h1>
-          <p>Conecte pela Evolution API e acompanhe as conversas com seus leads em um só lugar.</p>
+          <p>Conecte seu WhatsApp pela Evolution API ou pelo OpenClaw e acompanhe as conversas em um só lugar.</p>
         </div>
         <div className="whatsapp-header-actions">
           <span className={`whatsapp-connection-pill${sendReady || connectionReady ? ' is-ready' : ''}`}>
             <span aria-hidden="true" />
-            {connectionsState === 'loading' ? 'Verificando conexão' : connectionReady ? 'Evolution conectada' : sendReady ? 'Evolution configurada' : 'Configuração pendente'}
+            {connectionsState === 'loading' ? 'Verificando conexão' : openClawConnectionRegistered ? 'OpenClaw registrado' : evolutionConnectionReady ? 'Evolution conectada' : sendReady ? 'Evolution configurada' : 'Configuração pendente'}
           </span>
           <button className="icon-button whatsapp-refresh" type="button" onClick={() => { void loadStatus(); setRefreshKey((value) => value + 1) }} aria-label="Atualizar conexão e conversas" title="Atualizar conexão e conversas">
             <RefreshCw size={16} className={loadState === 'loading' ? 'is-spinning' : ''} />
@@ -967,7 +991,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               <div className="whatsapp-settings-icon"><MessageCircle size={20} /></div>
               <div>
                 <span className="eyebrow">EVOLUTION API · WHATSAPP WEB</span>
-                <h2>{connectionReady ? 'WhatsApp conectado' : 'Conectar pelo QR Code'}</h2>
+                <h2>{evolutionConnectionReady ? 'Evolution conectada' : 'Conectar pela Evolution'}</h2>
                 <p>A sessão é mantida pela Evolution API no servidor de WhatsApp conectado à sua conta DigiBusca.</p>
               </div>
             </div>
@@ -992,7 +1016,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 disabled={status?.integrationEnabled !== true || !status?.evolutionConfigured || status?.connectionStorageReady !== true || connectBusy}
               >
                 <QrCode size={15} />
-                {connectBusy ? 'Preparando QR Code…' : connectionReady ? 'Atualizar conexão' : 'Gerar QR Code'}
+                {connectBusy ? 'Preparando QR Code…' : evolutionConnectionReady ? 'Atualizar conexão' : 'Gerar QR Code'}
               </button>
               {loadState === 'ready' && status?.integrationEnabled === false && <p className="whatsapp-connect-state is-pending">Ative <code>WHATSAPP_INTEGRATION_ENABLED=true</code> em <code>backend/.env</code> para liberar as rotas de conexão. As automações continuam desligadas pelos runtimes separados.</p>}
               {loadState === 'ready' && status?.evolutionConfigured === false && <p className="whatsapp-connect-state is-pending">Configure <code>EVOLUTION_API_URL</code>, <code>EVOLUTION_API_KEY</code>, <code>EVOLUTION_WEBHOOK_SECRET</code> e <code>EVOLUTION_WEBHOOK_URL</code> em <code>backend/.env</code>.</p>}
@@ -1004,15 +1028,42 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               {connectionsState === 'loading' && <p className="whatsapp-connect-state">Carregando estado da instância…</p>}
               {connectionsState === 'error' && <p className="whatsapp-connect-state is-error" role="alert">{connectionsError}</p>}
               {connectionsState === 'ready' && connections.length > 0 && (
-                <ul className="whatsapp-connected-numbers" aria-label="Instâncias Evolution">
+                <ul className="whatsapp-connected-numbers" aria-label="Conexões WhatsApp">
                   {connections.map((connection) => (
                     <li key={connection.phoneNumberId}>
-                      <span><strong>{connection.displayPhoneNumber || connection.phoneNumberId}</strong><small>Evolution API · {connection.connectionState || 'estado desconhecido'}</small></span>
-                      <span className={`whatsapp-connected-badge${connection.connectionState?.toLowerCase() === 'open' ? '' : ' is-pending'}`}>{connection.connectionState?.toLowerCase() === 'open' ? 'Conectado' : 'Aguardando conexão'}</span>
+                      <span><strong>{connection.displayPhoneNumber || (connection.platformType === 'OPENCLAW_WEB' ? 'WhatsApp via OpenClaw' : connection.phoneNumberId)}</strong><small>{connection.platformType === 'OPENCLAW_WEB' ? 'OpenClaw · pareamento registrado' : 'Evolution API'} · {connection.connectionState || 'estado desconhecido'}</small></span>
+                      <span className={`whatsapp-connected-badge${connection.connectionState?.toLowerCase() === 'open' ? '' : ' is-pending'}`}>{connection.platformType === 'OPENCLAW_WEB' ? 'Registrado' : connection.connectionState?.toLowerCase() === 'open' ? 'Conectado' : 'Aguardando conexão'}</span>
                     </li>
                   ))}
                 </ul>
               )}
+            </section>
+
+            <section className="whatsapp-embedded-signup" aria-labelledby="whatsapp-openclaw-title">
+              <div>
+                <span className="eyebrow">OPENCLAW · WHATSAPP WEB</span>
+                <h3 id="whatsapp-openclaw-title">Registrar pareamento feito na VPS</h3>
+                <p>Faça o pareamento pelo QR no terminal do OpenClaw. Depois, registre aqui para associar essa sessão à conta DigiBusca.</p>
+              </div>
+              <div className="whatsapp-setup-list" aria-live="polite">
+                <SetupRow label="Runtime do OpenClaw" configured={status?.openClawRuntimeEnabled === true} />
+                <SetupRow label="MCP privado" configured={status?.openClawMcpConfigured === true} />
+                <SetupRow label="Ponte protegida" configured={status?.openClawBridgeConfigured === true} />
+                <SetupRow label="Despacho automático da fila" configured={status?.openClawProspectingDispatcherConfigured === true} />
+                <SetupRow label="Migration 022" configured={status?.openClawStorageReady === true} />
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void registerOpenClawConnection()}
+                disabled={openClawRegisterBusy || status?.openClawRuntimeEnabled !== true || status.openClawMcpConfigured !== true || status.openClawBridgeConfigured !== true || status.openClawStorageReady !== true}
+              >
+                <Check size={15} />
+                {openClawRegisterBusy ? 'Registrando…' : openClawConnectionRegistered ? 'Atualizar registro' : 'Já pareei o QR · registrar sessão'}
+              </button>
+              {openClawRegisterError && <p className="whatsapp-connect-state is-error" role="alert">{openClawRegisterError}</p>}
+              {openClawRegisterNotice && <p className="whatsapp-connect-state is-ready" role="status">{openClawRegisterNotice}</p>}
+              {openClawConnectionRegistered && !openClawRegisterNotice && <p className="whatsapp-connect-state is-pending" role="status">Registro feito. Esse estado confirma a associação no DigiBusca; confira a sessão ativa no terminal do OpenClaw.</p>}
             </section>
 
             <section className="whatsapp-automation-panel" aria-labelledby="whatsapp-automation-title">
@@ -1068,6 +1119,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     options={[
                       { value: 'handoff_only', label: 'Somente atendimento humano' },
                       { value: 'digibot_agent', label: 'Agente Cristhian gerenciado pelo DigiBusca' },
+                      { value: 'openclaw', label: 'OpenClaw · Cristhian principal no WhatsApp Web' },
                       { value: 'gemini', label: 'Responder com Gemini dentro dos fatos aprovados' },
                       { value: 'openbot', label: 'Responder com o agente OpenBot Cristhian' },
                     ]}
@@ -1076,9 +1128,16 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     ? 'O texto da conversa não é enviado ao Gemini. Quando precisar de você, a conversa pausa e aparece como atendimento humano pendente na caixa de entrada; o lead não recebe aviso de transferência.'
                     : automationForm.responseMode === 'openbot'
                       ? 'O agente dedicado redige a resposta em JSON com os fatos aprovados e o histórico recente sanitizado. O backend aplica as validações e é o único componente que pode enviar pela Evolution.'
+                      : automationForm.responseMode === 'openclaw'
+                        ? 'O OpenClaw é o próprio Cristhian: recebe e envia pelo WhatsApp Web, enquanto o DigiBusca mantém o histórico, as aprovações e a fila. A ativação fica bloqueada até o número pareado, o MCP e a ponte privada estarem prontos.'
                       : automationForm.responseMode === 'digibot_agent'
                         ? 'O Cristhian roda no backend do DigiBusca, usa o histórico recente e fatos aprovados, pode registrar dados do projeto que o lead declarou e pedir sua entrada quando necessário. Conecte a API do provedor neste painel; no Google, Gemini 3.5 Flash assume se o modelo principal falhar.'
                         : 'O Gemini recebe o histórico recente para responder com base nos fatos aprovados. Pedidos comerciais sem condições aprovadas, pedidos de atendimento humano e assuntos sensíveis ficam pendentes para você, sem aviso de transferência ao lead.'}</small>
+                  {automationForm.responseMode === 'openclaw' && (
+                    <small className="whatsapp-connect-state is-pending">
+                      Preparação: runtime {status?.openClawRuntimeEnabled ? 'habilitado' : 'desligado'} · MCP {status?.openClawMcpConfigured ? 'configurado' : 'pendente'} · ponte {status?.openClawBridgeConfigured ? 'configurada' : 'pendente'} · banco {status?.openClawStorageReady ? 'pronto' : 'migration 022 pendente'}. O pareamento e a confirmação do canal no DigiBusca ainda precisam ser feitos na VPS.
+                    </small>
+                  )}
                 </label>
                 {automationForm.responseMode === 'digibot_agent' && (
                   <div className="whatsapp-form-field is-wide">
@@ -1234,6 +1293,8 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     ? 'Aprovo a pausa da automação e o aviso interno de atendimento humano pendente.'
                     : automationForm.responseMode === 'openbot'
                       ? 'Aprovo o envio dos fatos e do histórico recente sanitizado ao agente OpenBot dedicado para redigir respostas.'
+                      : automationForm.responseMode === 'openclaw'
+                        ? 'Aprovo o uso do OpenClaw como agente principal deste número e a sincronização das mensagens com o DigiBusca.'
                       : automationForm.responseMode === 'digibot_agent'
                         ? 'Aprovo o envio do histórico recente sanitizado ao agente Cristhian do DigiBusca e o registro das informações de projeto declaradas pelo lead.'
                         : 'Aprovo os fatos acima e o envio das mensagens recentes ao Gemini para preparar respostas.'}</span>
@@ -1242,7 +1303,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <input
                     type="checkbox"
                     checked={automationForm.automationEnabled}
-                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel))}
+                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawRuntimeEnabled || !status?.openClawStorageReady)) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel))}
                     onChange={(event) => setAutomationForm((current) => ({ ...current, automationEnabled: event.target.checked }))}
                   />
                   <span>Ativar respostas automáticas após salvar as aprovações.</span>
@@ -1257,6 +1318,8 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 ? 'Neste modo, o bot não usa um provedor de IA. Quando uma conversa precisar de atendimento humano, ela pausa e fica marcada na caixa de entrada para você responder pelo WhatsApp conectado; o lead não recebe um aviso de transferência.'
                 : automationForm.responseMode === 'openbot'
                   ? 'No modo OpenBot, só o agente dedicado recebe o histórico recente sanitizado. As conversas são processadas uma por vez para o agente; contexto não confirmado como isolado mantém o runtime desativado. Opt-out, pedidos humanos, conteúdo, consentimento e envio continuam sob controle do backend.'
+                  : automationForm.responseMode === 'openclaw'
+                    ? 'O OpenClaw atende diretamente pelo WhatsApp Web e usa ferramentas MCP privadas do DigiBusca para buscar leads, atualizar o CRM e operar a fila. O runtime só é ativado com canal e conteúdo aprovados; autorização do titular, consentimento informado pelo contato e descadastro ficam registrados separadamente.'
                   : automationForm.responseMode === 'digibot_agent'
                     ? 'O runtime DigiBusca usa o provedor conectado neste painel. Ferramentas são limitadas a registrar qualificações verificáveis com citações do lead (por até 90 dias) e sinalizar atendimento humano; o agente não envia mensagens nem chama serviços externos diretamente. O backend continua validando consentimento, descadastro, janela de 24 horas e envio pela Evolution.'
                     : 'No modo Gemini, o histórico recente é enviado ao modelo para preparar respostas. Pedidos para falar com uma pessoa, condições comerciais não aprovadas e assuntos sensíveis pausam a automação e ficam marcados na caixa de entrada, sem aviso de transferência ao lead.'}</p>

@@ -12,7 +12,7 @@ export const whatsappAutomationStages = [
 
 export type WhatsAppAutomationStage = (typeof whatsappAutomationStages)[number]
 
-export const whatsappAutomationResponseModes = ['handoff_only', 'gemini', 'openbot', 'digibot_agent'] as const
+export const whatsappAutomationResponseModes = ['handoff_only', 'gemini', 'openbot', 'digibot_agent', 'openclaw'] as const
 
 export type WhatsAppAutomationResponseMode = (typeof whatsappAutomationResponseModes)[number]
 export const whatsappAgentProviders = ['google', 'anthropic', 'openai-compatible'] as const
@@ -69,7 +69,7 @@ export function parseWhatsAppAutomationProfileInput(value: unknown): WhatsAppAut
     openBotAgentId === undefined ||
     agentModel === undefined || !whatsappAgentProviders.includes(agentProvider as WhatsAppAgentProvider) ||
     !/^[A-Za-z0-9_.:/-]{1,128}$/.test(agentModel) ||
-    (responseMode !== 'handoff_only' && responseMode !== 'gemini' && responseMode !== 'openbot' && responseMode !== 'digibot_agent') ||
+    (responseMode !== 'handoff_only' && responseMode !== 'gemini' && responseMode !== 'openbot' && responseMode !== 'digibot_agent' && responseMode !== 'openclaw') ||
     typeof automationEnabled !== 'boolean' || typeof channelApproved !== 'boolean' ||
     typeof contentApproved !== 'boolean'
   ) return undefined

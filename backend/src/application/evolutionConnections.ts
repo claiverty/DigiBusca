@@ -76,9 +76,12 @@ export async function getEvolutionPairingStatus(userId: string) {
   return { instanceName, state: state.state, qrCode }
 }
 
-export async function getEvolutionConnections(userId: string) {
+export async function getWhatsAppConnections(userId: string) {
   const connections = await new WhatsAppStore().listConnections(userId)
   return Promise.all(connections.map(async (connection) => {
+    if (connection.platformType === 'OPENCLAW_WEB') {
+      return { ...connection, connectionState: 'registered' }
+    }
     try {
       const state = await getEvolutionConnectionState(connection.phoneNumberId)
       return { ...connection, connectionState: state.state, displayPhoneNumber: state.owner ?? connection.displayPhoneNumber }

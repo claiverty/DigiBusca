@@ -1,5 +1,5 @@
 [Unit]
-Description=Backup diário criptografado do WhatsApp e OpenBot DigiBusca
+Description=Backup diário criptografado do WhatsApp e agentes DigiBusca
 Requires=docker.service
 After=docker.service
 
@@ -20,6 +20,3 @@ ReadWritePaths=/var/backups/digibusca /run/lock /var/lib/docker/volumes
 ReadOnlyPaths=/var/lib/docker/volumes/digibusca-hostgator-evolution-instances
 ReadOnlyPaths=/etc/digibusca/hostgator
 ReadOnlyPaths=/opt/digibusca/ops/hostgator
-ReadOnlyPaths=/opt/openbot-docker/instances
-ReadOnlyPaths=/srv/openbot/digibot-ops/data
-ReadOnlyPaths=/srv/openbot/digibot-whatsapp/data

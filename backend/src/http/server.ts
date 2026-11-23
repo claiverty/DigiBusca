@@ -6,7 +6,7 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { leadStatuses, opportunityTypes, parseBulkLeadDeleteInput, parseBulkLeadStatusUpdateInput, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, buildWhatsAppAgentProviderConfig, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getWhatsAppAgentProviderConfig, getWhatsAppAgentProvidersStatus, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured } from '../config/supabase.js'
+import { authenticateRequest, buildWhatsAppAgentProviderConfig, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getOpenClawBridgeConfig, getOpenClawGatewayHookConfig, getOpenClawMcpConfig, getWhatsAppAgentProviderConfig, getWhatsAppAgentProvidersStatus, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isOpenClawGatewayReady, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppOpenClawRuntimeEnabled, isWhatsAppOpenClawProspectingRuntimeEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured, openClawBridgeAuthorizationMatches, openClawMcpAuthorizationMatches } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
@@ -18,7 +18,7 @@ import { checkSiteHealth } from '../integrations/siteHealth.js'
 import { buildOpenBotOutreachPrompt, OpenBotOutreachResponseError, validateOpenBotOutreachAnswer } from '../application/generateOpenBotOutreach.js'
 import { getOpenBotDelivery, listOpenBotAgents, OpenBotAutomationError, sendOpenBotAgentMessage } from '../integrations/openbotAutomationApi.js'
 import { getOpenBotWhatsAppAgentStatus, OpenBotWhatsAppBridgeError } from '../integrations/openBotWhatsAppBridge.js'
-import { getEvolutionConnections, getEvolutionPairingStatus, startEvolutionConnection } from '../application/evolutionConnections.js'
+import { getWhatsAppConnections, getEvolutionPairingStatus, startEvolutionConnection } from '../application/evolutionConnections.js'
 import { persistEvolutionWebhook } from '../application/evolutionWebhook.js'
 import { processWhatsAppAutomation } from '../application/processWhatsAppAutomation.js'
 import { evolutionWebhookSecretMatches, EvolutionApiError } from '../integrations/evolutionApi.js'
@@ -32,6 +32,8 @@ import { disableWhatsAppAiProviderCredential, saveWhatsAppAiProviderCredential, 
 import { WhatsAppProspectingError, WhatsAppProspectingStore } from '../data/whatsappProspectingStore.js'
 import { runLocalWhatsAppProspectingTick, startLocalWhatsAppProspectingScheduler } from '../application/processLocalWhatsAppProspecting.js'
 import { runWhatsAppDailyProspectingCampaign } from '../application/runWhatsAppDailyProspectingCampaign.js'
+import { authorizeOpenClawOutbound, OpenClawBridgeError, persistOpenClawInbound, persistOpenClawOutbound } from '../application/openClawWhatsAppBridge.js'
+import { handleOpenClawMcpRequest } from '../integrations/openclawMcp.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -140,7 +142,7 @@ function parseWhatsAppAiProviderInput(value: unknown) {
 }
 
 function isWhatsAppIntegrationPath(pathname: string) {
-  return pathname === '/api/whatsapp' || pathname.startsWith('/api/whatsapp/') || pathname === '/api/webhooks/evolution'
+  return pathname === '/api/whatsapp' || pathname.startsWith('/api/whatsapp/') || pathname === '/api/webhooks/evolution' || pathname.startsWith('/api/openclaw/')
 }
 
 function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -371,6 +373,125 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     return
   }
 
+  if (requestUrl.pathname === '/mcp') {
+    response.setHeader('Cache-Control', 'no-store')
+    if (!getOpenClawMcpConfig()) {
+      sendJson(response, 503, { error: 'O servidor MCP do Cristhian ainda não está configurado.' })
+      return
+    }
+    if (!openClawMcpAuthorizationMatches(typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined)) {
+      sendJson(response, 401, { error: 'A credencial MCP do OpenClaw é inválida.' })
+      return
+    }
+    await handleOpenClawMcpRequest(request, response)
+    return
+  }
+
+  if (requestUrl.pathname === '/api/openclaw/inbound' || requestUrl.pathname === '/api/openclaw/outbound' || requestUrl.pathname === '/api/openclaw/authorize-outbound') {
+    response.setHeader('Cache-Control', 'no-store')
+    if (request.method !== 'POST') {
+      sendJson(response, 405, { error: 'A ponte OpenClaw aceita somente POST.' })
+      return
+    }
+    if (!isWhatsAppOpenClawRuntimeEnabled()) {
+      sendJson(response, 503, { error: 'O runtime OpenClaw do WhatsApp está desativado.' })
+      return
+    }
+    const suppliedToken = request.headers['x-digibusca-openclaw-token']
+    if (!openClawBridgeAuthorizationMatches(typeof suppliedToken === 'string' ? suppliedToken : undefined)) {
+      sendJson(response, 401, { error: 'A credencial da ponte OpenClaw é inválida.' })
+      return
+    }
+    let body: unknown
+    try {
+      body = await readLimitedJsonBody(request, 16 * 1024)
+    } catch (error) {
+      sendJson(response, error instanceof RequestBodyTooLargeError ? 413 : 400, { error: 'Revise os dados da mensagem e tente novamente.' })
+      return
+    }
+    if (!isRecord(body)) {
+      sendJson(response, 400, { error: 'O corpo da mensagem precisa ser um objeto JSON.' })
+      return
+    }
+    try {
+      if (requestUrl.pathname === '/api/openclaw/inbound') {
+        if (
+          typeof body.phoneNumberId !== 'string' || typeof body.senderE164 !== 'string' ||
+          typeof body.providerMessageId !== 'string' || typeof body.occurredAt !== 'string' ||
+          (body.openClawRunId !== undefined && typeof body.openClawRunId !== 'string') ||
+          (body.openClawSessionKey !== undefined && typeof body.openClawSessionKey !== 'string') ||
+          (body.contactName !== undefined && typeof body.contactName !== 'string') ||
+          (body.content !== undefined && typeof body.content !== 'string') ||
+          (body.messageType !== undefined && typeof body.messageType !== 'string')
+        ) {
+          sendJson(response, 400, { error: 'A mensagem recebida tem campos inválidos.' })
+          return
+        }
+        const result = await persistOpenClawInbound({
+          phoneNumberId: body.phoneNumberId,
+          senderE164: body.senderE164,
+          providerMessageId: body.providerMessageId,
+          occurredAt: body.occurredAt,
+          ...(typeof body.openClawRunId === 'string' ? { openClawRunId: body.openClawRunId } : {}),
+          ...(typeof body.openClawSessionKey === 'string' ? { openClawSessionKey: body.openClawSessionKey } : {}),
+          ...(typeof body.contactName === 'string' ? { contactName: body.contactName } : {}),
+          ...(typeof body.content === 'string' ? { content: body.content } : {}),
+          ...(typeof body.messageType === 'string' ? { messageType: body.messageType } : {}),
+        })
+        sendJson(response, 200, result)
+      } else if (requestUrl.pathname === '/api/openclaw/authorize-outbound') {
+        if (
+          typeof body.phoneNumberId !== 'string' || typeof body.recipientE164 !== 'string' || typeof body.content !== 'string' ||
+          (body.openClawRunId !== undefined && typeof body.openClawRunId !== 'string') ||
+          (body.openClawSessionKey !== undefined && typeof body.openClawSessionKey !== 'string')
+        ) {
+          sendJson(response, 400, { error: 'A mensagem de saída tem campos inválidos.' })
+          return
+        }
+        const result = await authorizeOpenClawOutbound({
+          phoneNumberId: body.phoneNumberId,
+          recipientE164: body.recipientE164,
+          content: body.content,
+          ...(typeof body.openClawRunId === 'string' ? { openClawRunId: body.openClawRunId } : {}),
+          ...(typeof body.openClawSessionKey === 'string' ? { openClawSessionKey: body.openClawSessionKey } : {}),
+        })
+        sendJson(response, 200, result)
+      } else {
+        if (
+          typeof body.phoneNumberId !== 'string' || typeof body.recipientE164 !== 'string' ||
+          typeof body.providerMessageId !== 'string' || typeof body.occurredAt !== 'string' || typeof body.success !== 'boolean' ||
+          (body.openClawRunId !== undefined && typeof body.openClawRunId !== 'string') ||
+          (body.openClawSessionKey !== undefined && typeof body.openClawSessionKey !== 'string') ||
+          (body.content !== undefined && typeof body.content !== 'string') ||
+          (body.messageType !== undefined && typeof body.messageType !== 'string')
+        ) {
+          sendJson(response, 400, { error: 'A mensagem enviada tem campos inválidos.' })
+          return
+        }
+        const result = await persistOpenClawOutbound({
+          phoneNumberId: body.phoneNumberId,
+          recipientE164: body.recipientE164,
+          providerMessageId: body.providerMessageId,
+          occurredAt: body.occurredAt,
+          success: body.success,
+          ...(typeof body.openClawRunId === 'string' ? { openClawRunId: body.openClawRunId } : {}),
+          ...(typeof body.openClawSessionKey === 'string' ? { openClawSessionKey: body.openClawSessionKey } : {}),
+          ...(typeof body.content === 'string' ? { content: body.content } : {}),
+          ...(typeof body.messageType === 'string' ? { messageType: body.messageType } : {}),
+        })
+        sendJson(response, 200, result)
+      }
+    } catch (error) {
+      if (error instanceof OpenClawBridgeError) {
+        sendJson(response, error.status, { error: error.message })
+        return
+      }
+      logWarning('openclaw_whatsapp_bridge_failed', { reason: 'message_persistence_unavailable' })
+      sendJson(response, 503, { error: 'Não foi possível registrar a mensagem no histórico do DigiBusca.' })
+    }
+    return
+  }
+
   if (isWhatsAppIntegrationPath(requestUrl.pathname) && !isWhatsAppIntegrationEnabled()) {
     sendJson(response, 410, { error: 'A integração do WhatsApp está desativada.' })
     return
@@ -436,6 +557,14 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         prospectingStore.listQueue(user.id),
         prospectingStore.getOrCreateDailyCampaign(user.id),
       ])
+      const openClawConfig = getOpenClawMcpConfig()
+      const openClawStorageReady = openClawConfig?.ownerUserId === user.id
+        ? await new WhatsAppStore().isOpenClawStorageReady().catch(() => false)
+        : false
+      const openClawConnectionPlatform = openClawConfig?.ownerUserId === user.id
+        ? await new WhatsAppStore().getConnectionPlatformType(user.id, openClawConfig.phoneNumberId).catch(() => undefined)
+        : undefined
+      const openClawGatewayReady = await isOpenClawGatewayReady()
       response.setHeader('Cache-Control', 'no-store')
       sendJson(response, 200, {
         data: {
@@ -445,10 +574,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
           campaign,
           localRuntimeEnabled: isWhatsAppProspectingRuntimeEnabled(),
           evolutionConfigured: Boolean(getEvolutionApiConfig()),
+          openClawProspectingDispatcherReady: isWhatsAppOpenClawProspectingRuntimeEnabled() && openClawStorageReady && openClawGatewayReady && openClawConnectionPlatform === 'OPENCLAW_WEB',
         },
       })
     } catch {
-      sendJson(response, 503, { error: 'Aplique as migrations 013 e 020 do WhatsApp no Supabase para habilitar a fila e o chat diário de prospecção.' })
+      sendJson(response, 503, { error: 'Aplique as migrations 013, 020 e 022 do WhatsApp no Supabase para habilitar a fila, o chat diário e a integração OpenClaw.' })
     }
     return
   }
@@ -490,20 +620,35 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
 
-    let connections: Awaited<ReturnType<typeof getEvolutionConnections>> = []
+    let connections: Awaited<ReturnType<typeof getWhatsAppConnections>> = []
     if (phoneNumberId) {
       try {
-        connections = await getEvolutionConnections(user.id)
+        connections = await getWhatsAppConnections(user.id)
       } catch {
         connections = []
       }
     }
-    const selectedConnectionIsOpen = connections.some((connection) => (
-      connection.phoneNumberId === phoneNumberId && connection.connectionState?.toLowerCase() === 'open'
+    const openClawConfig = getOpenClawMcpConfig()
+    const selectedConnection = connections.find((connection) => (
+      connection.phoneNumberId === phoneNumberId && (
+        connection.connectionState?.toLowerCase() === 'open' ||
+        (connection.platformType === 'OPENCLAW_WEB' && connection.connectionState?.toLowerCase() === 'registered' && connection.phoneNumberId === openClawConfig?.phoneNumberId)
+      )
     ))
-    const queueSendingAvailable = Boolean(
-      phoneNumberId && selectedConnectionIsOpen && isWhatsAppProspectingRuntimeEnabled() && getEvolutionApiConfig(),
+    const selectedConnectionPlatformType = selectedConnection?.platformType === 'EVOLUTION_API' || selectedConnection?.platformType === 'OPENCLAW_WEB'
+      ? selectedConnection.platformType
+      : undefined
+    let queueSendingAvailable = Boolean(
+      phoneNumberId && selectedConnection?.platformType === 'EVOLUTION_API' &&
+      isWhatsAppProspectingRuntimeEnabled() && getEvolutionApiConfig(),
     )
+    if (phoneNumberId && selectedConnection?.platformType === 'OPENCLAW_WEB') {
+      const bridgeReady = Boolean(openClawConfig && openClawConfig.ownerUserId === user.id && getOpenClawBridgeConfig())
+      const storageReady = await new WhatsAppStore().isOpenClawStorageReady().catch(() => false)
+      const hookReady = Boolean(getOpenClawGatewayHookConfig())
+      const gatewayReady = await isOpenClawGatewayReady()
+      queueSendingAvailable = Boolean(isWhatsAppOpenClawProspectingRuntimeEnabled() && bridgeReady && storageReady && hookReady && gatewayReady)
+    }
     try {
       const result = await runWhatsAppDailyProspectingCampaign({
         userId: user.id,
@@ -511,6 +656,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         city,
         segment,
         ...(phoneNumberId ? { phoneNumberId } : {}),
+        ...(selectedConnectionPlatformType ? { queuePlatformType: selectedConnectionPlatformType } : {}),
         queueSendingAvailable,
         campaign,
         provider: new GooglePlacesProvider(
@@ -552,18 +698,26 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       sendJson(response, 400, { error: 'Informe se a prospecção está ativa e um limite entre 17 e 25 novos leads por dia.' })
       return
     }
-    if (body.enabled && !isWhatsAppProspectingRuntimeEnabled()) {
-      sendJson(response, 503, { error: 'Ative WHATSAPP_PROSPECTING_RUNTIME_ENABLED no ambiente do backend e reinicie o serviço antes de ligar a fila.' })
-      return
-    }
-    if (body.enabled && !getEvolutionApiConfig()) {
-      sendJson(response, 503, { error: 'Configure a Evolution API no ambiente do backend antes de ligar a fila.' })
-      return
-    }
     if (body.enabled) {
-      const connections = await getEvolutionConnections(user.id)
-      if (!connections.some((connection) => connection.connectionState?.toLowerCase() === 'open')) {
-        sendJson(response, 409, { error: 'Conecte o WhatsApp à Evolution API antes de ativar a fila.' })
+      let connections: Awaited<ReturnType<typeof getWhatsAppConnections>>
+      try {
+        connections = await getWhatsAppConnections(user.id)
+      } catch {
+        sendJson(response, 503, { error: 'Não foi possível verificar as conexões do WhatsApp.' })
+        return
+      }
+      const evolutionReady = isWhatsAppProspectingRuntimeEnabled() && Boolean(getEvolutionApiConfig()) &&
+        connections.some((connection) => connection.platformType === 'EVOLUTION_API' && connection.connectionState?.toLowerCase() === 'open')
+      const openClawConfig = getOpenClawMcpConfig()
+      const openClawStorageReady = openClawConfig?.ownerUserId === user.id
+        ? await new WhatsAppStore().isOpenClawStorageReady().catch(() => false)
+        : false
+      const openClawGatewayReady = await isOpenClawGatewayReady()
+      const openClawReady = isWhatsAppOpenClawProspectingRuntimeEnabled() &&
+        openClawConfig?.ownerUserId === user.id && openClawStorageReady && openClawGatewayReady &&
+        connections.some((connection) => connection.phoneNumberId === openClawConfig.phoneNumberId && connection.platformType === 'OPENCLAW_WEB' && connection.connectionState?.toLowerCase() === 'registered')
+      if (!evolutionReady && !openClawReady) {
+        sendJson(response, 503, { error: 'Para ativar a fila, conecte a Evolution com runtime ativo ou configure o Cristhian OpenClaw, o webhook privado e o pareamento registrado.' })
         return
       }
     }
@@ -591,19 +745,51 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     if (
       !isRecord(body) || typeof body.phoneNumberId !== 'string' || !/^[-_a-zA-Z0-9]{1,128}$/.test(body.phoneNumberId) ||
       typeof body.leadId !== 'string' || !body.leadId.trim() || body.leadId.length > 200 ||
-      typeof body.message !== 'string' || !body.message.trim() || body.message.trim().length > 1_024
+      (body.message !== undefined && (typeof body.message !== 'string' || !body.message.trim() || body.message.trim().length > 1_024))
     ) {
-      sendJson(response, 400, { error: 'Informe o número conectado, o lead salvo e uma mensagem de até 1.024 caracteres.' })
+      sendJson(response, 400, { error: 'Informe o número conectado e o lead salvo. A mensagem inicial será preparada pelo DigiBusca.' })
       return
     }
     try {
-      const data = await new WhatsAppProspectingStore().enqueueNewLead(
+      const prospectingStore = new WhatsAppProspectingStore()
+      const settings = await prospectingStore.getSettings(user.id)
+      if (!settings.enabled) {
+        sendJson(response, 409, { error: 'Ative a fila automática antes de adicionar contatos para envio.' })
+        return
+      }
+      const platformType = await new WhatsAppStore().getConnectionPlatformType(user.id, body.phoneNumberId)
+      if (platformType !== 'EVOLUTION_API' && platformType !== 'OPENCLAW_WEB') {
+        sendJson(response, 409, { error: 'O número selecionado não tem um transporte WhatsApp registrado.' })
+        return
+      }
+      if (platformType === 'EVOLUTION_API' && (!isWhatsAppProspectingRuntimeEnabled() || !getEvolutionApiConfig())) {
+        sendJson(response, 503, { error: 'O runtime de prospecção da Evolution não está configurado.' })
+        return
+      }
+      if (platformType === 'OPENCLAW_WEB') {
+        const config = getOpenClawMcpConfig()
+        const storageReady = config?.ownerUserId === user.id
+          ? await new WhatsAppStore().isOpenClawStorageReady().catch(() => false)
+          : false
+        const gatewayReady = await isOpenClawGatewayReady()
+        if (!isWhatsAppOpenClawProspectingRuntimeEnabled() || config?.ownerUserId !== user.id || config.phoneNumberId !== body.phoneNumberId || !storageReady || !gatewayReady) {
+          sendJson(response, 503, { error: 'O dispatcher OpenClaw ainda não está pronto para esse número. Confira o Gateway, o webhook privado, o registro do pareamento e a migration 022.' })
+          return
+        }
+      }
+      const data = await prospectingStore.enqueueNewLead(
         user.id,
         body.phoneNumberId,
         body.leadId.trim(),
-        body.message,
+        typeof body.message === 'string' ? body.message : undefined,
+        platformType,
       )
       sendJson(response, 201, { data })
+      setImmediate(() => {
+        void runLocalWhatsAppProspectingTick().catch(() => {
+          logWarning('whatsapp_manual_queue_dispatch_failed', { reason: 'queue_dispatch_unavailable' })
+        })
+      })
     } catch (error) {
       if (error instanceof WhatsAppProspectingError) {
         sendJson(response, error.status, { error: error.message })
@@ -636,7 +822,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
 
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/connections') {
     response.setHeader('Cache-Control', 'no-store')
-    sendJson(response, 200, { data: await getEvolutionConnections(user.id) })
+    sendJson(response, 200, { data: await getWhatsAppConnections(user.id) })
     return
   }
 
@@ -661,6 +847,24 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         ? error.status
         : error instanceof Error && error.message.includes('já está associado') ? 409 : 503
       sendJson(response, statusCode, { error: error instanceof Error ? error.message : 'Não foi possível conectar a Evolution API.' })
+    }
+    return
+  }
+
+  if (request.method === 'POST' && requestUrl.pathname === '/api/whatsapp/connections/openclaw') {
+    const config = getOpenClawMcpConfig()
+    if (!config || !getOpenClawBridgeConfig() || config.ownerUserId !== user.id) {
+      sendJson(response, 503, { error: 'Configure a conexão privada do OpenClaw no backend antes de registrar o pareamento.' })
+      return
+    }
+    try {
+      await new WhatsAppStore().saveOpenClawConnection(user.id, config.phoneNumberId)
+      response.setHeader('Cache-Control', 'no-store')
+      sendJson(response, 201, { data: { phoneNumberId: config.phoneNumberId, platformType: 'OPENCLAW_WEB', connectionState: 'registered' } })
+    } catch (error) {
+      sendJson(response, error instanceof Error && error.message.includes('pendentes da fila Evolution') ? 409 : 503, {
+        error: error instanceof Error ? error.message : 'Não foi possível registrar a conexão do OpenClaw.',
+      })
     }
     return
   }
@@ -908,6 +1112,21 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         return
       }
     }
+    if (input.automationEnabled && input.responseMode === 'openclaw') {
+      const config = getOpenClawMcpConfig()
+      const store = new WhatsAppStore()
+      const [connectionPlatform, openClawStorageReady] = await Promise.all([
+        store.getConnectionPlatformType(user.id, input.phoneNumberId),
+        store.isOpenClawStorageReady(),
+      ])
+      if (
+        !isWhatsAppOpenClawRuntimeEnabled() || !config || config.ownerUserId !== user.id ||
+        config.phoneNumberId !== input.phoneNumberId || connectionPlatform !== 'OPENCLAW_WEB' || !openClawStorageReady
+      ) {
+        sendJson(response, 503, { error: 'O Cristhian do OpenClaw ainda não está pronto. Confira o MCP privado, a ponte de mensagens, a migration 022 e se este número já foi pareado e marcado como OPENCLAW_WEB.' })
+        return
+      }
+    }
     const profile = await new WhatsAppStore().saveAutomationProfile(user.id, input)
     response.setHeader('Cache-Control', 'no-store')
     sendJson(response, 200, { data: profile })
@@ -999,6 +1218,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/status') {
     const connectionStorageReady = await new WhatsAppStore().isEvolutionStorageReady()
     const automationStorageReady = await new WhatsAppStore().isAutomationStorageReady()
+    const openClawStorageReady = await new WhatsAppStore().isOpenClawStorageReady()
     const digiBuscaAgentStorageReady = await new WhatsAppStore().isDigiBuscaAgentStorageReady()
     let agentProviders = getWhatsAppAgentProvidersStatus()
     let agentProviderSources = {
@@ -1024,7 +1244,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       agentProviderSources = { google: 'unavailable', anthropic: 'unavailable', openaiCompatible: 'unavailable' }
       }
     }
-    sendJson(response, 200, { data: { ...getWhatsAppEvolutionSetupStatus(), agentProviders, agentProviderSources, connectionStorageReady, automationStorageReady, digiBuscaAgentStorageReady } })
+    sendJson(response, 200, { data: { ...getWhatsAppEvolutionSetupStatus(), agentProviders, agentProviderSources, connectionStorageReady, automationStorageReady, openClawStorageReady, digiBuscaAgentStorageReady } })
     return
   }
 

@@ -2,8 +2,6 @@ export const opportunityTypes = ['Sem site', 'Site identificado', 'Perfil incomp
 export type OpportunityType = (typeof opportunityTypes)[number]
 export type LeadStatus = 'Novo' | 'Contatado' | 'Respondeu' | 'Proposta' | 'Ganhou' | 'Perdeu'
 export const leadStatuses: LeadStatus[] = ['Novo', 'Contatado', 'Respondeu', 'Proposta', 'Ganhou', 'Perdeu']
-export const authorizedGoogleSearchSource = 'Busca DigiBusca/Google configurada pelo titular para retornar leads autorizados ao contato por WhatsApp'
-
 export type Lead = {
   id: string
   name: string
@@ -29,6 +27,9 @@ export type Lead = {
   whatsappConsentStatus?: 'unknown' | 'opted_in' | 'opted_out'
   whatsappConsentSource?: string
   whatsappConsentAt?: string
+  whatsappOutboundAuthorizationStatus?: 'not_authorized' | 'authorized_by_owner'
+  whatsappOutboundAuthorizationSource?: string
+  whatsappOutboundAuthorizationAt?: string
 }
 
 export type LeadSnapshot = Pick<

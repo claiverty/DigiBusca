@@ -5,7 +5,7 @@ source_dir=/opt/digibusca/ops/hostgator
 readonly backup_script=backup-evolution.sh
 readonly volume_name=digibusca-hostgator-evolution-instances
 readonly recipient_file=/etc/digibusca/hostgator/evolution-backup.age-recipient
-readonly required_paths=(/etc/digibusca/hostgator /opt/digibusca/ops/hostgator /opt/openbot-docker/instances)
+readonly required_paths=(/etc/digibusca/hostgator /opt/digibusca/ops/hostgator)
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run this installer as root." >&2
@@ -44,19 +44,6 @@ if [ "${#database_containers[@]}" -ne 1 ]; then
   echo "Expected one running DigiBusca Evolution database before enabling backups." >&2
   exit 1
 fi
-for container_name in openbot-digibot-ops openbot-digibot-whatsapp; do
-  openbot_container=$(docker ps --filter "name=^/${container_name}$" --format '{{.ID}}')
-  if [ -z "$openbot_container" ]; then
-    echo "Required OpenBot container must be running before enabling backups: $container_name" >&2
-    exit 1
-  fi
-  openbot_data_mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$openbot_container")
-  if [ ! -d "$openbot_data_mount" ]; then
-    echo "The OpenBot data volume is unavailable: $container_name" >&2
-    exit 1
-  fi
-done
-
 install -d -o root -g root -m 0700 /var/backups/digibusca/evolution /var/backups/digibusca/.evolution-staging
 install -o root -g root -m 0700 "$source_dir/$backup_script" /usr/local/sbin/digibusca-evolution-backup.sh
 install -o root -g root -m 0644 "$source_dir/digibusca-evolution-backup.service" /etc/systemd/system/

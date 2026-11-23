@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { authorizedGoogleSearchSource, type Lead, type LeadSnapshot, type LeadStatus } from '../contracts/lead.js'
+import type { Lead, LeadSnapshot, LeadStatus } from '../contracts/lead.js'
 import type { CreateSaleInput, Sale, UpdateSaleInput } from '../contracts/sale.js'
 import type {
   CreateLeadInteractionInput,
@@ -26,6 +26,9 @@ type SavedLeadRow = {
   whatsapp_consent_status?: 'unknown' | 'opted_in' | 'opted_out' | null
   whatsapp_consent_source?: string | null
   whatsapp_consent_at?: string | null
+  whatsapp_outbound_authorization_status?: 'not_authorized' | 'authorized_by_owner' | null
+  whatsapp_outbound_authorization_source?: string | null
+  whatsapp_outbound_authorization_at?: string | null
   updated_at: string
 }
 
@@ -71,6 +74,9 @@ export type SavedLeadState = {
   whatsappConsentStatus: 'unknown' | 'opted_in' | 'opted_out'
   whatsappConsentSource?: string
   whatsappConsentAt?: string
+  whatsappOutboundAuthorizationStatus: 'not_authorized' | 'authorized_by_owner'
+  whatsappOutboundAuthorizationSource?: string
+  whatsappOutboundAuthorizationAt?: string
   updatedAt: string
 }
 
@@ -101,6 +107,9 @@ function mapSavedLeadState(row: SavedLeadRow): SavedLeadState {
     whatsappConsentStatus: row.whatsapp_consent_status ?? 'unknown',
     whatsappConsentSource: row.whatsapp_consent_source ?? undefined,
     whatsappConsentAt: row.whatsapp_consent_at ?? undefined,
+    whatsappOutboundAuthorizationStatus: row.whatsapp_outbound_authorization_status ?? 'not_authorized',
+    whatsappOutboundAuthorizationSource: row.whatsapp_outbound_authorization_source ?? undefined,
+    whatsappOutboundAuthorizationAt: row.whatsapp_outbound_authorization_at ?? undefined,
     updatedAt: row.updated_at,
   }
 }
@@ -140,22 +149,24 @@ function throwIfError(error: { message: string } | null) {
   }
 }
 
-const savedLeadSelect = 'lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at, updated_at'
+const savedLeadSelect = 'lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at, whatsapp_outbound_authorization_status, whatsapp_outbound_authorization_source, whatsapp_outbound_authorization_at, updated_at'
 const savedLeadLegacySelect = 'lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, draft_message, conversation_stage, contact_name, next_action, updated_at'
-function googleSearchAuthorization(lead: LeadSnapshot | null | undefined) {
+function isMissingWhatsAppConsentColumns(error: { code?: string; message: string } | null): boolean {
+  if (!error || !/whatsapp_(consent|outbound_authorization)_(status|source|at)/i.test(error.message)) return false
+  return error.code === '42703' || error.code === 'PGRST204' || /does not exist|schema cache|could not find/i.test(error.message)
+}
+
+const googleSearchAuthorizationSource = 'Autorização do titular para prospecção de leads retornados pela busca DigiBusca/Google Maps'
+
+function googleSearchOutboundAuthorization(lead: LeadSnapshot | null | undefined) {
   if (!lead || lead.source !== 'Google Maps') return undefined
   const retrievedAt = Date.parse(lead.retrievedAt)
   if (!Number.isFinite(retrievedAt) || retrievedAt > Date.now()) return undefined
   return {
-    whatsapp_consent_status: 'opted_in' as const,
-    whatsapp_consent_source: authorizedGoogleSearchSource,
-    whatsapp_consent_at: new Date(retrievedAt).toISOString(),
+    whatsapp_outbound_authorization_status: 'authorized_by_owner' as const,
+    whatsapp_outbound_authorization_source: googleSearchAuthorizationSource,
+    whatsapp_outbound_authorization_at: new Date(retrievedAt).toISOString(),
   }
-}
-
-function isMissingWhatsAppConsentColumns(error: { code?: string; message: string } | null): boolean {
-  if (!error || !/whatsapp_consent_(status|source|at)/i.test(error.message)) return false
-  return error.code === '42703' || error.code === 'PGRST204' || /does not exist|schema cache|could not find/i.test(error.message)
 }
 
 export class WhatsAppConsentSchemaMissingError extends Error {
@@ -192,30 +203,6 @@ export class SupabaseStore {
     throwIfError(error)
 
     const rows = data as SavedLeadRow[]
-    if (!isMissingWhatsAppConsentColumns(currentResult.error as { code?: string; message: string } | null)) {
-      const rowsToAuthorize = rows.filter((row) => (
-        row.whatsapp_consent_status === 'unknown' &&
-        row.lead_data && 'name' in row.lead_data &&
-        googleSearchAuthorization(row.lead_data as LeadSnapshot)
-      ))
-      if (rowsToAuthorize.length > 0) {
-        const updatedAt = new Date().toISOString()
-        await Promise.all(rowsToAuthorize.map(async (row) => {
-          const authorization = googleSearchAuthorization(row.lead_data as LeadSnapshot)
-          if (!authorization) return
-          const result = await store.from('saved_leads').update(authorization)
-            .eq('user_id', userId)
-            .eq('lead_id', row.lead_id)
-            .eq('whatsapp_consent_status', 'unknown')
-          throwIfError(result.error)
-          row.whatsapp_consent_status = authorization.whatsapp_consent_status
-          row.whatsapp_consent_source = authorization.whatsapp_consent_source
-          row.whatsapp_consent_at = authorization.whatsapp_consent_at
-          row.updated_at = updatedAt
-        }))
-      }
-    }
-
     return rows.map(mapSavedLeadState)
   }
 
@@ -261,9 +248,16 @@ export class SupabaseStore {
     }
 
     const now = new Date().toISOString()
-    const googleAuthorization = hasWhatsAppConsentColumns ? googleSearchAuthorization(lead) : undefined
     const existingRow = existingData as SavedLeadRow | null
-    const mayApplyGoogleAuthorization = googleAuthorization && existingRow?.whatsapp_consent_status !== 'opted_out'
+    const outboundAuthorization = changes.whatsappConsentStatus === 'opted_out'
+      ? {
+          whatsapp_outbound_authorization_status: 'not_authorized' as const,
+          whatsapp_outbound_authorization_source: null,
+          whatsapp_outbound_authorization_at: null,
+        }
+      : hasWhatsAppConsentColumns && existingRow?.whatsapp_consent_status !== 'opted_out'
+        ? googleSearchOutboundAuthorization(lead)
+        : undefined
     const payload = {
       ...(lead ? { lead_data: lead, lead_data_expires_at: getSnapshotExpiry() } : {}),
       ...(changes.status !== undefined ? { status: changes.status } : {}),
@@ -273,10 +267,10 @@ export class SupabaseStore {
       ...(changes.conversationStage !== undefined ? { conversation_stage: changes.conversationStage || null } : {}),
       ...(changes.contactName !== undefined ? { contact_name: changes.contactName || null } : {}),
       ...(changes.nextAction !== undefined ? { next_action: changes.nextAction || null } : {}),
-      ...(mayApplyGoogleAuthorization && existingRow?.whatsapp_consent_status !== 'opted_in' ? googleAuthorization : {}),
       ...(hasWhatsAppConsentColumns && changes.whatsappConsentStatus !== undefined ? { whatsapp_consent_status: changes.whatsappConsentStatus } : {}),
       ...(hasWhatsAppConsentColumns && changes.whatsappConsentSource !== undefined ? { whatsapp_consent_source: changes.whatsappConsentSource || null } : {}),
       ...(hasWhatsAppConsentColumns && changes.whatsappConsentAt !== undefined ? { whatsapp_consent_at: changes.whatsappConsentAt || null } : {}),
+      ...(hasWhatsAppConsentColumns && outboundAuthorization ? outboundAuthorization : {}),
       updated_at: now,
     }
 
@@ -295,9 +289,14 @@ export class SupabaseStore {
           contact_name: changes.contactName || null,
           next_action: changes.nextAction || null,
           ...(hasWhatsAppConsentColumns ? {
-            whatsapp_consent_status: changes.whatsappConsentStatus ?? googleAuthorization?.whatsapp_consent_status ?? 'unknown',
-            whatsapp_consent_source: changes.whatsappConsentSource || googleAuthorization?.whatsapp_consent_source || null,
-            whatsapp_consent_at: changes.whatsappConsentAt || googleAuthorization?.whatsapp_consent_at || null,
+            whatsapp_consent_status: changes.whatsappConsentStatus ?? 'unknown',
+            whatsapp_consent_source: changes.whatsappConsentSource || null,
+            whatsapp_consent_at: changes.whatsappConsentAt || null,
+            ...(outboundAuthorization ?? {
+              whatsapp_outbound_authorization_status: 'not_authorized' as const,
+              whatsapp_outbound_authorization_source: null,
+              whatsapp_outbound_authorization_at: null,
+            }),
           } : {}),
           updated_at: now,
         })

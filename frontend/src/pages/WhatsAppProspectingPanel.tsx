@@ -38,12 +38,15 @@ function queueErrorLabel(errorCode?: string) {
   if (errorCode === 'contact_not_eligible_or_connection_unavailable') return 'Revise autorização, telefone, conexão e status do lead.'
   if (errorCode === 'recipient_not_on_whatsapp') return 'Este telefone não tem uma conta WhatsApp; o sistema não tentou enviar.'
   if (errorCode === 'contact_opted_out') return 'Contato bloqueado porque pediu para não receber mensagens.'
-  if (errorCode === 'consent_invalid') return 'A autorização de contato não está válida; o envio foi bloqueado.'
+  if (errorCode === 'consent_invalid' || errorCode === 'authorization_invalid') return 'A autorização de contato não está válida; o envio foi bloqueado.'
   if (errorCode === 'phone_invalid_or_changed') return 'O telefone salvo mudou ou está inválido; o envio foi bloqueado.'
   if (errorCode === 'evolution_disconnected' || errorCode === 'evolution_status_unavailable' || errorCode === 'evolution_not_connected') return 'A Evolution estava desconectada ou indisponível no momento do envio.'
   if (errorCode === 'dispatch_context_unavailable') return 'Não foi possível revalidar o lead antes do envio. A fila registrou a falha para revisão.'
+  if (errorCode === 'openclaw_dispatch_context_unavailable') return 'Não foi possível revalidar o lead e o pareamento OpenClaw antes do despacho.'
+  if (errorCode === 'openclaw_hook_outcome_unknown' || errorCode === 'openclaw_hook_ack_invalid') return 'O OpenClaw pode ter recebido a tarefa, mas não confirmou o despacho. Confira a conversa antes de qualquer nova tentativa.'
+  if (errorCode?.startsWith('openclaw_hook_rejected_http_')) return 'O webhook privado do OpenClaw recusou a tarefa. Revise o token, o Gateway e os logs antes de tentar novamente.'
   if (errorCode === 'history_sync_failed') return 'A Evolution aceitou o envio; confira a conversa e o histórico.'
-  if (errorCode === 'local_worker_interrupted') return 'O processo local foi interrompido; confira a conversa.'
+  if (errorCode === 'local_worker_interrupted') return 'O processo de envio foi interrompido; confira a conversa.'
   const providerStatus = errorCode?.match(/^provider_rejected_http_(\d{3})$/)?.[1]
   if (providerStatus === '400') return 'A Evolution recusou o número ou a mensagem (HTTP 400); o envio não foi aceito.'
   if (providerStatus === '401' || providerStatus === '403') return `A Evolution recusou a chave ou a permissão (HTTP ${providerStatus}); revise a configuração.`
@@ -51,6 +54,11 @@ function queueErrorLabel(errorCode?: string) {
   if (providerStatus === '429') return 'A Evolution limitou o envio (HTTP 429); revise o ritmo da fila.'
   if (providerStatus) return `A Evolution recusou a operação (HTTP ${providerStatus}).`
   return errorCode ? 'Confira a conversa e a conexão antes de tentar novamente.' : undefined
+}
+
+function isRegisteredWhatsAppConnection(connection: WhatsAppConnection) {
+  const state = connection.connectionState?.toLowerCase()
+  return state === 'open' || (connection.platformType === 'OPENCLAW_WEB' && state === 'registered')
 }
 
 export function WhatsAppProspectingPanel({ connections }: Props) {
@@ -62,7 +70,6 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
   const [selectedPhoneNumberId, setSelectedPhoneNumberId] = useState('')
   const [dailyLimit, setDailyLimit] = useState(20)
   const [busyKey, setBusyKey] = useState('')
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [campaignCity, setCampaignCity] = useState('')
   const [campaignSegment, setCampaignSegment] = useState('')
   const [campaignBusy, setCampaignBusy] = useState(false)
@@ -103,7 +110,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
   }, [campaignBusy])
 
   useEffect(() => {
-    const readyConnections = connections.filter((connection) => connection.connectionState?.toLowerCase() === 'open')
+    const readyConnections = connections.filter(isRegisteredWhatsAppConnection)
     setSelectedPhoneNumberId((current) => (
       current && readyConnections.some((connection) => connection.phoneNumberId === current)
         ? current
@@ -119,9 +126,11 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
 
   const eligibleLeads = useMemo(() => leads.filter((savedLead) => (
     savedLead.status === 'Novo' &&
-    savedLead.whatsappConsentStatus === 'opted_in' &&
-    Boolean(savedLead.whatsappConsentSource?.trim()) &&
-    Boolean(savedLead.whatsappConsentAt && Number.isFinite(Date.parse(savedLead.whatsappConsentAt))) &&
+    savedLead.whatsappConsentStatus !== 'opted_out' &&
+    (
+      (savedLead.whatsappConsentStatus === 'opted_in' && Boolean(savedLead.whatsappConsentSource?.trim()) && Boolean(savedLead.whatsappConsentAt && Number.isFinite(Date.parse(savedLead.whatsappConsentAt)))) ||
+      (savedLead.whatsappOutboundAuthorizationStatus === 'authorized_by_owner' && Boolean(savedLead.whatsappOutboundAuthorizationSource?.trim()) && Boolean(savedLead.whatsappOutboundAuthorizationAt && Number.isFinite(Date.parse(savedLead.whatsappOutboundAuthorizationAt))))
+    ) &&
     Boolean(savedLead.lead?.phone?.trim()) &&
     !queuedLeadIds.has(savedLead.leadId)
   )), [leads, queuedLeadIds])
@@ -146,11 +155,6 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
       setError('Conecte ou selecione um número do WhatsApp Business.')
       return
     }
-    const message = (drafts[savedLead.leadId] ?? savedLead.draftMessage ?? '').trim()
-    if (!message) {
-      setError(`Escreva ou salve uma mensagem para ${savedLead.lead?.name ?? 'este lead'} antes de adicionar à fila.`)
-      return
-    }
     setBusyKey(savedLead.leadId)
     setError('')
     setNotice('')
@@ -158,7 +162,6 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
       const item = await enqueueWhatsAppNewLead({
         phoneNumberId: selectedPhoneNumberId,
         leadId: savedLead.leadId,
-        message,
       })
       setDashboard((current) => current ? { ...current, queue: [item, ...current.queue] } : current)
       setNotice(`${savedLead.lead?.name ?? 'Lead'} entrou na fila.`)
@@ -216,7 +219,15 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
   const leadNames = useMemo(() => new Map(leads.map((savedLead) => [savedLead.leadId, savedLead.lead?.name ?? savedLead.leadId] as const)), [leads])
   const runtimeEnabled = dashboard?.localRuntimeEnabled === true
   const evolutionConfigured = dashboard?.evolutionConfigured === true
-  const readyConnections = connections.filter((connection) => connection.connectionState?.toLowerCase() === 'open')
+  const openClawDispatcherReady = dashboard?.openClawProspectingDispatcherReady === true
+  const readyConnections = connections.filter(isRegisteredWhatsAppConnection)
+  const prospectingReadyConnections = readyConnections.filter((connection) => (
+    connection.platformType === 'OPENCLAW_WEB'
+      ? openClawDispatcherReady
+      : connection.platformType === 'EVOLUTION_API' && runtimeEnabled && evolutionConfigured && connection.connectionState?.toLowerCase() === 'open'
+  ))
+  const selectedConnection = readyConnections.find((connection) => connection.phoneNumberId === selectedPhoneNumberId)
+  const selectedConnectionCanSend = Boolean(selectedConnection && prospectingReadyConnections.some((connection) => connection.phoneNumberId === selectedConnection.phoneNumberId))
 
   return (
     <section className="whatsapp-prospecting" role="tabpanel" aria-label="Fila de prospecção">
@@ -252,7 +263,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
           <button
             className={`prospecting-toggle${dashboard?.settings.enabled ? ' is-on' : ''}`}
             type="button"
-            disabled={busyKey === 'settings' || loadState !== 'ready' || (!dashboard?.settings.enabled && (!runtimeEnabled || !evolutionConfigured || readyConnections.length === 0))}
+            disabled={busyKey === 'settings' || loadState !== 'ready' || (!dashboard?.settings.enabled && prospectingReadyConnections.length === 0)}
             onClick={() => void updateSettings(dashboard?.settings.enabled !== true, dailyLimit)}
           >
             {dashboard?.settings.enabled ? <Pause size={16} /> : <Play size={16} />}
@@ -263,9 +274,9 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
           </button>
         </div>
 
-        {!runtimeEnabled && <p className="prospecting-guidance"><AlertCircle size={15} /> O backend ainda precisa de <code>WHATSAPP_PROSPECTING_RUNTIME_ENABLED=true</code> para processar envios.</p>}
-        {!evolutionConfigured && <p className="prospecting-guidance"><AlertCircle size={15} /> Configure a URL e a chave da Evolution API no ambiente do backend.</p>}
-        {readyConnections.length === 0 && <p className="prospecting-guidance"><AlertCircle size={15} /> Conecte o WhatsApp pela Evolution API na aba Conexão.</p>}
+        {readyConnections.length === 0 && <p className="prospecting-guidance"><AlertCircle size={15} /> Conecte pela Evolution ou registre o pareamento do OpenClaw na aba Conexão.</p>}
+        {readyConnections.length > 0 && prospectingReadyConnections.length === 0 && <p className="prospecting-guidance"><AlertCircle size={15} /> Nenhum transporte está pronto para enviar. Configure o runtime da Evolution ou o dispatcher privado do OpenClaw.</p>}
+        {selectedConnection?.platformType === 'OPENCLAW_WEB' && <p className="prospecting-guidance">O DigiBusca confirma que o pareamento OpenClaw foi registrado; a sessão ativa precisa ser conferida no terminal da VPS.</p>}
         {readyConnections.length > 1 && (
           <label className="prospecting-phone-field">
             <span>Número de envio</span>
@@ -275,13 +286,13 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
               ariaLabel="Número de envio"
               options={readyConnections.map((connection) => ({
                 value: connection.phoneNumberId,
-                label: connection.displayPhoneNumber || connection.phoneNumberId,
+                label: `${connection.displayPhoneNumber || connection.phoneNumberId}${connection.platformType === 'OPENCLAW_WEB' ? ' · OpenClaw registrado' : ''}`,
               }))}
               size="compact"
             />
           </label>
         )}
-        <p className="prospecting-policy-note">A fila envia em dias úteis, entre 9h e 14h (horário de São Paulo), até o limite diário selecionado. Os leads retornados pela busca configurada no DigiBusca entram como autorizados; pedidos de descadastro continuam bloqueados.</p>
+        <p className="prospecting-policy-note">A fila envia em dias úteis, entre 9h e 14h (horário de São Paulo), até o limite diário selecionado. Os resultados da busca ficam autorizados pelo titular para prospecção e recebem uma mensagem inicial do Cristhian. Consentimentos e descadastros do contato são registrados separadamente; descadastros sempre bloqueiam o envio.</p>
       </section>
 
       <section className="panel prospecting-daily-chat" aria-label="Chat de prospecção do dia">
@@ -343,21 +354,12 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
               <article className="prospecting-lead-card" key={savedLead.leadId}>
                 <div className="prospecting-lead-heading">
                   <div><strong>{savedLead.lead?.name ?? 'Lead sem nome'}</strong><small>{savedLead.lead?.category ?? 'Categoria não informada'} · {savedLead.lead?.phone}</small></div>
-                  <span>Autorizado pela busca DigiBusca</span>
+                  <span>{savedLead.whatsappConsentStatus === 'opted_out' ? 'Descadastro registrado' : savedLead.whatsappConsentStatus === 'opted_in' ? 'Consentimento registrado' : savedLead.whatsappOutboundAuthorizationStatus === 'authorized_by_owner' ? 'Autorizado pelo titular' : 'Sem autorização registrada'}</span>
                 </div>
-                <label>
-                  <span>Mensagem inicial</span>
-                  <textarea
-                    value={drafts[savedLead.leadId] ?? savedLead.draftMessage ?? ''}
-                    maxLength={1_024}
-                    rows={3}
-                    onChange={(event) => setDrafts((current) => ({ ...current, [savedLead.leadId]: event.target.value }))}
-                    placeholder="Escreva uma mensagem personalizada para este lead."
-                  />
-                </label>
-                <button className="secondary-button" type="button" disabled={busyKey === savedLead.leadId || !selectedPhoneNumberId} onClick={() => void queueLead(savedLead)}>
-                  <Send size={15} /> {busyKey === savedLead.leadId ? 'Adicionando…' : 'Adicionar à fila'}
+                <button className="secondary-button" type="button" disabled={busyKey === savedLead.leadId || !selectedPhoneNumberId || !dashboard?.settings.enabled || !selectedConnectionCanSend} onClick={() => void queueLead(savedLead)}>
+                  <Send size={15} /> {busyKey === savedLead.leadId ? 'Preparando…' : 'Adicionar à fila'}
                 </button>
+                <small>O DigiBusca prepara a mensagem inicial e agenda o envio quando a fila estiver ativa. Leads da busca entram como autorizados pelo titular; pedidos de descadastro continuam bloqueados.</small>
               </article>
             ))}
           </div>
