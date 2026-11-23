@@ -11,6 +11,7 @@ readonly openbot_whatsapp_container_name=openbot-digibot-whatsapp
 readonly openbot_ops_container_name=openbot-digibot-ops
 readonly retention_days=14
 readonly compose_project=digibusca-hostgator
+paused_containers=()
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run this backup as root." >&2
@@ -77,8 +78,29 @@ find_optional_service_container() {
   fi
 }
 
+pause_for_consistent_archive() {
+  local container status paused
+  container="$1"
+  [ -n "$container" ] || return 0
+  status=$(docker inspect --format '{{.State.Status}}' "$container" 2>/dev/null || true)
+  paused=$(docker inspect --format '{{.State.Paused}}' "$container" 2>/dev/null || true)
+  if [ "$status" = running ] && [ "$paused" = false ]; then
+    docker pause "$container" >/dev/null
+    paused_containers+=("$container")
+  fi
+}
+
+resume_after_archive() {
+  local container
+  for container in "${paused_containers[@]}"; do
+    docker unpause "$container" >/dev/null 2>&1 || true
+  done
+}
+
 database_container=$(find_service_container evolution-db) || exit 1
 readonly database_container
+evolution_api_container=$(find_optional_service_container evolution-api) || exit 1
+readonly evolution_api_container
 volume_mount=$(docker volume inspect --format '{{ .Mountpoint }}' "$volume_name") || exit 1
 readonly volume_mount
 if [ ! -d "$volume_mount" ]; then
@@ -91,7 +113,7 @@ find_openbot_data_mount() {
   local expected_mount="$2"
   local mount
   local -a containers=()
-  mapfile -t containers < <(docker ps --filter "name=^/${container_name}$" --format '{{.ID}}')
+  mapfile -t containers < <(docker ps --all --filter "name=^/${container_name}$" --format '{{.ID}}')
   if [ "${#containers[@]}" -eq 0 ]; then
     return 0
   fi
@@ -140,7 +162,13 @@ done
 
 timestamp=$(date -u +'%Y%m%dT%H%M%SZ')
 temporary_dir=$(mktemp -d "$staging_root/${timestamp}.XXXXXX")
-trap 'rm -rf -- "$temporary_dir"' EXIT
+trap 'resume_after_archive; rm -rf -- "$temporary_dir"' EXIT
+
+# Freeze the services that can mutate files while the encrypted archive reads
+# their volumes. They resume automatically, including when a later backup step fails.
+pause_for_consistent_archive "$evolution_api_container"
+pause_for_consistent_archive "$openbot_whatsapp_container_name"
+pause_for_consistent_archive "$openbot_ops_container_name"
 
 openbot_container_names=()
 if [ -n "$openbot_ops_mount" ]; then
@@ -230,6 +258,8 @@ EOF
 readonly completed_dir="$backup_root/$timestamp"
 chmod 0700 "$temporary_dir"
 mv -- "$temporary_dir" "$completed_dir"
+resume_after_archive
+paused_containers=()
 trap - EXIT
 
 find "$backup_root" -mindepth 1 -maxdepth 1 -type d -name '20*' -mtime "+$retention_days" \

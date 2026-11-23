@@ -13,6 +13,7 @@ services:
       - /tmp:size=32m,noexec,nosuid,nodev
     env_file:
       - /etc/digibusca/hostgator/backend.env
+      - /etc/digibusca/hostgator/openclaw-backend.env
     environment:
       HOST: 0.0.0.0
       PORT: "3001"
@@ -20,6 +21,7 @@ services:
       - backend_origin
       - evolution_app
       - whatsapp_agent
+      - openclaw_agent
       - backend_egress
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
@@ -159,6 +161,11 @@ networks:
   whatsapp_agent:
     name: digibusca-whatsapp-agent
     external: true
+  openclaw_agent:
+    name: digibusca-openclaw-agent
+    driver: overlay
+    attachable: true
+    internal: true
 volumes:
   evolution_instances:
     name: digibusca-hostgator-evolution-instances

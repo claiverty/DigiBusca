@@ -1,4 +1,23 @@
 {
+  gateway: {
+    mode: "local",
+    bind: "lan",
+    port: 18789,
+    auth: {
+      mode: "token",
+      token: "${OPENCLAW_GATEWAY_TOKEN}",
+    },
+  },
+  agents: {
+    defaults: {
+      model: {
+        primary: "google/gemini-4-hydrogen",
+        fallbacks: ["google/gemini-3.8-flash", "google/gemini-3.5-flash-lite"],
+      },
+      maxConcurrent: 1,
+      timeoutSeconds: 45,
+    },
+  },
   mcp: {
     servers: {
       digibusca: {
@@ -23,10 +42,18 @@
     },
   },
   plugins: {
+    // Reduz a superfície e o consumo do Gateway aos provedores e integrações usados.
+    allow: ["google", "whatsapp", "digibusca-sync"],
+    slots: {
+      memory: "none",
+    },
     load: {
       paths: ["/home/node/.openclaw/extensions/digibusca-sync"],
     },
     entries: {
+      whatsapp: {
+        enabled: true,
+      },
       "digibusca-sync": {
         enabled: true,
         hooks: {
@@ -37,42 +64,39 @@
   },
   channels: {
     whatsapp: {
-      enabled: true,
+      // Aguardar modelo autenticado antes de ativar o WhatsApp ou exibir QR.
+      enabled: false,
       // Leads podem iniciar uma conversa por DM; grupos permanecem bloqueados.
       dmPolicy: "open",
       allowFrom: ["*"],
       groupPolicy: "disabled",
+      selfChatMode: false,
     },
   },
   session: {
     // Cada cliente recebe seu próprio contexto de conversa.
     dmScope: "per-channel-peer",
   },
-  agents: {
-    defaults: {
-      tools: {
-        profile: "messaging",
-        deny: [
-          "group:runtime",
-          "group:fs",
-          "group:web",
-          "group:automation",
-          "group:ui",
-          "group:nodes",
-          "group:sessions",
-          "group:agents",
-          "gateway",
-        ],
-      },
-    },
-  },
   tools: {
+    // Mensagens e MCP são permitidos; ferramentas de host, arquivos, web,
+    // automação, sessões, agentes e administração do Gateway ficam bloqueadas.
+    profile: "messaging",
+    deny: [
+      "group:runtime",
+      "group:fs",
+      "group:web",
+      "group:automation",
+      "group:ui",
+      "group:nodes",
+      "group:sessions",
+      "group:agents",
+      "gateway",
+    ],
     toolsBySender: {
       "*": {
         deny: ["group:plugins"],
       },
-      // Troque pelo celular pessoal do titular, no formato e164:+55DDDNUMERO.
-      "e164:+55XXXXXXXXXXX": {
+      "e164:+556198636443": {
         alsoAllow: ["group:plugins"],
       },
     },

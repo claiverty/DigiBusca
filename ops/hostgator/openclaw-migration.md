@@ -1,14 +1,28 @@
 # Migração OpenBot → OpenClaw na VPS
 
-## Estado deste preparo
+## Estado em 23/11/2026
 
-Preparação local apenas. Nenhum serviço da VPS foi parado ou instalado, nenhum
-QR foi lido e nenhum dado do OpenBot foi removido. O acesso SSH guardado no CI
-é restrito ao deploy da imagem do backend; não permite instalar um serviço novo
-nem administrar volumes. O corte depende de uma sessão interativa no painel da
-HostGator/Dokploy.
+- O Gateway OpenClaw `2026.11.6` está instalado na VPS, saudável, sem porta
+  publicada e ligado ao DigiBusca por uma overlay interna. O backend também está
+  saudável; o endpoint MCP respondeu e listou as cinco ferramentas permitidas.
+- O estado e os perfis persistem em volumes Docker. O plugin oficial
+  `@openclaw/whatsapp@2026.11.6` está instalado, mas `channels.whatsapp.enabled`
+  permanece `false`: nenhum QR foi lido e não existe sessão WhatsApp no OpenClaw.
+- `WHATSAPP_OPENCLAW_RUNTIME_ENABLED=false` no backend. O OpenBot e a Evolution
+  continuam ativos; não houve corte nem envio pelo OpenClaw.
+- O modelo configurado é `google/gemini-4-hydrogen`, sem credencial no ambiente
+  do OpenClaw. Nenhuma chamada de modelo está habilitada. O plano pessoal AI Pro
+  não foi autenticado nem os créditos de US$ 10 foram aplicados à conta Cloud.
+- O Gateway tem limite de 1 GiB/0,75 CPU. As medições em repouso oscilaram de
+  ~694 a 847 MiB e os logs registraram pico de ~954 MiB, com alerta crítico
+  perto do limite. O host tinha ~937 MiB disponíveis e ~1 GiB de swap usado;
+  não ligar o WhatsApp junto aos serviços OpenBot sem reduzir a carga e medir de
+  novo.
+- O timer de backup diário está ativo. O backup oficial do OpenClaw passou a
+  verificação em um arquivo temporário; o próximo backup diário criptografado
+  incluirá o estado OpenClaw. Nenhum dado OpenBot foi removido.
 
-## Arquivos preparados
+## Arquivos de implantação
 
 - `openclaw.compose.yaml`: Gateway principal do Cristhian, imagem oficial
   fixada por digest, estado persistente, sem porta pública e ligado ao backend
@@ -60,82 +74,63 @@ Gateway e a VPS não ficam expostos na internet. O backend valida conta, fila,
 opt-out, janela e limites; uma mensagem de cliente não pode ampliar esses
 limites nem iniciar uma campanha em massa.
 
-## Corte planejado
+## Próximas etapas do corte
 
-1. **Preservar o estado atual.** Confirmar o backup diário mais recente, criar
-   uma cópia extra criptografada com o backup atual e confirmar checksum e
-   restauração. Manter a Evolution e os dados OpenBot intactos.
-2. **Preparar configuração.** Criar `/etc/digibusca/hostgator/openclaw.env`
-   como `root:root`, modo `0600`; escolher o provedor/modelo no Gateway; copiar
-   o workspace de Cristhian para o volume persistente. Fixar `OPENCLAW_IMAGE`
-   em `/etc/digibusca/hostgator/compose.env`, pois o Compose resolve a imagem
-   antes de carregar o `env_file` do serviço. O exemplo fixa a release oficial
-   `2026.11.6` pelo digest do registry; não use `latest`.
-3. **Abrir memória para o novo runtime.** O console da VPS mostrou OOM
-   encerrando processos OpenBot e OpenCode. Fazer backup primeiro, medir a
-   memória e parar os runtimes pesados antigos mantendo volumes intactos antes
-   de iniciar o OpenClaw. Não rodar os dois agentes de WhatsApp simultaneamente;
-   rollback consiste em parar o OpenClaw e reativar o OpenBot. Usar a imagem
-   pré-compilada em vez de compilar na VPS.
-4. **Adicionar o serviço sem tráfego.** Implantar `openclaw-gateway` com o
-   perfil `openclaw`, sem portas publicadas. Confirmar healthcheck, memória,
-   logs sem segredos e persistência dos volumes antes do pareamento.
-5. **Parear o QR.** Executar `openclaw channels login --channel whatsapp` no
-   terminal interativo da VPS e ler o QR no WhatsApp do número da DigiUP. O QR
-   é temporário e não deve ser enviado por chat, issue, log ou screenshot
-   compartilhado. A configuração aceita mensagens diretas de novos clientes e
-   bloqueia grupos; cada remetente tem um contexto isolado. O hook do DigiBusca
-   ainda controla todas as mensagens de saída.
-6. **Evitar resposta duplicada.** Pausar automações e a fila da Evolution
-   durante a validação. Só um sistema pode responder ao mesmo número. Validar
-   primeiro o inbound e uma resposta controlada; conferir a conversa no
-   DigiBusca e conferir que opt-out e pausa humana continuam respeitados.
-7. **Conectar o MCP, webhook e plugin privado.** Aplicar a migration 022,
-   configurar os tokens separados de MCP, bridge e webhook nos containers,
-   mesclar `openclaw.config.example.json5` à configuração existente e restringir as
-   ferramentas MCP ao número pessoal do titular. Validar o MCP com
-   `openclaw mcp doctor digibusca --probe` e o plugin com
-   `openclaw plugins inspect digibusca-sync --runtime --json`.
-8. **Registrar e validar sem tráfego de produção.** Depois de parear o QR,
-   clicar em “Já pareei o QR · registrar sessão” na configuração do WhatsApp do
-   DigiBusca. Isso associa a conta à configuração, mas não comprova que a sessão
-   continua ativa; confirmar isso no terminal do OpenClaw. Manter a Evolution
-   pausada e testar inbound, pausa, opt-out, resposta e fila com um número de teste com consentimento
-   explícito. Confirmar que o hook bloqueia uma saída sem reserva, que um item
-   de fila acorda automaticamente o Cristhian e que a mensagem enviada aparece
-   no histórico do DigiBusca. O botão de busca prepara itens; a fila e o
-   scheduler fazem o despacho respeitando intervalo e limite configurados.
-9. **Migrar e observar.** Somente após o QR e as ferramentas estarem estáveis,
-   ativar o Cristhian e a prospecção sob os limites existentes. Observar logs,
-   estados de entrega, uso de memória e backups por pelo menos um ciclo diário.
-10. **Retirar OpenBot com retorno disponível.** Quando o Cristhian principal e
-   os backups estiverem estáveis, desligar as instâncias OpenBot da VPS, manter
-   seus volumes e o backup criptografado por um período de recuperação e mover
-   a rotina operacional do DigiBot Ops. Só apagar volumes após backup
-   confirmado e pedido explícito de descarte.
+1. **Concluir a autenticação do modelo.** O Hydrogen está selecionado, mas ainda
+   não há credencial compatível no Gateway. O plano pessoal AI Pro não está
+   conectado ao OpenClaw por CLI/OAuth; escolher uma autenticação suportada antes
+   de habilitar respostas. Os créditos de desenvolvedor Google não foram
+   resgatados nem vinculados à conta Cloud.
+2. **Confirmar o backup diário criptografado com OpenClaw.** O comando oficial
+   `openclaw backup create --verify` passou no teste no contêiner. O próximo
+   ciclo do timer vai gerar o arquivo `.age` completo com OpenClaw e checksum;
+   manter os volumes OpenBot intactos.
+3. **Preparar o corte de tráfego.** Antes de ativar ou parear o WhatsApp no
+   OpenClaw, pausar respostas e fila antigas para não operar dois agentes no
+   mesmo número. Medir memória e preservar o rollback: parar OpenClaw e reativar
+   OpenBot, sem apagar volumes.
+4. **Parear o QR.** Quando o modelo e o backup estiverem prontos, executar
+   `openclaw channels login --channel whatsapp` no terminal da VPS e ler o QR no
+   WhatsApp da DigiUP. O QR é temporário: não enviar por chat, issue, log ou
+   screenshot. A configuração permite mensagens diretas e bloqueia grupos.
+5. **Registrar e validar sem tráfego de produção.** Depois do QR, registrar a
+   conexão no painel DigiBusca e confirmar que a sessão continua ativa. Com um
+   número de teste e consentimento explícito, validar inbound, resposta, pausa,
+   opt-out e fila; conferir que uma saída sem reserva é bloqueada e que as
+   mensagens aparecem no histórico.
+6. **Migrar e observar.** Só depois desses passos ativar respostas e prospecção,
+   respeitando as janelas e limites existentes. Observar estados de entrega,
+   memória e backups por pelo menos um ciclo diário.
+7. **Retirar OpenBot com retorno disponível.** Depois da estabilidade, desligar
+   as instâncias OpenBot e manter seus volumes e backups criptografados pelo
+   período de recuperação. Apagar volumes somente após backup confirmado e
+   pedido explícito.
 
 ## Limite operacional da VPS
 
-A HostGator informada tem 4 GB RAM e 2 vCPU. O OpenClaw foi limitado neste
-rascunho a 1 GB e 0,75 CPU, mas o limite não substitui medição real. O backend,
-PostgreSQL/Evolution, Cloudflared e o DigiBot Ops também ocupam memória. Não
-iniciar todos os serviços simultaneamente sem medir o uso; durante a troca,
-reduzir a carga antiga somente depois de um backup recuperável.
+A HostGator informada tem 4 GB RAM e 2 vCPU. O OpenClaw está limitado a 1 GiB
+e 0,75 CPU; medições em repouso oscilaram entre ~694 e 847 MiB, com pico de
+~954 MiB e alertas críticos perto do limite. Com os serviços OpenBot, backend,
+Evolution, Cloudflared e Dokploy ligados, o host tinha ~937 MiB disponíveis e
+~1 GiB de swap usado. O limite de contêiner evita crescimento ilimitado, mas
+não torna seguro ativar dois agentes de WhatsApp ao mesmo tempo.
 
 O OpenClaw usa WhatsApp Web via Baileys e pareamento por QR, não a API oficial
-da Meta. Essa diferença precisa ser aceita antes do corte. O DigiBot WhatsApp
-recomendou não remover o runtime atual até haver prova de restauração, validação
-do plugin no Gateway real e um caminho de rollback também para sessão/config do
-OpenClaw. Os arquivos preparados ainda não estão aplicados na VPS.
+da Meta. Essa diferença precisa ser aceita antes do corte. O Gateway já passou
+no healthcheck; o plugin `digibusca-sync` carregou e o MCP listou cinco tools.
+Ainda falta autenticar um modelo, parear o QR, testar o fluxo real e completar
+um backup diário criptografado que inclua o novo estado.
 
 ## Backups
 
 O Gateway oficial cria um arquivo consistente das sessões, configuração,
-credenciais e dados dos agentes e verifica a cópia. O script diário mantém
-`age` no host, inclui o arquivo verificado e os dados OpenBot que ainda
-existirem. A retenção continua em 14 dias. O arquivo contém a sessão WhatsApp e
-chaves de provedor: mantê-lo restrito e criptografado; não colocá-lo no Git nem
-enviá-lo a agentes.
+credenciais e dados dos agentes e verifica a cópia. O comando de backup passou
+na verificação com o volume OpenClaw atual. O script diário criptografa esse
+arquivo com `age`, inclui os dados OpenBot que ainda existirem e retém 14 dias.
+O último arquivo diário completo antecede a instalação do OpenClaw; o próximo
+ciclo incluirá o Gateway. O arquivo contém sessão WhatsApp e chaves de
+provedor: mantê-lo restrito e criptografado; não colocá-lo no Git nem enviá-lo a
+agentes.
 
 ## Ações no terminal interativo durante a implantação
 

@@ -1,6 +1,6 @@
 # DigiBusca na VPS HostGator
 
-## Estado atual — 20/11/2026
+## Estado atual — 23/11/2026
 
 - VPS Ubuntu 22.04.5, Docker 29.10.0, Dokploy 0.31.2; 2 vCPU, 4 GB RAM e 100 GB NVMe.
 - O projeto DigiBusca no Dokploy está sem serviços registrados. Backend e Evolution seguem no Compose operacional em `/opt/digibusca/ops/hostgator/compose.yaml`; o deploy automático do backend é feito pelo GitHub Actions com SSH restrito, sem duplicar containers no Dokploy.
@@ -16,6 +16,10 @@
 - `Local scripts` está habilitado somente para Cristhian e a ponte privada do OpenBot está configurada. Os runtimes de resposta e prospecção estão habilitados; a fila de prospecção usa limite diário de 20 e a janela de dias úteis das 9h às 14h. O envio automático despacha itens já enfileirados; a seleção, a mensagem e a inclusão na fila ainda são feitas pela tela.
 - O titular da conta autorizou o primeiro contato com leads retornados pela busca DigiBusca. O modelo preparado registra essa decisão em `whatsapp_outbound_authorization_*`, separada do consentimento declarado pelo destinatário. Descadastros continuam bloqueando o contato; a migration 022 converte o marcador legado sem tratá-lo como consentimento do destinatário.
 - A rotina local do DigiBot Ops e a rotina remota do agente Ops estão ativas diariamente às 09:00 (`America/Sao_Paulo`). A rotina remota avisa 14, 7, 3 e 1 dia antes e no dia do vencimento previsto para 16/02/2027; se o OpenBot for interrompido no horário, roda uma vez quando reabrir. Ela não lê nem armazena a chave.
+- O Gateway OpenClaw `2026.11.6` foi instalado na VPS com estado persistente e sem porta pública; healthcheck e acesso pela overlay interna passaram. O MCP DigiBusca respondeu com as cinco ferramentas permitidas.
+- O plugin oficial `@openclaw/whatsapp@2026.11.6` foi instalado e fixado. O canal WhatsApp continua desativado, sem QR ou sessão pareada; `WHATSAPP_OPENCLAW_RUNTIME_ENABLED=false`. OpenBot e Evolution continuam rodando como rollback e cobertura atual.
+- O modelo `google/gemini-4-hydrogen` está configurado no OpenClaw, mas não há credencial de modelo no contêiner. Nenhuma resposta de IA é possível pelo Gateway até conectar um provedor suportado. A conta Cloud não recebeu os créditos de US$ 10.
+- Com o Gateway saudável, o uso medido oscilou entre ~694 e 847 MiB em repouso; os logs registraram picos de ~954 MiB e alerta crítico perto do limite de 1 GiB. O host tinha ~937 MiB disponíveis e ~1 GiB de swap usado. O Gateway usa `/tmp` tmpfs de 512 MiB para que o backup oficial consiga verificar snapshots.
 
 ## Arquivos
 
@@ -46,16 +50,19 @@
 - O agente Cristhian não recebe o MCP; Computer Use continua desligado e `Local scripts` fica habilitado somente nesse agente para a ponte privada, com aprovações de ferramenta mantidas. A instância segue isolada do endpoint de Dokploy.
 - Manter os runtimes ativos, mas só validar envios depois de parear a instância da VPS e confirmar a conexão `open`.
 
-## Migração para OpenClaw — em preparação
+## Migração para OpenClaw — Gateway pronto, corte pendente
 
-- O OpenClaw deve tornar-se o runtime principal do Cristhian, conectado ao WhatsApp Web por QR. O serviço, plugin de sincronização, MCP privado e registro da conexão no painel estão preparados no repositório; ainda não foram instalados na VPS.
-- Em 24/11, o console da HostGator mostrou repetidos encerramentos por OOM de processos OpenBot e OpenCode. Antes de subir o OpenClaw, medir a memória no host e não manter os runtimes OpenBot/OpenCode pesados ativos ao mesmo tempo; preservar volumes e backup para rollback. Usar a imagem pré-compilada fixada em `compose.env` — não compilar OpenClaw na VPS de 4 GB.
-- O DigiBusca backend continua responsável por dados, autorização do titular, consentimento declarado pelo destinatário, opt-out, estágios, limites de prospecção e fila. O plugin exige autorização do backend antes do envio; a integração ainda depende da migration 022, do QR e de validação no Gateway real.
-- O Gateway permanece sem porta pública; o agente chega ao WhatsApp e ao backend pelas redes privada e de saída definidas no override opcional. O MCP administrativo do Dokploy não deve ser ligado ao atendimento.
-- Seguir `openclaw-migration.md` para a ordem de backup, instalação, QR, troca do despachante e rollback. Não remover os volumes OpenBot antes da validação e da retenção do backup.
+- Gateway instalado e saudável, ligado ao backend pela rede privada; sem rota pública. O plugin `digibusca-sync` passou a carregar e o MCP listou `get_runtime_status`, `search_leads_without_site`, `list_leads`, `update_lead` e `queue_prospect`.
+- O WhatsApp Web do OpenClaw permanece desativado. Nenhum QR foi lido, a conexão não foi registrada no painel e o Cristhian não enviou mensagens pelo OpenClaw.
+- O Hydrogen está escolhido, mas sem credencial. As instruções atuais do OpenClaw dizem que o runtime Gemini CLI também depende de uma chave Gemini API e não permite criar OAuth novo da conta pessoal AI Pro. [Documentação do provedor Google no OpenClaw](https://docs.openclaw.ai/providers/google). Os créditos de US$ 10 do AI Pro não foram resgatados nem vinculados à conta Cloud; nenhuma alteração de cobrança foi feita.
+- O backup oficial `openclaw backup create --verify` passou em arquivo temporário. O timer diário está ativo e o script passou a incluir o arquivo OpenClaw criptografado com `age`; o último arquivo completo é anterior ao Gateway. Confirmar a próxima execução diária e o checksum antes do corte.
+- Uso medido em repouso: ~694–847 MiB no Gateway, com pico de ~954 MiB; host com 4 GB RAM e 2 vCPU, além de OpenBot, Evolution, backend e Dokploy. Antes de ativar o canal, pausar o runtime antigo e reavaliar memória; preservar os volumes para rollback.
+- O backend segue responsável por autorização, consentimento, opt-out, etapas, limites e fila. Não conectar o MCP administrativo Dokploy ao Cristhian e não remover os dados OpenBot.
+- Seguir `openclaw-migration.md` para autenticação de modelo, backup criptografado, QR, teste de ponta a ponta, corte do despachante e rollback.
 
 ## Próximas etapas
 
-1. Acompanhar a próxima conversa recebida para confirmar o ciclo completo do agente com a Evolution.
-2. A busca do DigiBusca registra a autorização operacional do titular para primeiro contato. Isso não é consentimento declarado pelo destinatário; opt-outs e limites continuam bloqueando envios.
-3. Configurar uma cópia externa para os arquivos `.age`. O backup diário atual fica criptografado na VPS; o plano gratuito cWatch aparece semanal e ainda precisa ser configurado/verificado para incluir essa pasta.
+1. Escolher uma autenticação de modelo suportada pelo OpenClaw. O AI Pro pessoal via CLI/OAuth não está conectado; a rota Gemini AI Studio usa credencial de API e cobrança/credit Cloud.
+2. Confirmar que o backup diário criptografado com OpenClaw e checksum terminou antes de parear o QR.
+3. Pausar o atendimento OpenBot/Evolution, parear o WhatsApp Web e testar o fluxo com um número consentido antes de ativar respostas ou prospecção.
+4. Configurar uma cópia externa para os arquivos `.age`. O backup diário atual fica criptografado na VPS; o plano gratuito cWatch aparece semanal e ainda precisa ser configurado/verificado para incluir essa pasta.
