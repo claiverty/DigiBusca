@@ -3,7 +3,6 @@ import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry'
 
 const pluginId = 'digibusca-sync'
 const configuredAgentId = process.env.OPENCLAW_CRISTHIAN_AGENT_ID?.trim() || 'main'
-const pendingInboundByRun = new Map()
 
 function e164(value) {
   if (typeof value !== 'string' || value.includes('@g.us')) return undefined
@@ -18,11 +17,15 @@ function channelIsWhatsApp(...sources) {
   return candidates.some((value) => typeof value === 'string' && value.toLowerCase() === 'whatsapp')
 }
 
-function runIdFrom(...sources) {
+function sessionKeyFrom(...sources) {
   for (const source of sources) {
-    if (typeof source?.runId === 'string' && source.runId) return source.runId
+    if (typeof source?.sessionKey === 'string' && source.sessionKey) return source.sessionKey
   }
   return undefined
+}
+
+function agentIdFromSessionKey(sessionKey) {
+  return typeof sessionKey === 'string' ? /^agent:([^:]+):/.exec(sessionKey)?.[1] : undefined
 }
 
 function inboundTimestampToIso(...values) {
@@ -33,18 +36,6 @@ function inboundTimestampToIso(...values) {
     return new Date(milliseconds).toISOString()
   }
   return undefined
-}
-
-function prunePendingInbound() {
-  const now = Date.now()
-  for (const [runId, entry] of pendingInboundByRun) {
-    if (entry.expiresAt <= now) pendingInboundByRun.delete(runId)
-  }
-  while (pendingInboundByRun.size > 256) {
-    const oldestRunId = pendingInboundByRun.keys().next().value
-    if (typeof oldestRunId !== 'string') break
-    pendingInboundByRun.delete(oldestRunId)
-  }
 }
 
 function bridgeConfig() {
@@ -72,8 +63,9 @@ async function postBridge(path, payload) {
   return response.json()
 }
 
-function blocked(reason) {
-  return { outcome: 'block', reason: `${pluginId}_${reason}` }
+function blocked() {
+  // before_dispatch is a claim hook; claiming without text safely drops the turn.
+  return { handled: true }
 }
 
 export default definePluginEntry({
@@ -81,72 +73,49 @@ export default definePluginEntry({
   name: 'DigiBusca Sync',
   description: 'Aplica regras de atendimento e autorização de envio do DigiBusca.',
   register(api) {
-    api.on('inbound_claim', (event, context) => {
+    api.on('before_dispatch', async (event, context) => {
       if (!channelIsWhatsApp(event, context)) return
-      const runId = runIdFrom(event, context)
-      if (typeof runId !== 'string' || !runId) return
-      const senderE164 = e164(event?.senderId || context?.senderId)
-      const operatorE164 = bridgeConfig()?.operatorE164
-      if (senderE164 && operatorE164 && senderE164 === operatorE164) return
-
-      const messageId = typeof event?.messageId === 'string' && event.messageId
-        ? event.messageId
-        : typeof event?.providerUpdate?.messageId === 'string'
-          ? event.providerUpdate.messageId
-          : undefined
-      const occurredAt = inboundTimestampToIso(event?.timestamp, event?.providerUpdate?.messageTimestamp)
-      const content = typeof event?.content === 'string' ? event.content.trim().slice(0, 10_000) : ''
-      const isGroup = event?.isGroup === true || String(event?.threadId ?? '').includes('@g.us')
-      const agentId = context?.agentId ?? event?.agentId
-      let reason
-      if (agentId !== configuredAgentId) reason = 'unexpected_agent'
-      else if (isGroup) reason = 'group_message'
-      else if (!senderE164) reason = 'inbound_identity_unavailable'
-      else if (!messageId || !occurredAt || !content) reason = 'inbound_message_metadata_unavailable'
-
-      prunePendingInbound()
-      pendingInboundByRun.set(runId, {
-        ...(senderE164 ? { senderE164 } : {}),
-        ...(messageId ? { providerMessageId: messageId.slice(0, 240) } : {}),
-        ...(occurredAt ? { occurredAt } : {}),
-        ...(content ? { content } : {}),
-        ...(reason ? { reason } : {}),
-        expiresAt: Date.now() + 2 * 60_000,
-      })
-    }, { timeoutMs: 2_000 })
-
-    api.on('before_agent_run', async (event, context) => {
-      if (!channelIsWhatsApp(event, context)) return
-      if (context?.agentId !== configuredAgentId) return blocked('unexpected_agent')
-
       const config = bridgeConfig()
-      const senderE164 = e164(context?.senderId)
-      if (!config || !senderE164) return blocked('inbound_identity_unavailable')
+      if (!config) return blocked()
+
+      const senderE164 = e164(event?.senderId || context?.senderId)
+      if (!senderE164) return blocked()
 
       // Mensagens do titular são comandos ao Cristhian; o bridge só espelha clientes.
       if (senderE164 === config.operatorE164) return
 
-      const runId = runIdFrom(event, context) ?? ''
-      const inbound = runId ? pendingInboundByRun.get(runId) : undefined
-      if (runId) pendingInboundByRun.delete(runId)
-      if (!inbound) return blocked('inbound_metadata_unavailable')
-      if (inbound.reason) return blocked(inbound.reason)
-      if (senderE164 !== inbound.senderE164) return blocked('inbound_identity_mismatch')
+      const sessionKey = sessionKeyFrom(event, context)
+      const sessionAgentId = agentIdFromSessionKey(sessionKey)
+      const messageId = typeof event?.messageId === 'string' && event.messageId
+        ? event.messageId
+        : typeof context?.messageId === 'string' && context.messageId
+          ? context.messageId
+          : undefined
+      const occurredAt = inboundTimestampToIso(event?.timestamp) ?? new Date().toISOString()
+      const content = typeof event?.content === 'string'
+        ? event.content.trim().slice(0, 10_000)
+        : typeof event?.body === 'string'
+          ? event.body.trim().slice(0, 10_000)
+          : ''
+      const isGroup = event?.isGroup === true
+      if (sessionAgentId && sessionAgentId !== configuredAgentId) return blocked()
+      if (isGroup || !sessionKey || !messageId || !content) return blocked()
 
       try {
         const result = await postBridge('/api/openclaw/inbound', {
           phoneNumberId: config.phoneNumberId,
-          senderE164: inbound.senderE164,
-          providerMessageId: inbound.providerMessageId,
-          openClawRunId: runId.slice(0, 240),
-          ...(typeof context?.sessionKey === 'string' ? { openClawSessionKey: context.sessionKey.slice(0, 512) } : {}),
-          content: inbound.content,
+          senderE164,
+          providerMessageId: messageId.slice(0, 240),
+          openClawSessionKey: sessionKey.slice(0, 512),
+          content,
           messageType: 'text',
-          occurredAt: inbound.occurredAt,
+          occurredAt,
         })
-        return result?.dispatch === true ? undefined : blocked('inbound_policy_block')
-      } catch {
-        return blocked('inbound_bridge_unavailable')
+        return result?.dispatch === true ? undefined : blocked()
+      } catch (error) {
+        const code = error instanceof Error ? error.message : 'unknown_error'
+        console.warn(`[${pluginId}] inbound dispatch blocked (${code})`)
+        return blocked()
       }
     }, { timeoutMs: 12_000 })
 
@@ -162,7 +131,6 @@ export default definePluginEntry({
           phoneNumberId: config.phoneNumberId,
           recipientE164,
           content: event.content.slice(0, 10_000),
-          ...(typeof context?.runId === 'string' ? { openClawRunId: context.runId.slice(0, 240) } : {}),
           ...(typeof context?.sessionKey === 'string' ? { openClawSessionKey: context.sessionKey.slice(0, 512) } : {}),
         })
         if (result?.allowed === true) return
@@ -187,7 +155,6 @@ export default definePluginEntry({
           phoneNumberId: config.phoneNumberId,
           recipientE164,
           providerMessageId,
-          ...(typeof context?.runId === 'string' ? { openClawRunId: context.runId.slice(0, 240) } : {}),
           ...(typeof context?.sessionKey === 'string' ? { openClawSessionKey: context.sessionKey.slice(0, 512) } : {}),
           content,
           messageType: 'text',
