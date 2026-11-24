@@ -86,6 +86,23 @@
     dmScope: "per-channel-peer",
   },
   tools: {
+    // Transcreve notas de voz em português usando a sessão OAuth OpenAI já
+    // conectada ao OpenClaw; não configure OPENAI_API_KEY para esta rota.
+    media: {
+      models: [
+        {
+          provider: "openai",
+          model: "gpt-4o-transcribe",
+          capabilities: ["audio"],
+        },
+      ],
+      audio: {
+        enabled: true,
+        preferredModel: "openai/gpt-4o-transcribe",
+        language: "pt",
+        echoTranscript: false,
+      },
+    },
     // Mensagens e MCP são permitidos; ferramentas de host, arquivos, web,
     // automação, sessões, agentes e administração do Gateway ficam bloqueadas.
     profile: "messaging",
