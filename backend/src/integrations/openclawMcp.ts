@@ -16,6 +16,7 @@ import {
   getGoogleCalendarConnectionStatus,
   GoogleCalendarIntegrationError,
 } from './googleCalendar.js'
+import { isClearMeetingAcceptance, isMeetingConfirmationRequestForSlot } from './meetingConfirmation.js'
 
 const savedLeadFields = 'lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, conversation_stage, contact_name, next_action, draft_message, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at, whatsapp_outbound_authorization_status, whatsapp_outbound_authorization_source, whatsapp_outbound_authorization_at, updated_at'
 const ownerSearchAuthorizationSource = 'Autorização do titular para prospecção de leads retornados pela busca DigiBusca/Google Maps'
@@ -236,16 +237,15 @@ function createOpenClawMcpServer() {
 
   server.registerTool('create_confirmed_meeting', {
     title: 'Salvar reunião e criar link do Meet',
-    description: 'Cria um evento na agenda principal, após confirmar que o cliente aceitou aquele horário no WhatsApp. Revalida a disponibilidade antes de salvar e retorna o link do Google Meet. Exige telefone E.164 e uma frase de confirmação que apareça na última mensagem recebida.',
+    description: 'Cria um evento na agenda principal depois que o cliente confirmar naturalmente o horário oferecido. “Sim”, “confirmo”, “pode marcar”, “fechado”, “ok” e respostas afirmativas claras equivalem a confirmação; não exija frase exata. A última mensagem do Cristhian precisa ter oferecido o mesmo dia e horário e perguntado se o cliente aceita. Revalida a disponibilidade antes de salvar e retorna o link do Google Meet.',
     inputSchema: z.object({
       contactName: z.string().trim().min(1).max(120),
       contactPhone: z.string().trim().regex(/^\+[1-9]\d{7,14}$/),
       startAt: z.string().trim().min(20).max(40),
       durationMinutes: z.number().int().min(15).max(180).default(30),
       projectSummary: z.string().trim().min(2).max(600),
-      confirmationQuote: z.string().trim().min(2).max(500),
     }),
-  }, async ({ contactName, contactPhone, startAt, durationMinutes, projectSummary, confirmationQuote }) => {
+  }, async ({ contactName, contactPhone, startAt, durationMinutes, projectSummary }) => {
     const config = getOpenClawMcpConfig()
     if (!config) return errorResult('Integração MCP OpenClaw ainda não configurada no backend.')
     try {
@@ -264,25 +264,26 @@ function createOpenClawMcpServer() {
       if (!Number.isFinite(lastMessageAt) || Date.now() - lastMessageAt > 24 * 60 * 60_000 || Date.now() < lastMessageAt) {
         return errorResult('A confirmação não é recente. Peça ao cliente para confirmar o horário novamente antes de criar o evento.')
       }
-      const latestInbound = await admin.from('whatsapp_messages')
-        .select('body')
+      const recentMessages = await admin.from('whatsapp_messages')
+        .select('direction, body, occurred_at')
         .eq('user_id', config.ownerUserId)
         .eq('phone_number_id', config.phoneNumberId)
         .eq('conversation_id', conversation.data.id)
-        .eq('direction', 'inbound')
         .order('occurred_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (latestInbound.error || typeof latestInbound.data?.body !== 'string') {
-        return errorResult('Não consegui validar a confirmação mais recente deste cliente no WhatsApp. Não criei o evento.')
+        .order('created_at', { ascending: false })
+        .limit(2)
+      const messages = recentMessages.data
+      if (recentMessages.error || !messages || messages.length < 2
+        || messages[0]?.direction !== 'inbound' || messages[1]?.direction !== 'outbound'
+        || typeof messages[0]?.body !== 'string' || typeof messages[1]?.body !== 'string') {
+        return errorResult('Não encontrei uma confirmação recente logo após a oferta deste horário. Não criei o evento.')
       }
-      const normalize = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR')
-      const messageText = normalize(latestInbound.data.body)
-      const quoteText = normalize(confirmationQuote)
-      const explicitAcceptance = /\b(?:sim|pode ser|pode marcar|pode agendar|confirmo|fechado|combinado|vamos nessa)\b/.test(messageText)
-        && !/\b(?:nao|negativo|deixa pra depois)\b/.test(messageText)
-      if (!explicitAcceptance || !messageText.includes(quoteText)) {
-        return errorResult('A frase de confirmação precisa estar na última mensagem recebida e aceitar claramente o horário. Não criei o evento.')
+      const replyAt = Date.parse(messages[0].occurred_at ?? '')
+      const offerAt = Date.parse(messages[1].occurred_at ?? '')
+      if (!Number.isFinite(replyAt) || !Number.isFinite(offerAt) || offerAt > replyAt
+        || !isMeetingConfirmationRequestForSlot(messages[1].body, startAt, messages[1].occurred_at)
+        || !isClearMeetingAcceptance(messages[0].body, startAt, messages[0].occurred_at)) {
+        return errorResult('A última mensagem não confirma claramente o horário oferecido. Se o cliente respondeu “sim”, “confirmo”, “pode marcar” ou equivalente, ofereça o dia e horário com clareza e confirme de novo antes de criar o evento.')
       }
       const event = await createGoogleMeetEvent({
         userId: config.ownerUserId,
