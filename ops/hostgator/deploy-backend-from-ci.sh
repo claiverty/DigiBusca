@@ -69,7 +69,17 @@ set_backend_image() {
 
 compose_backend() {
   docker compose --env-file "$env_file" -p "$project_name" -f "$compose_file" \
-    --profile evolution --profile tunnel up -d --no-deps digibusca-backend
+    --profile tunnel up -d --no-deps digibusca-backend
+}
+
+stop_evolution_api() {
+  local container
+  docker compose --env-file "$env_file" -p "$project_name" -f "$compose_file" \
+    --profile evolution stop evolution-api >/dev/null
+  while IFS= read -r container; do
+    [[ -n "$container" ]] && docker update --restart=no "$container" >/dev/null
+  done < <(docker compose --env-file "$env_file" -p "$project_name" -f "$compose_file" \
+    --profile evolution ps --all --quiet evolution-api)
 }
 
 wait_healthy() {
@@ -86,6 +96,7 @@ wait_healthy() {
 
 if [[ "$old_ref" == "$image_ref" ]]; then
   wait_healthy || { echo 'Backend já está na imagem solicitada, mas não ficou saudável.' >&2; exit 1; }
+  stop_evolution_api
   echo "Backend já está saudável na revisão ${image_ref##*:}."
   exit 0
 fi
@@ -93,6 +104,7 @@ fi
 backup_file="${env_file}.bak-$(date -u +%Y%m%dT%H%M%SZ)"
 cp -p "$env_file" "$backup_file"
 echo "Atualizando backend de ${old_ref##*:} para ${image_ref##*:}."
+stop_evolution_api
 set_backend_image "$image_ref"
 
 if compose_backend && wait_healthy; then

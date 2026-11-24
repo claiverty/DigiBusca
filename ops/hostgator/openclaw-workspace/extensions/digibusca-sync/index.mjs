@@ -18,6 +18,13 @@ function channelIsWhatsApp(...sources) {
   return candidates.some((value) => typeof value === 'string' && value.toLowerCase() === 'whatsapp')
 }
 
+function runIdFrom(...sources) {
+  for (const source of sources) {
+    if (typeof source?.runId === 'string' && source.runId) return source.runId
+  }
+  return undefined
+}
+
 function inboundTimestampToIso(...values) {
   for (const value of values) {
     if (typeof value !== 'number' || !Number.isFinite(value)) continue
@@ -76,7 +83,7 @@ export default definePluginEntry({
   register(api) {
     api.on('inbound_claim', (event, context) => {
       if (!channelIsWhatsApp(event, context)) return
-      const runId = typeof event?.runId === 'string' ? event.runId : context?.runId
+      const runId = runIdFrom(event, context)
       if (typeof runId !== 'string' || !runId) return
       const senderE164 = e164(event?.senderId || context?.senderId)
       const operatorE164 = bridgeConfig()?.operatorE164
@@ -119,7 +126,7 @@ export default definePluginEntry({
       // Mensagens do titular são comandos ao Cristhian; o bridge só espelha clientes.
       if (senderE164 === config.operatorE164) return
 
-      const runId = typeof context?.runId === 'string' ? context.runId : ''
+      const runId = runIdFrom(event, context) ?? ''
       const inbound = runId ? pendingInboundByRun.get(runId) : undefined
       if (runId) pendingInboundByRun.delete(runId)
       if (!inbound) return blocked('inbound_metadata_unavailable')

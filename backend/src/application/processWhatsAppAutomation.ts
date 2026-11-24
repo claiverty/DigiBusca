@@ -733,11 +733,16 @@ export async function processWhatsAppAutomation(
         continue
       }
 
+      const profile = context.profile
+      if (profile?.responseMode === 'openclaw') {
+        logInfo('whatsapp_automation_skipped_openclaw_profile', { reason: 'openclaw_owns_whatsapp_transport' })
+        continue
+      }
+
       if (!isWhatsAppAutomationRuntimeEnabled()) continue
       const evolutionConfig = getEvolutionApiConfig()
       if (!evolutionConfig) continue
 
-      const profile = context.profile
       if (
         (context.automationPaused && !recoverablePause) || context.automationOptedOut || context.latestProviderMessageId !== message.providerMessageId ||
         context.lastMessageDirection !== 'inbound' || !context.lastMessageAt ||

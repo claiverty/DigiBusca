@@ -31,6 +31,7 @@ export type RuntimeEnvironment = {
   OPENCLAW_PHONE_NUMBER_ID?: string
   OPENCLAW_OPERATOR_E164?: string
   DIGIBUSCA_APP_ORIGINS?: string
+  WHATSAPP_EVOLUTION_INTEGRATION_ENABLED?: string
   EVOLUTION_API_URL?: string
   EVOLUTION_API_KEY?: string
   EVOLUTION_WEBHOOK_SECRET?: string
@@ -129,6 +130,7 @@ export function isWhatsAppDigiBuscaAgentRuntimeEnabled() {
 
 export function getEvolutionApiConfig() {
   const values = environment()
+  if (!isWhatsAppEvolutionIntegrationEnabled()) return undefined
   const baseUrl = values.EVOLUTION_API_URL?.trim().replace(/\/+$/, '')
   const apiKey = values.EVOLUTION_API_KEY?.trim()
   const webhookSecret = values.EVOLUTION_WEBHOOK_SECRET?.trim()
@@ -154,6 +156,11 @@ export function getEvolutionApiConfig() {
   return { baseUrl, apiKey, webhookSecret, webhookUrl }
 }
 
+export function isWhatsAppEvolutionIntegrationEnabled() {
+  return isWhatsAppIntegrationEnabled() &&
+    environment().WHATSAPP_EVOLUTION_INTEGRATION_ENABLED?.trim().toLowerCase() === 'true'
+}
+
 export function getAdditionalAllowedAppOrigins() {
   return new Set(
     (environment().DIGIBUSCA_APP_ORIGINS ?? '')
@@ -167,6 +174,7 @@ export function getWhatsAppEvolutionSetupStatus() {
   const config = getEvolutionApiConfig()
   return {
     integrationEnabled: isWhatsAppIntegrationEnabled(),
+    evolutionIntegrationEnabled: isWhatsAppEvolutionIntegrationEnabled(),
     evolutionConfigured: Boolean(config),
     webhookConfigured: Boolean(config),
     persistenceConfigured: isWhatsAppWebhookPersistenceConfigured(),

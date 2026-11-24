@@ -2,6 +2,7 @@ import { authenticatedFetch } from './leadsService'
 
 export type WhatsAppEvolutionSetupStatus = {
   integrationEnabled: boolean
+  evolutionIntegrationEnabled: boolean
   evolutionConfigured: boolean
   webhookConfigured: boolean
   persistenceConfigured: boolean
@@ -21,6 +22,7 @@ export type WhatsAppEvolutionSetupStatus = {
   openClawBridgeConfigured: boolean
   openClawProspectingDispatcherConfigured: boolean
   openClawStorageReady: boolean
+  openClawGatewayReady: boolean
 }
 
 export type WhatsAppProspectingSettings = {

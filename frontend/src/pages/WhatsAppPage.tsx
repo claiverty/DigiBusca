@@ -233,10 +233,15 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
           setConnectQrCode('')
           setConnectNotice('WhatsApp conectado à Evolution API.')
         }
+        const selectableConnections = status?.evolutionIntegrationEnabled === false
+          ? items.filter((connection) => connection.platformType === 'OPENCLAW_WEB')
+          : items
         setAutomationPhoneNumberId((current) => (
-          current && items.some((connection) => connection.phoneNumberId === current)
+          current && selectableConnections.some((connection) => connection.phoneNumberId === current)
             ? current
-            : items[0]?.phoneNumberId ?? ''
+            : selectableConnections.find((connection) => connection.platformType === 'OPENCLAW_WEB')?.phoneNumberId
+              ?? selectableConnections[0]?.phoneNumberId
+              ?? ''
         ))
         setConnectionsState('ready')
       })
@@ -246,7 +251,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         setConnectionsState('error')
       })
     return () => { active = false }
-  }, [refreshKey])
+  }, [refreshKey, status?.evolutionIntegrationEnabled])
 
   useEffect(() => {
     if (!qrActive) return
@@ -523,11 +528,33 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     }
   }, [activeTab, selectedConversationId])
 
-  const sendReady = loadState === 'ready' && status?.evolutionConfigured === true
-  const evolutionConnectionReady = connections.some((connection) => connection.platformType === 'EVOLUTION_API' && connection.connectionState?.toLowerCase() === 'open')
+  // Keep the current Evolution UI while an older backend (without the flag) is still deployed.
+  const evolutionIntegrationEnabled = status?.evolutionIntegrationEnabled !== false
+  const sendReady = loadState === 'ready' && evolutionIntegrationEnabled && status?.evolutionConfigured === true
+  const evolutionConnectionReady = evolutionIntegrationEnabled && connections.some((connection) => connection.platformType === 'EVOLUTION_API' && connection.connectionState?.toLowerCase() === 'open')
   const openClawConnectionRegistered = connections.some((connection) => connection.platformType === 'OPENCLAW_WEB' && ['registered', 'open'].includes(connection.connectionState?.toLowerCase() ?? ''))
-  const connectionReady = evolutionConnectionReady || openClawConnectionRegistered
+  const openClawRuntimeReady = Boolean(
+    status?.openClawRuntimeEnabled && status.openClawMcpConfigured && status.openClawBridgeConfigured &&
+    status.openClawStorageReady && status.openClawGatewayReady && openClawConnectionRegistered,
+  )
+  const connectionReady = evolutionConnectionReady || openClawRuntimeReady
+  const visibleWhatsAppConnections = connections.filter((connection) => (
+    connection.platformType === 'OPENCLAW_WEB' || evolutionIntegrationEnabled
+  ))
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId)
+
+  useEffect(() => {
+    if (status?.evolutionIntegrationEnabled !== false) return
+    setAutomationForm((current) => current.responseMode === 'openclaw'
+      ? current
+      : { ...current, responseMode: 'openclaw', contentApproved: false, automationEnabled: false })
+    const openClawConnection = connections.find((connection) => connection.platformType === 'OPENCLAW_WEB')
+    setAutomationPhoneNumberId((current) => current === (openClawConnection?.phoneNumberId ?? '')
+      ? current
+      : openClawConnection?.phoneNumberId ?? '')
+    setConnectQrCode('')
+    setOpenBotAgentStatus(null)
+  }, [status?.evolutionIntegrationEnabled, automationForm.responseMode, connections])
 
   useLayoutEffect(() => {
     if (!selectedConversationId) {
@@ -807,12 +834,12 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         <div>
           <span className="eyebrow">ATENDIMENTO</span>
           <h1>WhatsApp Business</h1>
-          <p>Conecte seu WhatsApp pela Evolution API ou pelo OpenClaw e acompanhe as conversas em um só lugar.</p>
+          <p>{evolutionIntegrationEnabled ? 'Conecte seu WhatsApp pela Evolution API ou pelo OpenClaw e acompanhe as conversas em um só lugar.' : 'O atendimento e a prospecção deste número usam exclusivamente o OpenClaw.'}</p>
         </div>
         <div className="whatsapp-header-actions">
           <span className={`whatsapp-connection-pill${sendReady || connectionReady ? ' is-ready' : ''}`}>
             <span aria-hidden="true" />
-            {connectionsState === 'loading' ? 'Verificando conexão' : openClawConnectionRegistered ? 'OpenClaw registrado' : evolutionConnectionReady ? 'Evolution conectada' : sendReady ? 'Evolution configurada' : 'Configuração pendente'}
+            {connectionsState === 'loading' ? 'Verificando conexão' : !evolutionIntegrationEnabled ? openClawRuntimeReady ? 'OpenClaw configurado' : 'OpenClaw pendente' : evolutionConnectionReady ? 'Evolution conectada' : openClawRuntimeReady ? 'OpenClaw configurado' : sendReady ? 'Evolution configurada' : 'Configuração pendente'}
           </span>
           <button className="icon-button whatsapp-refresh" type="button" onClick={() => { void loadStatus(); setRefreshKey((value) => value + 1) }} aria-label="Atualizar conexão e conversas" title="Atualizar conexão e conversas">
             <RefreshCw size={16} className={loadState === 'loading' ? 'is-spinning' : ''} />
@@ -990,20 +1017,21 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
             <div className="whatsapp-settings-heading">
               <div className="whatsapp-settings-icon"><MessageCircle size={20} /></div>
               <div>
-                <span className="eyebrow">EVOLUTION API · WHATSAPP WEB</span>
-                <h2>{evolutionConnectionReady ? 'Evolution conectada' : 'Conectar pela Evolution'}</h2>
-                <p>A sessão é mantida pela Evolution API no servidor de WhatsApp conectado à sua conta DigiBusca.</p>
+                <span className="eyebrow">{evolutionIntegrationEnabled ? 'EVOLUTION API · WHATSAPP WEB' : 'OPENCLAW · WHATSAPP WEB'}</span>
+                <h2>{evolutionIntegrationEnabled ? evolutionConnectionReady ? 'Evolution conectada' : 'Conectar pela Evolution' : 'OpenClaw exclusivo'}</h2>
+                <p>{evolutionIntegrationEnabled ? 'A sessão é mantida pela Evolution API no servidor de WhatsApp conectado à sua conta DigiBusca.' : 'A sessão, o atendimento e a prospecção deste número são operados pelo OpenClaw. A Evolution não recebe nem envia mensagens.'}</p>
               </div>
             </div>
 
-            <div className="whatsapp-setup-list" aria-live="polite">
-              <SetupRow label="Evolution API configurada" configured={loadState === 'ready' && status?.evolutionConfigured === true} />
-              <SetupRow label="Webhook local protegido" configured={loadState === 'ready' && status?.webhookConfigured === true} />
-              <SetupRow label="Chave de serviço Supabase" configured={loadState === 'ready' && status?.persistenceConfigured === true} />
-              <SetupRow label="Armazenamento de conexões" configured={loadState === 'ready' && status?.connectionStorageReady === true} />
-            </div>
+            {evolutionIntegrationEnabled ? <>
+              <div className="whatsapp-setup-list" aria-live="polite">
+                <SetupRow label="Evolution API configurada" configured={loadState === 'ready' && status?.evolutionConfigured === true} />
+                <SetupRow label="Webhook local protegido" configured={loadState === 'ready' && status?.webhookConfigured === true} />
+                <SetupRow label="Chave de serviço Supabase" configured={loadState === 'ready' && status?.persistenceConfigured === true} />
+                <SetupRow label="Armazenamento de conexões" configured={loadState === 'ready' && status?.connectionStorageReady === true} />
+              </div>
 
-            <section className="whatsapp-embedded-signup" aria-labelledby="whatsapp-evolution-title">
+              <section className="whatsapp-embedded-signup" aria-labelledby="whatsapp-evolution-title">
               <div>
                 <span className="eyebrow">PAREAMENTO PELO CELULAR</span>
                 <h3 id="whatsapp-evolution-title">Conectar WhatsApp</h3>
@@ -1027,9 +1055,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               {connectQrCode && <div className="whatsapp-evolution-qr"><img src={connectQrCode} alt="QR Code para conectar o WhatsApp" /><span>Aguarde a confirmação do pareamento nesta tela.</span></div>}
               {connectionsState === 'loading' && <p className="whatsapp-connect-state">Carregando estado da instância…</p>}
               {connectionsState === 'error' && <p className="whatsapp-connect-state is-error" role="alert">{connectionsError}</p>}
-              {connectionsState === 'ready' && connections.length > 0 && (
+              {connectionsState === 'ready' && visibleWhatsAppConnections.length > 0 && (
                 <ul className="whatsapp-connected-numbers" aria-label="Conexões WhatsApp">
-                  {connections.map((connection) => (
+                  {visibleWhatsAppConnections.map((connection) => (
                     <li key={connection.phoneNumberId}>
                       <span><strong>{connection.displayPhoneNumber || (connection.platformType === 'OPENCLAW_WEB' ? 'WhatsApp via OpenClaw' : connection.phoneNumberId)}</strong><small>{connection.platformType === 'OPENCLAW_WEB' ? 'OpenClaw · pareamento registrado' : 'Evolution API'} · {connection.connectionState || 'estado desconhecido'}</small></span>
                       <span className={`whatsapp-connected-badge${connection.connectionState?.toLowerCase() === 'open' ? '' : ' is-pending'}`}>{connection.platformType === 'OPENCLAW_WEB' ? 'Registrado' : connection.connectionState?.toLowerCase() === 'open' ? 'Conectado' : 'Aguardando conexão'}</span>
@@ -1037,18 +1065,37 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   ))}
                 </ul>
               )}
-            </section>
+              </section>
+            </> : <section className="whatsapp-embedded-signup" aria-labelledby="whatsapp-evolution-title">
+              <div>
+                <span className="eyebrow">CANAL DESATIVADO</span>
+                <h3 id="whatsapp-evolution-title">Evolution desativada</h3>
+                <p>O QR e o webhook da Evolution ficam bloqueados nesta instalação. Use o cartão do OpenClaw abaixo para conferir runtime, ponte, banco e registro do pareamento.</p>
+              </div>
+              {connectionsState === 'ready' && visibleWhatsAppConnections.length > 0 && (
+                <ul className="whatsapp-connected-numbers" aria-label="Conexões WhatsApp">
+                  {visibleWhatsAppConnections.map((connection) => (
+                    <li key={connection.phoneNumberId}>
+                      <span><strong>{connection.displayPhoneNumber || 'WhatsApp via OpenClaw'}</strong><small>OpenClaw · registro {connection.connectionState || 'pendente'}</small></span>
+                      <span className={`whatsapp-connected-badge${openClawRuntimeReady ? '' : ' is-pending'}`}>{openClawRuntimeReady ? 'Configurado' : 'Pendente'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>}
 
             <section className="whatsapp-embedded-signup" aria-labelledby="whatsapp-openclaw-title">
               <div>
                 <span className="eyebrow">OPENCLAW · WHATSAPP WEB</span>
-                <h3 id="whatsapp-openclaw-title">Registrar pareamento feito na VPS</h3>
-                <p>Faça o pareamento pelo QR no terminal do OpenClaw. Depois, registre aqui para associar essa sessão à conta DigiBusca.</p>
+                <h3 id="whatsapp-openclaw-title">{openClawConnectionRegistered ? 'Sessão do OpenClaw' : 'Registrar pareamento feito na VPS'}</h3>
+                <p>{openClawConnectionRegistered ? 'O número está associado ao DigiBusca. Confirme o estado conectado no canal WhatsApp do OpenClaw.' : 'Faça o pareamento pelo QR no terminal do OpenClaw. Depois, registre aqui para associar essa sessão à conta DigiBusca.'}</p>
               </div>
               <div className="whatsapp-setup-list" aria-live="polite">
                 <SetupRow label="Runtime do OpenClaw" configured={status?.openClawRuntimeEnabled === true} />
                 <SetupRow label="MCP privado" configured={status?.openClawMcpConfigured === true} />
                 <SetupRow label="Ponte protegida" configured={status?.openClawBridgeConfigured === true} />
+                <SetupRow label="Gateway acessível" configured={status?.openClawGatewayReady === true} />
+                <SetupRow label="Número registrado no DigiBusca" configured={openClawConnectionRegistered} />
                 <SetupRow label="Despacho automático da fila" configured={status?.openClawProspectingDispatcherConfigured === true} />
                 <SetupRow label="Migration 022" configured={status?.openClawStorageReady === true} />
               </div>
@@ -1063,7 +1110,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               </button>
               {openClawRegisterError && <p className="whatsapp-connect-state is-error" role="alert">{openClawRegisterError}</p>}
               {openClawRegisterNotice && <p className="whatsapp-connect-state is-ready" role="status">{openClawRegisterNotice}</p>}
-              {openClawConnectionRegistered && !openClawRegisterNotice && <p className="whatsapp-connect-state is-pending" role="status">Registro feito. Esse estado confirma a associação no DigiBusca; confira a sessão ativa no terminal do OpenClaw.</p>}
+              {openClawConnectionRegistered && !openClawRegisterNotice && <p className={`whatsapp-connect-state ${openClawRuntimeReady ? 'is-ready' : 'is-pending'}`} role="status">{openClawRuntimeReady ? 'A configuração e o Gateway estão acessíveis. O registro no DigiBusca não confirma sozinho que a sessão do WhatsApp Web continua conectada; confira o canal no OpenClaw antes do teste real.' : 'Registro feito, mas ainda há pré-requisitos pendentes. A automação e a fila continuam bloqueadas até o runtime ficar pronto.'}</p>}
             </section>
 
             <section className="whatsapp-automation-panel" aria-labelledby="whatsapp-automation-title">
@@ -1078,21 +1125,21 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </span>
               </div>
 
-              {connections.length > 1 && (
+              {visibleWhatsAppConnections.length > 1 && (
                 <label className="whatsapp-form-field">
                   <span>Número WhatsApp</span>
                   <AppSelect
                     value={automationPhoneNumberId}
                     onValueChange={setAutomationPhoneNumberId}
                     ariaLabel="Número WhatsApp para respostas automáticas"
-                    options={connections.map((connection) => ({
+                    options={visibleWhatsAppConnections.map((connection) => ({
                       value: connection.phoneNumberId,
                       label: connection.displayPhoneNumber || connection.phoneNumberId,
                     }))}
                   />
                 </label>
               )}
-              {connections.length === 0 && <p className="whatsapp-connect-state is-pending">Conecte um número WhatsApp antes de configurar as respostas automáticas.</p>}
+              {visibleWhatsAppConnections.length === 0 && <p className="whatsapp-connect-state is-pending">Registre um número WhatsApp do OpenClaw antes de configurar as respostas automáticas.</p>}
               {status?.automationStorageReady === false && (
                 <p className="whatsapp-connect-state is-pending">A estrutura de atendimento ainda não está completa no Supabase. Aplique as migrations <code>011_whatsapp_reply_automation.sql</code>, <code>014_whatsapp_automation_response_mode.sql</code>, <code>016_whatsapp_openbot_replies.sql</code> e <code>019_digibot_agent_runtime.sql</code> antes de salvar.</p>
               )}
@@ -1116,13 +1163,13 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                       setAutomationForm((current) => ({ ...current, responseMode, contentApproved: false, automationEnabled: false }))
                       setOpenBotAgentStatus(null)
                     }}
-                    options={[
+                    options={evolutionIntegrationEnabled ? [
                       { value: 'handoff_only', label: 'Somente atendimento humano' },
                       { value: 'digibot_agent', label: 'Agente Cristhian gerenciado pelo DigiBusca' },
                       { value: 'openclaw', label: 'OpenClaw · Cristhian principal no WhatsApp Web' },
                       { value: 'gemini', label: 'Responder com Gemini dentro dos fatos aprovados' },
                       { value: 'openbot', label: 'Responder com o agente OpenBot Cristhian' },
-                    ]}
+                    ] : [{ value: 'openclaw', label: 'OpenClaw · Cristhian principal no WhatsApp Web' }]}
                   />
                   <small>{automationForm.responseMode === 'handoff_only'
                     ? 'O texto da conversa não é enviado ao Gemini. Quando precisar de você, a conversa pausa e aparece como atendimento humano pendente na caixa de entrada; o lead não recebe aviso de transferência.'
@@ -1135,7 +1182,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                         : 'O Gemini recebe o histórico recente para responder com base nos fatos aprovados. Pedidos comerciais sem condições aprovadas, pedidos de atendimento humano e assuntos sensíveis ficam pendentes para você, sem aviso de transferência ao lead.'}</small>
                   {automationForm.responseMode === 'openclaw' && (
                     <small className="whatsapp-connect-state is-pending">
-                      Preparação: runtime {status?.openClawRuntimeEnabled ? 'habilitado' : 'desligado'} · MCP {status?.openClawMcpConfigured ? 'configurado' : 'pendente'} · ponte {status?.openClawBridgeConfigured ? 'configurada' : 'pendente'} · banco {status?.openClawStorageReady ? 'pronto' : 'migration 022 pendente'}. O pareamento e a confirmação do canal no DigiBusca ainda precisam ser feitos na VPS.
+                      Estado: runtime {status?.openClawRuntimeEnabled ? 'habilitado' : 'desligado'} · MCP {status?.openClawMcpConfigured ? 'configurado' : 'pendente'} · ponte {status?.openClawBridgeConfigured ? 'configurada' : 'pendente'} · Gateway {status?.openClawGatewayReady ? 'acessível' : 'indisponível'} · banco {status?.openClawStorageReady ? 'pronto' : 'migration 022 pendente'} · pareamento {openClawConnectionRegistered ? 'registrado' : 'pendente'}.
                     </small>
                   )}
                 </label>
@@ -1303,7 +1350,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <input
                     type="checkbox"
                     checked={automationForm.automationEnabled}
-                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawRuntimeEnabled || !status?.openClawStorageReady)) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel))}
+                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawRuntimeEnabled || !status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered)) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel))}
                     onChange={(event) => setAutomationForm((current) => ({ ...current, automationEnabled: event.target.checked }))}
                   />
                   <span>Ativar respostas automáticas após salvar as aprovações.</span>
@@ -1326,7 +1373,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               {automationError && <p className="whatsapp-connect-state is-error" role="alert">{automationError}</p>}
               {automationNotice && <p className="whatsapp-connect-state is-ready" role="status">{automationNotice}</p>}
               <div className="whatsapp-automation-actions">
-                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.responseMode === 'digibot_agent' && !automationForm.agentModel) || (automationForm.automationEnabled && (!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable)))}>
+                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.responseMode === 'digibot_agent' && !automationForm.agentModel) || (automationForm.automationEnabled && (!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawRuntimeEnabled || !status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered))))}>
                   <ShieldCheck size={15} />
                   {automationBusy ? 'Salvando…' : 'Salvar regras'}
                 </button>
@@ -1342,7 +1389,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
 
         </div>
       ) : (
-        <WhatsAppProspectingPanel connections={connections} />
+                <WhatsAppProspectingPanel connections={visibleWhatsAppConnections} />
       )}
     </section>
   )

@@ -17,6 +17,10 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "3001"
+      WHATSAPP_EVOLUTION_INTEGRATION_ENABLED: "false"
+      WHATSAPP_AUTOMATION_RUNTIME_ENABLED: "true"
+      WHATSAPP_PROSPECTING_RUNTIME_ENABLED: "true"
+      WHATSAPP_OPENCLAW_RUNTIME_ENABLED: "true"
     networks:
       - backend_origin
       - evolution_app
@@ -62,7 +66,7 @@ services:
     profiles: ["evolution"]
     image: ${DIGIBUSCA_EVOLUTION_IMAGE:?Set a reviewed DIGIBUSCA_EVOLUTION_IMAGE digest}
     pull_policy: never
-    restart: unless-stopped
+    restart: "no"
     env_file:
       - /etc/digibusca/hostgator/evolution-api.env
     cap_drop: [ALL]
