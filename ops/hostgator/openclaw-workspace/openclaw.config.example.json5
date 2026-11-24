@@ -86,10 +86,17 @@
     dmScope: "per-channel-peer",
   },
   tools: {
-    // Transcreve notas de voz em português usando a sessão OAuth OpenAI já
-    // conectada ao OpenClaw; não configure OPENAI_API_KEY para esta rota.
+    // Transcreve notas de voz localmente primeiro. O OpenAI OAuth só é tentado
+    // se o Whisper local falhar; não configure OPENAI_API_KEY para esta rota.
     media: {
       models: [
+        {
+          type: "cli",
+          command: "/home/node/.openclaw/extensions/digibusca-sync/openclaw-whisper-transcribe.sh",
+          args: ["{{AttachmentPath}}"],
+          timeoutSeconds: 90,
+          capabilities: ["audio"],
+        },
         {
           provider: "openai",
           model: "gpt-4o-transcribe",
@@ -98,10 +105,10 @@
       ],
       audio: {
         enabled: true,
-        preferredModel: "openai/gpt-4o-transcribe",
         language: "pt",
         echoTranscript: false,
       },
+      concurrency: 1,
     },
     // Mensagens e MCP são permitidos; ferramentas de host, arquivos, web,
     // automação, sessões, agentes e administração do Gateway ficam bloqueadas.

@@ -4,8 +4,13 @@ services:
   # Merge this file with compose.yaml only during the staged OpenClaw migration.
   openclaw-gateway:
     profiles: ["openclaw"]
-    image: ${OPENCLAW_IMAGE:?Pin the official OpenClaw image by immutable digest}
-    pull_policy: always
+    image: ${OPENCLAW_IMAGE:?Set the versioned local OpenClaw image tag}
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: openclaw-audio.Dockerfile
+      args:
+        OPENCLAW_BASE_IMAGE: ${OPENCLAW_BASE_IMAGE:?Pin the upstream OpenClaw image by digest}
     restart: unless-stopped
     init: true
     env_file:
@@ -29,7 +34,7 @@ services:
       openclaw_agent: {}
       openclaw_egress: {}
       openclaw_ui:
-        ipv4_address: 10.0.12.3
+        ipv4_address: 10.0.12.5
     read_only: true
     cap_drop: [ALL]
     security_opt:

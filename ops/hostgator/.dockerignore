@@ -1,0 +1,6 @@
+**
+!openclaw-audio.Dockerfile
+!openclaw-workspace/
+!openclaw-workspace/extensions/
+!openclaw-workspace/extensions/digibusca-sync/
+!openclaw-workspace/extensions/digibusca-sync/openclaw-whisper-transcribe.sh
