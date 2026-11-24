@@ -28,6 +28,10 @@ function isWhatsAppIntegrationPath(pathname: string) {
     pathname === '/api/webhooks/whatsapp' || pathname === '/api/webhooks/evolution'
 }
 
+function isGoogleCalendarIntegrationPath(pathname: string) {
+  return pathname === '/api/integrations/google-calendar' || pathname.startsWith('/api/integrations/google-calendar/')
+}
+
 function isOpenBotIntegrationPath(pathname: string) {
   return pathname === '/api/openbot' || pathname.startsWith('/api/openbot/')
 }
@@ -574,7 +578,7 @@ export default {
       }
 
       if (pathname.startsWith('/api/')) {
-        if (isWhatsAppIntegrationPath(pathname) || isOpenBotIntegrationPath(pathname)) {
+        if (isWhatsAppIntegrationPath(pathname) || isGoogleCalendarIntegrationPath(pathname) || isOpenBotIntegrationPath(pathname)) {
           return await proxyLocalIntegration(request, environment.LOCAL_BACKEND_PROXY_URL)
         }
         return await handleApiRequest(request, (task) => context.waitUntil(task))
