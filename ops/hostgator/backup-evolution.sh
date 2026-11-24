@@ -12,6 +12,7 @@ readonly openbot_ops_container_name=openbot-digibot-ops
 readonly retention_days=14
 readonly compose_project=digibusca-hostgator
 paused_containers=()
+openclaw_backup_dir=""
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run this backup as root." >&2
@@ -162,7 +163,14 @@ done
 
 timestamp=$(date -u +'%Y%m%dT%H%M%SZ')
 temporary_dir=$(mktemp -d "$staging_root/${timestamp}.XXXXXX")
-trap 'resume_after_archive; rm -rf -- "$temporary_dir"' EXIT
+cleanup_after_archive() {
+  resume_after_archive
+  if [ -n "$openclaw_backup_dir" ] && [ -n "$openclaw_container" ]; then
+    docker exec "$openclaw_container" rm -rf "$openclaw_backup_dir" >/dev/null 2>&1 || true
+  fi
+  rm -rf -- "$temporary_dir"
+}
+trap cleanup_after_archive EXIT
 
 # Freeze the services that can mutate files while the encrypted archive reads
 # their volumes. They resume automatically, including when a later backup step fails.
@@ -203,15 +211,22 @@ if [ ! -s "$temporary_dir/evolution-instances.tar.gz.age" ] || \
 fi
 
 if [ -n "$openclaw_container" ]; then
-  readonly openclaw_archive_path="/tmp/digibusca-openclaw-${timestamp}.tar.gz"
-  docker exec "$openclaw_container" openclaw backup create --output "$openclaw_archive_path" --verify
-  if ! docker cp "$openclaw_container:$openclaw_archive_path" "$temporary_dir/openclaw-state.tar.gz"; then
-    docker exec "$openclaw_container" rm -f "$openclaw_archive_path" || true
-    exit 1
-  fi
-  docker exec "$openclaw_container" rm -f "$openclaw_archive_path" || true
-  age -R "$recipient_file" -o "$temporary_dir/openclaw-state.tar.gz.age" "$temporary_dir/openclaw-state.tar.gz"
-  rm -f -- "$temporary_dir/openclaw-state.tar.gz"
+  openclaw_backup_dir="/tmp/digibusca-openclaw-${timestamp}"
+  docker exec "$openclaw_container" mkdir -m 0700 "$openclaw_backup_dir"
+  docker exec "$openclaw_container" openclaw backup create --output "$openclaw_backup_dir" --verify
+  openclaw_archive_path=$(docker exec "$openclaw_container" sh -ec '
+    backup_dir="$1"
+    set -- "$backup_dir"/*.tar.gz
+    if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+      echo "Expected exactly one verified OpenClaw archive in $backup_dir." >&2
+      exit 1
+    fi
+    printf "%s\n" "$1"
+  ' sh "$openclaw_backup_dir")
+  docker exec "$openclaw_container" cat "$openclaw_archive_path" \
+    | age -R "$recipient_file" -o "$temporary_dir/openclaw-state.tar.gz.age" -
+  docker exec "$openclaw_container" rm -rf "$openclaw_backup_dir"
+  openclaw_backup_dir=""
   if [ ! -s "$temporary_dir/openclaw-state.tar.gz.age" ] || \
     [ "$(head -n 1 "$temporary_dir/openclaw-state.tar.gz.age")" != 'age-encryption.org/v1' ]; then
     echo "The encrypted OpenClaw state archive failed its format check." >&2
