@@ -29,6 +29,10 @@ services:
     volumes:
       - openclaw_state:/home/node/.openclaw
       - openclaw_auth_profiles:/home/node/.config/openclaw
+      - ./openclaw-workspace/AGENTS.md:/home/node/.openclaw/workspace/AGENTS.md:ro
+      - ./openclaw-workspace/SOUL.md:/home/node/.openclaw/workspace/SOUL.md:ro
+      - ./openclaw-workspace/IDENTITY.md:/home/node/.openclaw/workspace/IDENTITY.md:ro
+      - ./openclaw-workspace/USER.md:/home/node/.openclaw/workspace/USER.md:ro
       - ./openclaw-workspace/extensions/digibusca-sync:/home/node/.openclaw/extensions/digibusca-sync:ro
     networks:
       openclaw_agent: {}
