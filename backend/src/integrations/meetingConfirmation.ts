@@ -105,7 +105,7 @@ export function isMeetingConfirmationRequestForSlot(message: string, startAt: st
   if (!proposed || !timeMatches(mentionedTimes(text), proposed)) return false
   const dates = mentionedDates(text, sentAt)
   if (!dates?.length || dates.some((date) => !dateMatches(date, proposed))) return false
-  const mentionsMeeting = /\b(?:reuniao|encontro|call|meet|agenda|horario|agend\w*|marc\w*|reserv\w*|livre)\b/.test(text)
+  const mentionsMeeting = /\b(?:reuniao|encontro|call|meet|agenda|horario|agend\w*|marc\w*|reserv\w*|livre|confirm\w*)\b/.test(text)
   const invitesConfirmation = /\?|\b(?:me responde|me diga|me confirma|confirma pra mim|pode ser|posso (?:reservar|marcar|confirmar)|quer que eu|te serve|serve pra voce|funciona pra voce|fica bom pra voce|me avisa|me fala|se estiver bom)\b/.test(text)
   return mentionsMeeting && invitesConfirmation
 }

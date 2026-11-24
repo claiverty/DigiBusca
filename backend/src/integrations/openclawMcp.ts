@@ -148,7 +148,7 @@ function createOpenClawMcpServer() {
       'A busca do Cristhian coloca automaticamente na fila os leads elegíveis. O backend agenda cada envio e chama uma execução isolada do Cristhian. Não retire contatos da fila nem tente enviar a mensagem por conta própria; o plugin do DigiBusca valida e registra cada envio confirmado.',
       'Para preparar um primeiro contato manual, use queue_prospect. A fila faz o despacho automaticamente, sempre respeitando autorização, janela e limite.',
       'O DigiBusca aplica janela de dias úteis das 9h às 14h, limite diário, pausa, opt-out, deduplicação e revalidação antes do envio.',
-      'Para reuniões, consulte a disponibilidade no Google Agenda. Ao oferecer um horário, informe claramente o dia e a hora e pergunte de forma natural se pode reservar. Considere “sim”, “confirmo”, “pode marcar”, “fechado”, “ok”, “perfeito” e outras respostas claramente afirmativas como confirmação; nunca exija que a pessoa repita uma frase específica. Só crie o evento se a última mensagem do Cristhian ofereceu o mesmo dia e horário e a resposta mais recente do cliente aceitar esse horário sem ressalvas. Se houver dúvida, recusa ou proposta de outro horário, esclareça e consulte a agenda de novo. Confirme pelo WhatsApp usando o link do Meet retornado pela ferramenta.',
+      'Para reuniões, consulte a disponibilidade no Google Agenda. Ao oferecer um horário, informe claramente o dia, a data e a hora e pergunte de forma natural se pode reservar. Considere qualquer resposta claramente afirmativa — inclusive “sim”, “confirmo”, “pode marcar”, “fechado”, “ok”, “perfeito”, “combinado” ou equivalente — como confirmação; nunca exija frase exata nem que a pessoa repita o horário. Ao chamar create_confirmed_meeting, informe o texto da última oferta do Cristhian e a resposta mais recente do cliente, exatamente como aparecem no chat. A ferramenta valida esses textos e a disponibilidade atual da agenda. Se houver dúvida, recusa ou proposta de outro horário, não crie o evento; consulte a agenda novamente se necessário. Confirme pelo WhatsApp usando o link do Meet retornado pela ferramenta.',
       'Não exponha detalhes de outros compromissos da agenda. Se o horário estiver ocupado, diga apenas que ele não está disponível e pergunte outra opção.',
       'Não exponha dados de outros leads nem altere consentimento com estas ferramentas.',
     ].join('\n'),
@@ -237,53 +237,24 @@ function createOpenClawMcpServer() {
 
   server.registerTool('create_confirmed_meeting', {
     title: 'Salvar reunião e criar link do Meet',
-    description: 'Cria um evento na agenda principal depois que o cliente confirmar naturalmente o horário oferecido. “Sim”, “confirmo”, “pode marcar”, “fechado”, “ok” e respostas afirmativas claras equivalem a confirmação; não exija frase exata. A última mensagem do Cristhian precisa ter oferecido o mesmo dia e horário e perguntado se o cliente aceita. Revalida a disponibilidade antes de salvar e retorna o link do Google Meet.',
+    description: 'Cria um evento na agenda principal depois que o cliente aceitar naturalmente o horário oferecido. “Sim”, “Confirmo”, “pode marcar”, “fechado”, “ok” e qualquer resposta afirmativa clara valem; não exija frase exata nem que o cliente repita o dia ou horário. Passe latestAssistantOffer e latestCustomerConfirmation com os textos exatos das duas mensagens mais recentes relevantes no chat do OpenClaw. A ferramenta valida que a oferta apresenta este mesmo dia/horário e que a resposta confirma sem ressalvas, revalida a disponibilidade antes de salvar e retorna o link do Google Meet.',
     inputSchema: z.object({
       contactName: z.string().trim().min(1).max(120),
       contactPhone: z.string().trim().regex(/^\+[1-9]\d{7,14}$/),
       startAt: z.string().trim().min(20).max(40),
       durationMinutes: z.number().int().min(15).max(180).default(30),
       projectSummary: z.string().trim().min(2).max(600),
+      latestAssistantOffer: z.string().trim().min(8).max(1000).describe('Texto exato da oferta mais recente do Cristhian para este dia e horário, conforme aparece na conversa atual do OpenClaw.'),
+      latestCustomerConfirmation: z.string().trim().min(1).max(500).describe('Texto exato da resposta mais recente do cliente aceitando o horário. Uma resposta simples como “Confirmo” ou “sim” basta; não peça que o cliente repita uma frase.'),
     }),
-  }, async ({ contactName, contactPhone, startAt, durationMinutes, projectSummary }) => {
+  }, async ({ contactName, contactPhone, startAt, durationMinutes, projectSummary, latestAssistantOffer, latestCustomerConfirmation }) => {
     const config = getOpenClawMcpConfig()
     if (!config) return errorResult('Integração MCP OpenClaw ainda não configurada no backend.')
     try {
-      const admin = createWhatsAppWebhookSupabaseClient()
-      const digits = contactPhone.replace(/\D/g, '')
-      const conversation = await admin.from('whatsapp_conversations')
-        .select('id, contact_wa_id, last_message_at, last_message_direction')
-        .eq('user_id', config.ownerUserId)
-        .eq('phone_number_id', config.phoneNumberId)
-        .eq('contact_wa_id', digits)
-        .maybeSingle()
-      if (conversation.error || !conversation.data || conversation.data.contact_wa_id !== digits || conversation.data.last_message_direction !== 'inbound') {
-        return errorResult('Não consegui validar a confirmação mais recente deste cliente no WhatsApp. Não criei o evento.')
-      }
-      const lastMessageAt = Date.parse(conversation.data.last_message_at ?? '')
-      if (!Number.isFinite(lastMessageAt) || Date.now() - lastMessageAt > 24 * 60 * 60_000 || Date.now() < lastMessageAt) {
-        return errorResult('A confirmação não é recente. Peça ao cliente para confirmar o horário novamente antes de criar o evento.')
-      }
-      const recentMessages = await admin.from('whatsapp_messages')
-        .select('direction, body, occurred_at')
-        .eq('user_id', config.ownerUserId)
-        .eq('phone_number_id', config.phoneNumberId)
-        .eq('conversation_id', conversation.data.id)
-        .order('occurred_at', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(2)
-      const messages = recentMessages.data
-      if (recentMessages.error || !messages || messages.length < 2
-        || messages[0]?.direction !== 'inbound' || messages[1]?.direction !== 'outbound'
-        || typeof messages[0]?.body !== 'string' || typeof messages[1]?.body !== 'string') {
-        return errorResult('Não encontrei uma confirmação recente logo após a oferta deste horário. Não criei o evento.')
-      }
-      const replyAt = Date.parse(messages[0].occurred_at ?? '')
-      const offerAt = Date.parse(messages[1].occurred_at ?? '')
-      if (!Number.isFinite(replyAt) || !Number.isFinite(offerAt) || offerAt > replyAt
-        || !isMeetingConfirmationRequestForSlot(messages[1].body, startAt, messages[1].occurred_at)
-        || !isClearMeetingAcceptance(messages[0].body, startAt, messages[0].occurred_at)) {
-        return errorResult('A última mensagem não confirma claramente o horário oferecido. Se o cliente respondeu “sim”, “confirmo”, “pode marcar” ou equivalente, ofereça o dia e horário com clareza e confirme de novo antes de criar o evento.')
+      const receivedAt = new Date().toISOString()
+      if (!isMeetingConfirmationRequestForSlot(latestAssistantOffer, startAt, receivedAt)
+        || !isClearMeetingAcceptance(latestCustomerConfirmation, startAt, receivedAt)) {
+        return errorResult('Não reconheci uma confirmação clara para o horário oferecido. Só confirme se a mensagem mais recente do cliente aceitar esse mesmo horário sem ressalvas. Não peça uma frase exata.')
       }
       const event = await createGoogleMeetEvent({
         userId: config.ownerUserId,
