@@ -54,6 +54,12 @@ Prepare os arquivos locais sem substituir segredos existentes:
 
 Preencha `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` em `backend/.env`; defina `EVOLUTION_API_KEY` igual a `AUTHENTICATION_API_KEY` em `evolution/.env`. Use segredos fortes e diferentes para `AUTHENTICATION_API_KEY`, `POSTGRES_PASSWORD` e `EVOLUTION_WEBHOOK_SECRET`. Em `backend/.env`, habilite `WHATSAPP_INTEGRATION_ENABLED=true` para abrir as rotas de conexão. Neste ambiente local, o agendador roda no servidor de desenvolvimento; o serviço Docker `digibusca-webhook` recebe e persiste webhooks com os runtimes desligados, evitando dois processos concorrendo pela mesma mensagem. Respostas só saem com o perfil aprovado e ativo; novos contatos só saem quando a fila estiver ativa e cada lead elegível entrar nela com consentimento registrado. Os controles de perfil e fila começam desligados.
 
+## Google Agenda e Meet
+
+Para a agenda pessoal do Cristhian, crie um OAuth Client Web em **Personal mode**, habilite a Google Calendar API e adicione somente o URI de redirecionamento `https://whatsapp-api.digiuptech.com.br/api/integrations/google-calendar/callback` (sem origem JavaScript). Esse cliente OAuth funciona apenas para a conta Google que o criou, sem a verificação de um app público. Aplique `supabase/migrations/023_google_calendar_meet_integration.sql`, informe Client ID e Client Secret no cartão **WhatsApp → Configurações → Google Agenda e Meet** e conecte a conta. O client secret e o refresh token ficam no Supabase Vault; alternativamente, as variáveis `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET` e `GOOGLE_CALENDAR_REDIRECT_URI` podem ser configuradas apenas no env privado do backend.
+
+O OAuth pede e-mail verificado, disponibilidade da agenda principal e o escopo Google `calendar.events.owned`, necessário para criar e consultar eventos na agenda que pertence à conta conectada. O backend usa essa permissão somente para salvar a reunião privada e recuperar o link do Meet; não expõe leitura de títulos nem edição ou exclusão ao Cristhian. O refresh token fica no Supabase Vault. O MCP consulta horários ocupados sem ler títulos, revalida o horário antes de criar o evento e exige confirmação recente do cliente armazenada na conversa. A reunião é criada na agenda principal com Meet e o link é retornado à conversa pelo agente.
+
 Compile a imagem fixada e valide a configuração:
 
 ```sh

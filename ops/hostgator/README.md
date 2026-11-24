@@ -54,6 +54,15 @@
 - O MCP DigiBusca não publica porta e fica disponível ao Cristhian somente pela rede privada com as cinco ferramentas permitidas. O MCP administrativo Dokploy é uma conexão separada e não está disponível ao agente de WhatsApp.
 - O backend permanece como política de segurança para conversas, opt-out, janela de atendimento e prospecção. Não reative a Evolution API junto ao canal WhatsApp do OpenClaw.
 
+## Google Agenda e Meet
+
+- O Client ID e o Client Secret OAuth podem ser configurados no cartão Google Agenda e Meet do DigiBusca; eles ficam no Supabase Vault. Se usar variáveis de ambiente como alternativa, configure-as somente em `/etc/digibusca/hostgator/backend.env`; nunca copie `GOOGLE_CALENDAR_CLIENT_SECRET` para o Gateway do OpenClaw, frontend ou Git.
+- URI de callback do OAuth Client Web: `https://whatsapp-api.digiuptech.com.br/api/integrations/google-calendar/callback`.
+- Para a conexão pessoal do proprietário, use um OAuth Client Web em Personal mode; ele só autoriza a conta Google que criou o cliente. A habilitação da API padrão do Calendar não exige mover o OAuth Supabase existente nem publicar um app para outros usuários.
+- O refresh token fica em Supabase Vault via migration `023_google_calendar_meet_integration.sql`. O Gateway acessa agenda somente pelas ferramentas permitidas no MCP DigiBusca: `check_calendar_availability`, `create_confirmed_meeting` e `request_calendar_follow_up`.
+- `openclaw-workspace/openclaw.config.example.json5` mantém a allowlist MCP; ao publicar estes arquivos na VPS, inclua os três nomes no `toolFilter.include` da configuração ativa e reinicie somente o Gateway para recarregar a lista.
+- O Cristhian precisa verificar disponibilidade e obter confirmação expressa do cliente antes de criar o evento. Se a autorização Google falhar, ele pode sinalizar o pedido na caixa de entrada sem pausar o agente; se o horário estiver ocupado, deve pedir outra opção.
+
 ## OpenClaw — transporte ativo
 
 - O Gateway e o canal WhatsApp estão ativos; a rota Evolution está bloqueada no backend e o serviço de envio Evolution está parado. A base PostgreSQL antiga permanece ligada exclusivamente para que o backup diário continue funcionando.

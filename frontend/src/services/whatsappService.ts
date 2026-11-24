@@ -107,6 +107,14 @@ export type WhatsAppAgentModelChoice = {
 
 export type WhatsAppAiProviderId = 'google' | 'anthropic' | 'openai-compatible'
 export type WhatsAppAiProviderSource = 'panel' | 'server' | 'disconnected' | 'none' | 'unavailable'
+export type GoogleCalendarConnectionStatus = {
+  configured: boolean
+  oauthClientStored?: boolean
+  storageReady: boolean
+  connected: boolean
+  accountEmail?: string
+  connectedAt?: string
+}
 export type WhatsAppAiProviderConnectionResult = {
   provider: WhatsAppAiProviderId
   configured: boolean
@@ -191,6 +199,40 @@ async function getWhatsAppData<T>(path: string): Promise<T> {
   }
 
   return payload.data
+}
+
+async function getGoogleCalendarData<T>(path: string, init: RequestInit = {}): Promise<T> {
+  let response: Response
+  try {
+    response = await whatsAppFetch(`${apiBaseUrl}/integrations/google-calendar${path}`, init)
+  } catch {
+    throw new Error('Não foi possível conectar ao DigiBusca para consultar o Google Agenda.')
+  }
+  const payload = (await response.json().catch(() => null)) as { data?: T; error?: string } | null
+  if (!response.ok || payload?.data === undefined) {
+    throw new Error(payload?.error ?? 'Não foi possível concluir a operação do Google Agenda.')
+  }
+  return payload.data
+}
+
+export function getGoogleCalendarConnectionStatus() {
+  return getGoogleCalendarData<GoogleCalendarConnectionStatus>('/status')
+}
+
+export function startGoogleCalendarConnection() {
+  return getGoogleCalendarData<{ authorizationUrl: string }>('/authorize', { method: 'POST' })
+}
+
+export function saveGoogleCalendarOAuthClient(input: { clientId: string; clientSecret: string }) {
+  return getGoogleCalendarData<{ configured: boolean }>('/oauth-client', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export function disconnectGoogleCalendarConnection() {
+  return getGoogleCalendarData<{ disconnected: boolean }>('/connection', { method: 'DELETE' })
 }
 
 export async function getWhatsAppEvolutionSetupStatus(): Promise<WhatsAppEvolutionSetupStatus> {

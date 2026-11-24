@@ -34,6 +34,14 @@ import { runLocalWhatsAppProspectingTick, startLocalWhatsAppProspectingScheduler
 import { runWhatsAppDailyProspectingCampaign } from '../application/runWhatsAppDailyProspectingCampaign.js'
 import { authorizeOpenClawOutbound, OpenClawBridgeError, persistOpenClawInbound, persistOpenClawOutbound } from '../application/openClawWhatsAppBridge.js'
 import { handleOpenClawMcpRequest } from '../integrations/openclawMcp.js'
+import {
+  completeGoogleCalendarOAuth,
+  createGoogleCalendarAuthorizationUrl,
+  disconnectGoogleCalendar,
+  getGoogleCalendarConnectionStatus,
+  GoogleCalendarIntegrationError,
+  saveGoogleCalendarOAuthClient,
+} from '../integrations/googleCalendar.js'
 
 dotenv.config({ path: process.env.DIGIBUSCA_ENV_FILE ?? 'backend/.env' })
 dotenv.config({ path: 'frontend/.env' })
@@ -143,6 +151,10 @@ function parseWhatsAppAiProviderInput(value: unknown) {
 
 function isWhatsAppIntegrationPath(pathname: string) {
   return pathname === '/api/whatsapp' || pathname.startsWith('/api/whatsapp/') || pathname === '/api/webhooks/evolution' || pathname.startsWith('/api/openclaw/')
+}
+
+function isGoogleCalendarIntegrationPath(pathname: string) {
+  return pathname === '/api/integrations/google-calendar' || pathname.startsWith('/api/integrations/google-calendar/')
 }
 
 function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -349,7 +361,7 @@ function getSearchParams(request: IncomingMessage) {
 
 async function handleRequest(request: IncomingMessage, response: ServerResponse) {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`)
-  if (isWhatsAppIntegrationPath(requestUrl.pathname)) response.setHeader('Cache-Control', 'no-store')
+  if (isWhatsAppIntegrationPath(requestUrl.pathname) || isGoogleCalendarIntegrationPath(requestUrl.pathname)) response.setHeader('Cache-Control', 'no-store')
 
   if (request.method === 'OPTIONS') {
     sendJson(response, 204, null)
@@ -370,6 +382,30 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     const storageReady = configReady && await new WhatsAppStore().isEvolutionStorageReady()
     const ready = configReady && storageReady
     sendJson(response, ready ? 200 : 503, { status: ready ? 'ready' : 'not_ready' })
+    return
+  }
+
+  if (requestUrl.pathname === '/api/integrations/google-calendar/callback' && request.method === 'GET') {
+    try {
+      const result = await completeGoogleCalendarOAuth({
+        code: requestUrl.searchParams.get('code') ?? undefined,
+        state: requestUrl.searchParams.get('state') ?? undefined,
+        oauthError: requestUrl.searchParams.get('error') ?? undefined,
+        allowedOrigins,
+      })
+      response.writeHead(303, {
+        Location: `${result.returnOrigin}/sistema/whatsapp?tab=settings&calendar=${result.result}`,
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+      })
+      response.end()
+    } catch (error) {
+      if (error instanceof GoogleCalendarIntegrationError && error.reason === 'not_configured') {
+        sendJson(response, 503, { error: 'A conexão com Google Agenda ainda não está configurada no servidor.' })
+        return
+      }
+      sendJson(response, 400, { error: 'Não foi possível validar o retorno de autorização do Google. Inicie a conexão novamente no DigiBusca.' })
+    }
     return
   }
 
@@ -551,6 +587,77 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 
   const { accessToken, user } = authentication
+
+  if (isGoogleCalendarIntegrationPath(requestUrl.pathname)) {
+    if (request.method === 'GET' && requestUrl.pathname === '/api/integrations/google-calendar/status') {
+      try {
+        sendJson(response, 200, { data: await getGoogleCalendarConnectionStatus(user.id) })
+      } catch {
+        sendJson(response, 503, { error: 'Não foi possível consultar a conexão do Google Agenda.' })
+      }
+      return
+    }
+
+    if (request.method === 'POST' && requestUrl.pathname === '/api/integrations/google-calendar/authorize') {
+      const origin = typeof request.headers.origin === 'string' ? request.headers.origin : ''
+      if (!origin || !allowedOrigins.has(origin)) {
+        sendJson(response, 403, { error: 'Abra o DigiBusca por um endereço autorizado para conectar o Google Agenda.' })
+        return
+      }
+      try {
+        sendJson(response, 200, { data: { authorizationUrl: await createGoogleCalendarAuthorizationUrl(user.id, origin) } })
+      } catch (error) {
+        const message = error instanceof GoogleCalendarIntegrationError && error.reason === 'not_configured'
+          ? 'Configure as credenciais OAuth do Google Calendar no backend antes de conectar.'
+          : 'Não foi possível iniciar a autorização do Google Agenda.'
+        sendJson(response, 503, { error: message })
+      }
+      return
+    }
+
+    if (request.method === 'POST' && requestUrl.pathname === '/api/integrations/google-calendar/oauth-client') {
+      let body: unknown
+      try {
+        body = await readLimitedJsonBody(request, 8 * 1024)
+      } catch {
+        sendJson(response, 400, { error: 'As credenciais OAuth do Google estão inválidas ou excedem o limite permitido.' })
+        return
+      }
+      const input = body && typeof body === 'object' ? body as Record<string, unknown> : {}
+      if (typeof input.clientId !== 'string' || typeof input.clientSecret !== 'string') {
+        sendJson(response, 400, { error: 'Informe o Client ID e o Client Secret do Google OAuth.' })
+        return
+      }
+      try {
+        await saveGoogleCalendarOAuthClient(user.id, input.clientId, input.clientSecret)
+        sendJson(response, 200, { data: { configured: true } })
+      } catch (error) {
+        if (error instanceof GoogleCalendarIntegrationError && error.reason === 'invalid_oauth_client') {
+          sendJson(response, 400, { error: 'Confira o formato do Client ID e do Client Secret do OAuth Web.' })
+          return
+        }
+        if (error instanceof GoogleCalendarIntegrationError && error.reason === 'not_configured') {
+          sendJson(response, 503, { error: 'O backend ainda não está pronto para armazenar a configuração OAuth.' })
+          return
+        }
+        sendJson(response, 503, { error: 'Não foi possível guardar as credenciais no Supabase Vault.' })
+      }
+      return
+    }
+
+    if (request.method === 'DELETE' && requestUrl.pathname === '/api/integrations/google-calendar/connection') {
+      try {
+        await disconnectGoogleCalendar(user.id)
+        sendJson(response, 200, { data: { disconnected: true } })
+      } catch {
+        sendJson(response, 503, { error: 'Não foi possível desconectar o Google Agenda.' })
+      }
+      return
+    }
+
+    sendJson(response, 405, { error: 'Método não permitido para a conexão do Google Agenda.' })
+    return
+  }
 
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/prospecting') {
     try {

@@ -40,6 +40,9 @@
         toolFilter: {
           include: [
             "get_runtime_status",
+            "check_calendar_availability",
+            "create_confirmed_meeting",
+            "request_calendar_follow_up",
             "search_leads_without_site",
             "list_leads",
             "update_lead",

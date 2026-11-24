@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, Send, ShieldCheck } from 'lucide-react'
+import { ArrowUpRight, CalendarDays, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, Send, ShieldCheck, Video } from 'lucide-react'
 import {
   connectWhatsAppEvolution,
   registerOpenClawWhatsAppConnection,
   clearWhatsAppScheduleReview,
+  disconnectGoogleCalendarConnection,
+  getGoogleCalendarConnectionStatus,
   getWhatsAppEvolutionPairingStatus,
   getWhatsAppEvolutionSetupStatus,
   getWhatsAppConnections,
@@ -19,6 +21,8 @@ import {
   migrateWhatsAppAiProvider,
   getWhatsAppOpenBotAgentStatus,
   saveWhatsAppAutomationProfile,
+  saveGoogleCalendarOAuthClient,
+  startGoogleCalendarConnection,
   setWhatsAppConversationAutomationPaused,
   type WhatsAppEvolutionSetupStatus,
   type WhatsAppAutomationProfileInput,
@@ -30,6 +34,7 @@ import {
   type WhatsAppOpenBotAgentStatus,
   type WhatsAppAiProviderId,
   type WhatsAppAiProviderSource,
+  type GoogleCalendarConnectionStatus,
   WhatsAppAiProviderOperationError,
 } from '../services/whatsappService'
 import { WhatsAppProspectingPanel } from './WhatsAppProspectingPanel'
@@ -203,6 +208,15 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [automationBusy, setAutomationBusy] = useState(false)
   const [automationError, setAutomationError] = useState('')
   const [automationNotice, setAutomationNotice] = useState('')
+  const [googleCalendarStatus, setGoogleCalendarStatus] = useState<GoogleCalendarConnectionStatus | null>(null)
+  const [googleCalendarState, setGoogleCalendarState] = useState<LoadState>('loading')
+  const [googleCalendarBusy, setGoogleCalendarBusy] = useState(false)
+  const [googleCalendarClientId, setGoogleCalendarClientId] = useState('')
+  const [googleCalendarClientSecret, setGoogleCalendarClientSecret] = useState('')
+  const [googleCalendarConfigBusy, setGoogleCalendarConfigBusy] = useState(false)
+  const [googleCalendarConfigEditing, setGoogleCalendarConfigEditing] = useState(false)
+  const [googleCalendarError, setGoogleCalendarError] = useState('')
+  const [googleCalendarNotice, setGoogleCalendarNotice] = useState('')
   const [pauseBusy, setPauseBusy] = useState(false)
   const [pauseError, setPauseError] = useState('')
   const loadStatus = useCallback(async () => {
@@ -220,6 +234,38 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   useEffect(() => {
     void loadStatus()
   }, [loadStatus])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const result = params.get('calendar')
+    if (!result) return
+    if (result === 'connected') setGoogleCalendarNotice('Google Agenda conectado. O Cristhian já pode conferir horários e registrar reuniões com link do Meet.')
+    else if (result === 'cancelled') setGoogleCalendarNotice('A conexão não foi autorizada. Você pode tentar novamente quando quiser.')
+    else setGoogleCalendarError('Não foi possível concluir a conexão com o Google. Confira a configuração OAuth e tente novamente.')
+    params.delete('calendar')
+    const nextUrl = `${window.location.pathname}${params.size ? `?${params.toString()}` : ''}${window.location.hash}`
+    window.history.replaceState({}, '', nextUrl)
+  }, [])
+
+  useEffect(() => {
+    if (activeTab !== 'settings') return
+    let active = true
+    setGoogleCalendarState('loading')
+    setGoogleCalendarError('')
+    void getGoogleCalendarConnectionStatus()
+      .then((nextStatus) => {
+        if (!active) return
+        setGoogleCalendarStatus(nextStatus)
+        setGoogleCalendarState('ready')
+      })
+      .catch((error: unknown) => {
+        if (!active) return
+        setGoogleCalendarStatus(null)
+        setGoogleCalendarError(error instanceof Error ? error.message : 'Não foi possível carregar a conexão do Google Agenda.')
+        setGoogleCalendarState('error')
+      })
+    return () => { active = false }
+  }, [activeTab, refreshKey])
 
   useEffect(() => {
     let active = true
@@ -806,6 +852,52 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     }
   }
 
+  async function connectGoogleCalendar() {
+    setGoogleCalendarBusy(true)
+    setGoogleCalendarError('')
+    setGoogleCalendarNotice('')
+    try {
+      const result = await startGoogleCalendarConnection()
+      window.location.assign(result.authorizationUrl)
+    } catch (error) {
+      setGoogleCalendarError(error instanceof Error ? error.message : 'Não foi possível iniciar a conexão com o Google Agenda.')
+      setGoogleCalendarBusy(false)
+    }
+  }
+
+  async function saveGoogleCalendarClient() {
+    setGoogleCalendarConfigBusy(true)
+    setGoogleCalendarError('')
+    setGoogleCalendarNotice('')
+    try {
+      await saveGoogleCalendarOAuthClient({ clientId: googleCalendarClientId, clientSecret: googleCalendarClientSecret })
+      setGoogleCalendarClientId('')
+      setGoogleCalendarClientSecret('')
+      setGoogleCalendarConfigEditing(false)
+      setGoogleCalendarStatus((current) => current ? { ...current, configured: true, oauthClientStored: true } : current)
+      setGoogleCalendarNotice('Credenciais OAuth guardadas com segurança no Supabase Vault. Agora você pode conectar sua agenda.')
+    } catch (error) {
+      setGoogleCalendarError(error instanceof Error ? error.message : 'Não foi possível salvar as credenciais do Google Agenda.')
+    } finally {
+      setGoogleCalendarConfigBusy(false)
+    }
+  }
+
+  async function disconnectGoogleCalendar() {
+    setGoogleCalendarBusy(true)
+    setGoogleCalendarError('')
+    setGoogleCalendarNotice('')
+    try {
+      await disconnectGoogleCalendarConnection()
+      setGoogleCalendarStatus((current) => current ? { ...current, connected: false, accountEmail: undefined, connectedAt: undefined } : current)
+      setGoogleCalendarNotice('Google Agenda desconectado. Nenhum novo evento será criado pelo Cristhian.')
+    } catch (error) {
+      setGoogleCalendarError(error instanceof Error ? error.message : 'Não foi possível desconectar o Google Agenda.')
+    } finally {
+      setGoogleCalendarBusy(false)
+    }
+  }
+
   const openBotCanEnable = Boolean(
     status?.openBotReplyRuntimeEnabled &&
     status.openBotBridgeConfigured &&
@@ -1111,6 +1203,67 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               {openClawRegisterError && <p className="whatsapp-connect-state is-error" role="alert">{openClawRegisterError}</p>}
               {openClawRegisterNotice && <p className="whatsapp-connect-state is-ready" role="status">{openClawRegisterNotice}</p>}
               {openClawConnectionRegistered && !openClawRegisterNotice && <p className={`whatsapp-connect-state ${openClawRuntimeReady ? 'is-ready' : 'is-pending'}`} role="status">{openClawRuntimeReady ? 'A configuração e o Gateway estão acessíveis. O registro no DigiBusca não confirma sozinho que a sessão do WhatsApp Web continua conectada; confira o canal no OpenClaw antes do teste real.' : 'Registro feito, mas ainda há pré-requisitos pendentes. A automação e a fila continuam bloqueadas até o runtime ficar pronto.'}</p>}
+            </section>
+
+            <section className="whatsapp-embedded-signup whatsapp-calendar-panel" aria-labelledby="google-calendar-title">
+              <div className="whatsapp-calendar-heading">
+                <div className="whatsapp-settings-icon"><CalendarDays size={20} /></div>
+                <div>
+                  <span className="eyebrow">AGENDA · REUNIÕES</span>
+                  <h3 id="google-calendar-title">Google Agenda e Meet</h3>
+                  <p>O Cristhian consulta sua disponibilidade e, depois da confirmação do cliente, salva a reunião na agenda e cria o link do Meet.</p>
+                </div>
+              </div>
+              <div className="whatsapp-calendar-status" aria-live="polite">
+                <span className={`whatsapp-connected-badge${googleCalendarStatus?.connected ? '' : ' is-pending'}`}>
+                  {googleCalendarState === 'loading' ? 'Verificando conexão…' : googleCalendarStatus?.connected ? 'Conectado' : 'Não conectado'}
+                </span>
+                {googleCalendarStatus?.connected && googleCalendarStatus.accountEmail && <strong>{googleCalendarStatus.accountEmail}</strong>}
+              </div>
+              <div className="whatsapp-calendar-actions">
+                {googleCalendarStatus?.connected ? (
+                  <button className="secondary-button" type="button" onClick={() => void disconnectGoogleCalendar()} disabled={googleCalendarBusy}>
+                    <CalendarDays size={15} />
+                    {googleCalendarBusy ? 'Desconectando…' : 'Desconectar Google Agenda'}
+                  </button>
+                ) : (
+                  <button className="secondary-button" type="button" onClick={() => void connectGoogleCalendar()} disabled={googleCalendarBusy || googleCalendarState === 'loading' || googleCalendarStatus?.configured !== true || googleCalendarStatus.storageReady !== true}>
+                    <CalendarDays size={15} />
+                    {googleCalendarBusy ? 'Abrindo autorização…' : 'Conectar Google Agenda'}
+                  </button>
+                )}
+                {googleCalendarStatus?.oauthClientStored && !googleCalendarConfigEditing && (
+                  <button className="secondary-button" type="button" onClick={() => setGoogleCalendarConfigEditing(true)} disabled={googleCalendarBusy || googleCalendarConfigBusy}>
+                    <ShieldCheck size={15} />
+                    Alterar credenciais OAuth
+                  </button>
+                )}
+              </div>
+              {googleCalendarState === 'loading' && <p className="whatsapp-connect-state">Verificando a integração no backend…</p>}
+              {googleCalendarState === 'error' && !googleCalendarError && <p className="whatsapp-connect-state is-error" role="alert">Não foi possível verificar a conexão. Atualize o status para tentar novamente.</p>}
+              {(googleCalendarStatus?.configured === false || googleCalendarConfigEditing) && googleCalendarStatus?.storageReady === true && (
+                <div className="whatsapp-calendar-oauth-form">
+                  <p>Configure o cliente OAuth Web do Google Cloud para guardar as credenciais protegidas no Supabase Vault. Habilite a Google Calendar API e use este URI de redirecionamento:</p>
+                  <code>https://whatsapp-api.digiuptech.com.br/api/integrations/google-calendar/callback</code>
+                  <label className="whatsapp-form-field" htmlFor="google-calendar-client-id">Client ID
+                    <input id="google-calendar-client-id" type="text" autoComplete="off" spellCheck={false} maxLength={512} value={googleCalendarClientId} onChange={(event) => setGoogleCalendarClientId(event.target.value)} placeholder="...apps.googleusercontent.com" />
+                  </label>
+                  <label className="whatsapp-form-field" htmlFor="google-calendar-client-secret">Client Secret
+                    <input id="google-calendar-client-secret" type="password" autoComplete="new-password" maxLength={4096} value={googleCalendarClientSecret} onChange={(event) => setGoogleCalendarClientSecret(event.target.value)} placeholder="Cole o Client Secret do OAuth Web" />
+                  </label>
+                  <button className="secondary-button" type="button" onClick={() => void saveGoogleCalendarClient()} disabled={googleCalendarConfigBusy || !googleCalendarClientId.trim() || !googleCalendarClientSecret.trim()}>
+                    <ShieldCheck size={15} />
+                    {googleCalendarConfigBusy ? 'Guardando credenciais…' : googleCalendarConfigEditing ? 'Atualizar credenciais OAuth' : 'Salvar credenciais OAuth'}
+                  </button>
+                  {googleCalendarConfigEditing && <button className="secondary-button" type="button" onClick={() => { setGoogleCalendarConfigEditing(false); setGoogleCalendarClientId(''); setGoogleCalendarClientSecret('') }} disabled={googleCalendarConfigBusy}>Cancelar</button>}
+                </div>
+              )}
+              {googleCalendarStatus?.storageReady === false && (
+                <p className="whatsapp-connect-state is-pending">A migration <code>023_google_calendar_meet_integration.sql</code> ainda precisa ser aplicada no Supabase para guardar a conexão com segurança.</p>
+              )}
+              {googleCalendarStatus?.connected && <p className="whatsapp-connect-state is-ready"><Video size={15} /> Eventos novos recebem um link do Meet. O Cristhian não confirma horário ocupado nem cria reunião antes do aceite do cliente.</p>}
+              {googleCalendarError && <p className="whatsapp-connect-state is-error" role="alert">{googleCalendarError}</p>}
+              {googleCalendarNotice && <p className="whatsapp-connect-state is-ready" role="status">{googleCalendarNotice}</p>}
             </section>
 
             <section className="whatsapp-automation-panel" aria-labelledby="whatsapp-automation-title">

@@ -269,7 +269,11 @@ function App() {
           />
         )}
         {activeView === 'whatsapp' && (
-          <WhatsAppPage initialTab={new URLSearchParams(window.location.search).get('tab') === 'prospecting' ? 'prospecting' : 'inbox'} />
+          <WhatsAppPage initialTab={
+            new URLSearchParams(window.location.search).get('tab') === 'prospecting'
+              ? 'prospecting'
+              : new URLSearchParams(window.location.search).get('tab') === 'settings' ? 'settings' : 'inbox'
+          } />
         )}
         {activeView === 'search' && (
           <SearchPage savedLeadIds={savedLeadIds} onSelectLead={(lead) => void openSearchLead(lead)} />

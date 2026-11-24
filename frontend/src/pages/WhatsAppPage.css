@@ -585,6 +585,69 @@
   opacity: 0.55;
 }
 
+.whatsapp-calendar-panel {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.whatsapp-calendar-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.whatsapp-calendar-heading > div:last-child {
+  min-width: 0;
+}
+
+.whatsapp-calendar-status {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.whatsapp-calendar-status strong {
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.whatsapp-calendar-actions {
+  grid-column: 1 / -1;
+}
+
+.whatsapp-calendar-oauth-form {
+  grid-column: 1 / -1;
+  display: grid;
+  width: min(100%, 560px);
+  gap: 12px;
+}
+
+.whatsapp-calendar-oauth-form p {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.whatsapp-calendar-oauth-form > code {
+  overflow-wrap: anywhere;
+  color: var(--color-text-subtle);
+  font-size: 11px;
+}
+
+.whatsapp-calendar-oauth-form button {
+  justify-self: start;
+}
+
+.whatsapp-calendar-panel > .whatsapp-connect-state {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
 .whatsapp-automation-panel {
   display: grid;
   gap: 16px;
@@ -953,6 +1016,27 @@
 
   .whatsapp-automation-fields {
     grid-template-columns: 1fr;
+  }
+
+  .whatsapp-calendar-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .whatsapp-calendar-status {
+    grid-column: 1;
+    justify-items: start;
+  }
+
+  .whatsapp-calendar-actions {
+    grid-column: 1;
+  }
+
+  .whatsapp-calendar-actions button {
+    width: 100%;
+  }
+
+  .whatsapp-calendar-oauth-form button {
+    width: 100%;
   }
 
   .whatsapp-form-field.is-wide {

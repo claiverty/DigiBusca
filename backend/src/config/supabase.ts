@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto'
 import { createClient, type User } from '@supabase/supabase-js'
 import type { WhatsAppAgentProvider } from '../contracts/whatsappAutomation.js'
 
@@ -8,6 +9,9 @@ export type RuntimeEnvironment = {
   VITE_SUPABASE_URL?: string
   VITE_SUPABASE_ANON_KEY?: string
   GOOGLE_MAPS_API_KEY?: string
+  GOOGLE_CALENDAR_CLIENT_ID?: string
+  GOOGLE_CALENDAR_CLIENT_SECRET?: string
+  GOOGLE_CALENDAR_REDIRECT_URI?: string
   GEMINI_API_KEY?: string
   ANTHROPIC_API_KEY?: string
   OPENAI_COMPATIBLE_API_KEY?: string
@@ -59,6 +63,35 @@ export function configureRuntimeEnvironment(nextEnvironment: RuntimeEnvironment)
 
 export function getGoogleMapsApiKey() {
   return environment().GOOGLE_MAPS_API_KEY
+}
+
+export type GoogleCalendarOAuthConfig = {
+  clientId: string
+  clientSecret: string
+  redirectUri: string
+}
+
+export function getGoogleCalendarOAuthConfig(): GoogleCalendarOAuthConfig | undefined {
+  const values = environment()
+  const clientId = values.GOOGLE_CALENDAR_CLIENT_ID?.trim()
+  const clientSecret = values.GOOGLE_CALENDAR_CLIENT_SECRET?.trim()
+  const redirectUri = values.GOOGLE_CALENDAR_REDIRECT_URI?.trim()
+  if (!clientId || clientId.length > 512 || !clientSecret || clientSecret.length > 4_096 || !redirectUri || redirectUri.length > 2_000) return undefined
+  try {
+    const url = new URL(redirectUri)
+    const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+    const localHttp = process.env.NODE_ENV !== 'production' && url.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(hostname)
+    if ((url.protocol !== 'https:' && !localHttp) || url.username || url.password || url.search || url.hash) return undefined
+  } catch {
+    return undefined
+  }
+  return { clientId, clientSecret, redirectUri }
+}
+
+export function getGoogleCalendarOAuthStateSecret(): Buffer | undefined {
+  const serviceRoleKey = environment().SUPABASE_SERVICE_ROLE_KEY?.trim()
+  if (!serviceRoleKey) return undefined
+  return createHmac('sha256', serviceRoleKey).update('digibusca:google-calendar:oauth-state:v1').digest()
 }
 
 export function getGeminiApiKey() {

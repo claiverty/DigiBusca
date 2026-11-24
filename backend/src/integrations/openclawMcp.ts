@@ -10,6 +10,12 @@ import { GooglePlacesProvider } from './googlePlacesProvider.js'
 import { WhatsAppProspectingError, WhatsAppProspectingStore } from '../data/whatsappProspectingStore.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
 import { logWarning } from '../observability/logger.js'
+import {
+  checkGoogleCalendarAvailability,
+  createGoogleMeetEvent,
+  getGoogleCalendarConnectionStatus,
+  GoogleCalendarIntegrationError,
+} from './googleCalendar.js'
 
 const savedLeadFields = 'lead_id, lead_data, lead_data_expires_at, status, notes, next_follow_up, conversation_stage, contact_name, next_action, draft_message, whatsapp_consent_status, whatsapp_consent_source, whatsapp_consent_at, whatsapp_outbound_authorization_status, whatsapp_outbound_authorization_source, whatsapp_outbound_authorization_at, updated_at'
 const ownerSearchAuthorizationSource = 'Autorização do titular para prospecção de leads retornados pela busca DigiBusca/Google Maps'
@@ -141,6 +147,8 @@ function createOpenClawMcpServer() {
       'A busca do Cristhian coloca automaticamente na fila os leads elegíveis. O backend agenda cada envio e chama uma execução isolada do Cristhian. Não retire contatos da fila nem tente enviar a mensagem por conta própria; o plugin do DigiBusca valida e registra cada envio confirmado.',
       'Para preparar um primeiro contato manual, use queue_prospect. A fila faz o despacho automaticamente, sempre respeitando autorização, janela e limite.',
       'O DigiBusca aplica janela de dias úteis das 9h às 14h, limite diário, pausa, opt-out, deduplicação e revalidação antes do envio.',
+      'Para reuniões, consulte a disponibilidade no Google Agenda. Só crie o evento depois que o cliente confirmar explicitamente o horário; confirme pelo WhatsApp usando o link do Meet retornado pela ferramenta.',
+      'Não exponha detalhes de outros compromissos da agenda. Se o horário estiver ocupado, diga apenas que ele não está disponível e pergunte outra opção.',
       'Não exponha dados de outros leads nem altere consentimento com estas ferramentas.',
     ].join('\n'),
     maxToolInputElements: 128,
@@ -177,6 +185,7 @@ function createOpenClawMcpServer() {
       const activeProfile = profile.data?.response_mode === 'openclaw' && profile.data?.automation_enabled === true
       const storageReady = await new WhatsAppStore().isOpenClawStorageReady().catch(() => false)
       const gatewayReady = await isOpenClawGatewayReady()
+      const googleCalendar = await getGoogleCalendarConnectionStatus(config.ownerUserId).catch(() => ({ configured: false, storageReady: false, connected: false }))
       return textResult({
         agent: 'Cristhian',
         runtimeEnabled: isWhatsAppOpenClawRuntimeEnabled(),
@@ -186,6 +195,7 @@ function createOpenClawMcpServer() {
         whatsappPairingRegistered: connectionReady,
         whatsappSessionLiveVerified: false,
         replyAutomationConfigured: connectionReady && activeProfile && Boolean(profile.data?.channel_approved_at && profile.data?.content_approved_at),
+        googleCalendar,
         prospecting: settings.data ? {
           enabled: settings.data.enabled === true,
           dailyLimit: settings.data.daily_new_lead_limit,
@@ -196,6 +206,134 @@ function createOpenClawMcpServer() {
       })
     } catch {
       return errorResult('Não foi possível consultar o estado do DigiBusca. Confira se a migration 022 está aplicada.')
+    }
+  })
+
+  server.registerTool('check_calendar_availability', {
+    title: 'Conferir horário no Google Agenda',
+    description: 'Confere se um intervalo está livre na agenda principal. Retorna somente ocupado/livre e os intervalos indisponíveis, sem títulos nem detalhes de outros eventos. Use antes de oferecer ou confirmar um horário.',
+    inputSchema: z.object({
+      startAt: z.string().trim().min(20).max(40),
+      endAt: z.string().trim().min(20).max(40),
+    }),
+  }, async ({ startAt, endAt }) => {
+    const config = getOpenClawMcpConfig()
+    if (!config) return errorResult('Integração MCP OpenClaw ainda não configurada no backend.')
+    try {
+      const result = await checkGoogleCalendarAvailability(config.ownerUserId, startAt, endAt)
+      return textResult({ checked: true, ...result })
+    } catch (error) {
+      if (error instanceof GoogleCalendarIntegrationError) {
+        if (error.reason === 'not_configured') return errorResult('Google Agenda ainda não foi configurado no DigiBusca.')
+        if (error.reason === 'not_connected') return errorResult('Google Agenda ainda não está conectado. Não confirme nem prometa disponibilidade.')
+        if (error.reason === 'authorization_expired') return errorResult('A autorização do Google expirou. Avise internamente para reconectar a agenda e não confirme horário.')
+        if (error.reason === 'invalid_time') return errorResult('Informe um intervalo futuro válido, com fuso horário, de até sete dias.')
+        return errorResult('Não foi possível consultar a agenda agora. Não confirme disponibilidade.')
+      }
+      return errorResult('Não foi possível consultar a agenda agora. Não confirme disponibilidade.')
+    }
+  })
+
+  server.registerTool('create_confirmed_meeting', {
+    title: 'Salvar reunião e criar link do Meet',
+    description: 'Cria um evento na agenda principal, após confirmar que o cliente aceitou aquele horário no WhatsApp. Revalida a disponibilidade antes de salvar e retorna o link do Google Meet. Exige telefone E.164 e uma frase de confirmação que apareça na última mensagem recebida.',
+    inputSchema: z.object({
+      contactName: z.string().trim().min(1).max(120),
+      contactPhone: z.string().trim().regex(/^\+[1-9]\d{7,14}$/),
+      startAt: z.string().trim().min(20).max(40),
+      durationMinutes: z.number().int().min(15).max(180).default(30),
+      projectSummary: z.string().trim().min(2).max(600),
+      confirmationQuote: z.string().trim().min(2).max(500),
+    }),
+  }, async ({ contactName, contactPhone, startAt, durationMinutes, projectSummary, confirmationQuote }) => {
+    const config = getOpenClawMcpConfig()
+    if (!config) return errorResult('Integração MCP OpenClaw ainda não configurada no backend.')
+    try {
+      const admin = createWhatsAppWebhookSupabaseClient()
+      const digits = contactPhone.replace(/\D/g, '')
+      const conversation = await admin.from('whatsapp_conversations')
+        .select('id, contact_wa_id, last_message_at, last_message_direction')
+        .eq('user_id', config.ownerUserId)
+        .eq('phone_number_id', config.phoneNumberId)
+        .eq('contact_wa_id', digits)
+        .maybeSingle()
+      if (conversation.error || !conversation.data || conversation.data.contact_wa_id !== digits || conversation.data.last_message_direction !== 'inbound') {
+        return errorResult('Não consegui validar a confirmação mais recente deste cliente no WhatsApp. Não criei o evento.')
+      }
+      const lastMessageAt = Date.parse(conversation.data.last_message_at ?? '')
+      if (!Number.isFinite(lastMessageAt) || Date.now() - lastMessageAt > 24 * 60 * 60_000 || Date.now() < lastMessageAt) {
+        return errorResult('A confirmação não é recente. Peça ao cliente para confirmar o horário novamente antes de criar o evento.')
+      }
+      const latestInbound = await admin.from('whatsapp_messages')
+        .select('body')
+        .eq('user_id', config.ownerUserId)
+        .eq('phone_number_id', config.phoneNumberId)
+        .eq('conversation_id', conversation.data.id)
+        .eq('direction', 'inbound')
+        .order('occurred_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (latestInbound.error || typeof latestInbound.data?.body !== 'string') {
+        return errorResult('Não consegui validar a confirmação mais recente deste cliente no WhatsApp. Não criei o evento.')
+      }
+      const normalize = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR')
+      const messageText = normalize(latestInbound.data.body)
+      const quoteText = normalize(confirmationQuote)
+      const explicitAcceptance = /\b(?:sim|pode ser|pode marcar|pode agendar|confirmo|fechado|combinado|vamos nessa)\b/.test(messageText)
+        && !/\b(?:nao|negativo|deixa pra depois)\b/.test(messageText)
+      if (!explicitAcceptance || !messageText.includes(quoteText)) {
+        return errorResult('A frase de confirmação precisa estar na última mensagem recebida e aceitar claramente o horário. Não criei o evento.')
+      }
+      const event = await createGoogleMeetEvent({
+        userId: config.ownerUserId,
+        contactName,
+        contactPhone,
+        startAt,
+        durationMinutes,
+        projectSummary,
+      })
+      if (!event.created) return textResult({ created: false, reason: 'busy', message: 'Esse horário ficou ocupado. Pergunte ao cliente outra opção e confira novamente.' })
+      const meetReady = 'meetUrl' in event && Boolean(event.meetUrl)
+      return textResult({ ...event, message: meetReady
+        ? 'Reunião salva e link do Google Meet pronto para enviar ao cliente.'
+        : 'Reunião salva, mas o link do Google Meet ainda está sendo preparado. Não diga que o link está pronto; consulte o evento novamente em instantes.' })
+    } catch (error) {
+      if (error instanceof GoogleCalendarIntegrationError) {
+        if (error.reason === 'not_configured') return errorResult('Google Agenda ainda não foi configurado no DigiBusca.')
+        if (error.reason === 'not_connected') return errorResult('Google Agenda ainda não está conectado. Não confirme nem prometa disponibilidade.')
+        if (error.reason === 'authorization_expired') return errorResult('A autorização do Google expirou. Avise internamente para reconectar a agenda; não diga que a reunião foi salva.')
+        if (error.reason === 'invalid_time') return errorResult('O horário, telefone ou duração da reunião é inválido. Não criei o evento.')
+        if (error.reason === 'busy') return errorResult('O horário está ocupado. Pergunte ao cliente outra opção antes de criar a reunião.')
+      }
+      return errorResult('Não foi possível salvar a reunião agora. Não diga ao cliente que o evento ou link foi criado.')
+    }
+  })
+
+  server.registerTool('request_calendar_follow_up', {
+    title: 'Sinalizar pedido de reunião para conferência',
+    description: 'Marca a conversa para sua conferência interna quando o Google Agenda estiver desconectado, indisponível ou quando for preciso verificar manualmente. Não pausa o Cristhian nem envia mensagem ao cliente.',
+    inputSchema: z.object({
+      contactPhone: z.string().trim().regex(/^\+[1-9]\d{7,14}$/),
+      requestedTime: z.string().trim().min(2).max(160),
+    }),
+  }, async ({ contactPhone, requestedTime }) => {
+    const config = getOpenClawMcpConfig()
+    if (!config) return errorResult('Integração MCP OpenClaw ainda não configurada no backend.')
+    try {
+      const digits = contactPhone.replace(/\D/g, '')
+      const admin = createWhatsAppWebhookSupabaseClient()
+      const conversation = await admin.from('whatsapp_conversations')
+        .select('id')
+        .eq('user_id', config.ownerUserId)
+        .eq('phone_number_id', config.phoneNumberId)
+        .eq('contact_wa_id', digits)
+        .maybeSingle()
+      if (conversation.error || !conversation.data) return errorResult('Não encontrei a conversa para sinalizar o pedido de reunião.')
+      const marked = await new WhatsAppStore().markConversationScheduleReviewRequired(config.ownerUserId, conversation.data.id)
+      if (!marked) return errorResult('A conversa está pausada ou o cliente pediu para parar. Não registrei um novo pedido de agenda.')
+      return textResult({ followUpRequired: true, conversationId: conversation.data.id, requestedTime, message: 'Pedido sinalizado internamente. O Cristhian continua atendendo; não diga ao cliente que houve transferência.' })
+    } catch {
+      return errorResult('Não foi possível sinalizar o pedido de reunião. Não diga ao cliente que a agenda foi conferida.')
     }
   })
 
