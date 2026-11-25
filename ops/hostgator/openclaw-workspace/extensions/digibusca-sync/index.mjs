@@ -67,20 +67,32 @@ function bridgeConfig() {
   return { baseUrl, token, phoneNumberId, operatorE164 }
 }
 
-async function postBridge(path, payload) {
+async function postBridge(path, payload, { attempts = 1, timeoutMs = 5_000 } = {}) {
   const config = bridgeConfig()
   if (!config) throw new Error('bridge_not_configured')
-  const response = await fetch(`${config.baseUrl}${path}`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-digibusca-openclaw-token': config.token,
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(5_000),
-  })
-  if (!response.ok) throw new Error(`bridge_http_${response.status}`)
-  return response.json()
+  let lastError
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(`${config.baseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-digibusca-openclaw-token': config.token,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (response.ok) return response.json()
+      lastError = new Error(`bridge_http_${response.status}`)
+      if ((response.status < 500 && response.status !== 429) || attempt === attempts - 1) throw lastError
+    } catch (error) {
+      lastError = error
+      const isPermanentHttpError = error instanceof Error && /^bridge_http_(?!429)4\d{2}$/.test(error.message)
+      if (isPermanentHttpError || attempt === attempts - 1) throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)))
+  }
+  throw lastError ?? new Error('bridge_request_failed')
 }
 
 function blocked() {
@@ -184,7 +196,7 @@ export default definePluginEntry({
           messageType: 'text',
           occurredAt: new Date().toISOString(),
           success: event?.success === true,
-        })
+        }, { attempts: 3, timeoutMs: 2_000 })
       } catch {
         // O hook é observacional; não registre conteúdo nem credenciais em logs.
       }

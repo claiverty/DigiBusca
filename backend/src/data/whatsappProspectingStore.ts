@@ -743,103 +743,46 @@ export class WhatsAppProspectingStore {
     message: string,
     success: boolean,
     providerMessageId: string,
+    occurredAt: string,
   ) {
     const recipientPhone = normalizeBrazilianPhone(recipientE164)
     if (!recipientPhone) return false
     const admin = createWhatsAppWebhookSupabaseClient()
-    const result = await admin.from('whatsapp_prospecting_queue')
-      .select('id, lead_id, phone_number_id, recipient_phone, message, status, scheduled_at, claimed_at, sent_at, provider_message_id, error_code, contact_verified_at, contact_verified_by, contact_verification_reference, contact_identity_verified, delivery_status, created_at')
+    const queueQuery = () => admin.from('whatsapp_prospecting_queue')
+      .select('id')
       .eq('user_id', userId)
       .eq('phone_number_id', phoneNumberId)
       .eq('recipient_phone', recipientPhone)
       .eq('message', message)
-      .eq('status', 'sending')
       .not('outbound_send_authorized_at', 'is', null)
       .order('claimed_at', { ascending: false })
       .limit(1)
-      .maybeSingle()
+    let result = await queueQuery().in('status', ['sending', 'unknown']).maybeSingle()
     throwIfError(result.error, 'Não foi possível localizar o envio autorizado na fila.')
+    if (!result.data) {
+      result = await queueQuery()
+        .eq('status', 'failed')
+        .eq('provider_message_id', providerMessageId)
+        .maybeSingle()
+    }
+    throwIfError(result.error, 'Não foi possível localizar uma confirmação atrasada da fila.')
     if (!result.data) return false
-    const item = mapQueueRow(result.data as QueueRow)
-    if (success) {
-      const sentAt = new Date().toISOString()
-      await this.persistSentMessage(item, userId, providerMessageId, sentAt, 'WhatsApp Web do OpenClaw')
-      await this.finishQueueItem(item.id, 'sent', { providerMessageId })
-    } else {
-      await this.finishQueueItem(item.id, 'failed', { errorCode: 'openclaw_delivery_failed' })
+    const settled = await admin.rpc('settle_openclaw_prospecting_delivery', {
+      p_queue_id: result.data.id,
+      p_user_id: userId,
+      p_phone_number_id: phoneNumberId,
+      p_recipient_phone: recipientPhone,
+      p_message: message,
+      p_provider_message_id: providerMessageId,
+      p_success: success,
+      p_occurred_at: occurredAt,
+    })
+    throwIfError(settled.error, 'Não foi possível registrar o resultado confirmado no histórico e no CRM.')
+    if (typeof settled.data !== 'object' || settled.data === null ||
+      (settled.data as { settled?: unknown }).settled !== true) {
+      throw new Error('O OpenClaw confirmou um resultado que a fila não conseguiu reconciliar.')
     }
     return true
-  }
-
-  async persistSentMessage(
-    item: WhatsAppProspectingQueueItem,
-    userId: string,
-    providerMessageId: string,
-    sentAt: string,
-    transportLabel = 'Evolution API',
-  ) {
-    const admin = createWhatsAppWebhookSupabaseClient()
-    const conversationResult = await admin.from('whatsapp_conversations')
-      .upsert({
-        user_id: userId,
-        phone_number_id: item.phoneNumberId,
-        contact_wa_id: item.recipientPhone,
-        linked_lead_id: item.leadId,
-      }, { onConflict: 'phone_number_id,contact_wa_id' })
-      .select('id')
-      .single()
-    throwIfError(conversationResult.error, 'A API aceitou o envio, mas não foi possível preparar o histórico da conversa.')
-    const conversationId = (conversationResult.data as { id: string } | null)?.id
-    if (!conversationId) throw new Error('A API aceitou o envio, mas a conversa não foi encontrada para salvar o histórico.')
-
-    const messageResult = await admin.from('whatsapp_messages')
-      .upsert({
-        user_id: userId,
-        phone_number_id: item.phoneNumberId,
-        conversation_id: conversationId,
-        provider_message_id: providerMessageId,
-        contact_wa_id: item.recipientPhone,
-        direction: 'outbound',
-        message_type: 'text',
-        body: item.message,
-        source: 'live',
-        is_placeholder: false,
-        occurred_at: sentAt,
-      }, { onConflict: 'phone_number_id,provider_message_id' })
-    throwIfError(messageResult.error, 'A API aceitou o envio, mas não foi possível registrar a mensagem no histórico.')
-
-    const conversationUpdate = await admin.from('whatsapp_conversations')
-      .update({
-        linked_lead_id: item.leadId,
-        last_message_at: sentAt,
-        last_message_preview: item.message.slice(0, 500),
-        last_message_direction: 'outbound',
-        updated_at: sentAt,
-      })
-      .eq('id', conversationId)
-      .eq('user_id', userId)
-      .or(`last_message_at.is.null,last_message_at.lte.${sentAt}`)
-    throwIfError(conversationUpdate.error, 'A mensagem foi salva, mas não foi possível atualizar a conversa no DigiBusca.')
-
-    const leadResult = await admin.from('saved_leads')
-      .update({ status: 'Contatado', updated_at: sentAt })
-      .eq('user_id', userId)
-      .eq('lead_id', item.leadId)
-      .eq('status', 'Novo')
-    throwIfError(leadResult.error, 'A mensagem foi enviada, mas não foi possível atualizar o status do lead.')
-
-    const interactionResult = await admin.from('lead_interactions').insert({
-      user_id: userId,
-      lead_id: item.leadId,
-      whatsapp_message_id: providerMessageId,
-      channel: 'WhatsApp',
-      occurred_at: sentAt.slice(0, 10),
-      notes: `Primeiro contato confirmado pelo ${transportLabel}. Mensagem: ${item.message}`,
-      outcome: 'Envio confirmado pelo OpenClaw',
-    })
-    if (interactionResult.error && interactionResult.error.code !== '23505') {
-      throwIfError(interactionResult.error, 'A mensagem foi enviada, mas não foi possível registrar a interação no CRM.')
-    }
   }
 
   async finishQueueItem(

@@ -211,6 +211,7 @@ export async function persistOpenClawOutbound(input: OpenClawOutboundInput) {
       input.content,
       input.success,
       providerMessageId,
+      occurredAt,
     )
     if (settledQueue) return { persisted: input.success, queueSettled: true, delivery: input.success ? 'sent' : 'failed' }
   }
