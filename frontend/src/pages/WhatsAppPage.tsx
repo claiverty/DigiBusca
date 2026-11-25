@@ -1005,6 +1005,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                       <strong>{conversation.contactName || conversation.contactWaId}</strong>
                       <time>{formatWhatsAppDate(conversation.lastMessageAt)}</time>
                     </span>
+                    {conversation.linkedLeadName && <span className="whatsapp-conversation-preview">Lead no CRM · {conversation.linkedLeadName}</span>}
                     <span className="whatsapp-conversation-preview">{conversation.lastMessagePreview || 'Mensagem recebida'}</span>
                     {(conversation.automationPauseReason === 'handoff' || conversation.automationPauseReason === 'handoff_send_failed' || conversation.automationPauseReason === 'provider_unavailable' || conversation.automationPauseReason === 'schedule_review_required') && (
                       <span className="whatsapp-conversation-handoff">
@@ -1027,6 +1028,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <div>
                     <h2>{selectedConversation.contactName || selectedConversation.contactWaId}</h2>
                     <span>{selectedConversation.contactWaId}</span>
+                    {selectedConversation.linkedLeadName && <small>Lead no CRM · {selectedConversation.linkedLeadName}</small>}
                   </div>
                 </header>
                 <div className="whatsapp-thread-automation">
@@ -1049,7 +1051,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <p className="whatsapp-thread-note is-scheduling" role="status">O Cristhian continua atendendo e já pediu para conferir a agenda. Verifique a disponibilidade e confirme o horário no WhatsApp; depois marque este aviso como conferido.</p>
                 )}
                 {selectedConversation.automationPauseReason === 'handoff' && (
-                  <p className="whatsapp-thread-note" role="status">A automação foi pausada para esta conversa. Revise o histórico e responda manualmente pelo WhatsApp conectado; retome a automação quando estiver pronto.</p>
+                  <p className="whatsapp-thread-note" role="status">A automação foi pausada para esta conversa. {selectedConversation.automationHandoffNote ? `Motivo: ${selectedConversation.automationHandoffNote}. ` : ''}Revise o histórico e responda manualmente pelo WhatsApp conectado; retome a automação quando estiver pronto.</p>
                 )}
                 {selectedConversation.automationPauseReason === 'provider_unavailable' && (
                   <p className="whatsapp-thread-note" role="alert">O Gemini não respondeu após três tentativas. Use “Tentar resposta novamente” para responder à última mensagem pendente. Uma nova mensagem também libera uma nova tentativa.</p>
@@ -1335,7 +1337,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                         : 'O Gemini recebe o histórico recente para responder com base nos fatos aprovados. Pedidos comerciais sem condições aprovadas, pedidos de atendimento humano e assuntos sensíveis ficam pendentes para você, sem aviso de transferência ao lead.'}</small>
                   {automationForm.responseMode === 'openclaw' && (
                     <small className="whatsapp-connect-state is-pending">
-                      Estado: runtime {status?.openClawRuntimeEnabled ? 'habilitado' : 'desligado'} · MCP {status?.openClawMcpConfigured ? 'configurado' : 'pendente'} · ponte {status?.openClawBridgeConfigured ? 'configurada' : 'pendente'} · Gateway {status?.openClawGatewayReady ? 'acessível' : 'indisponível'} · banco {status?.openClawStorageReady ? 'pronto' : 'migration 022 pendente'} · pareamento {openClawConnectionRegistered ? 'registrado' : 'pendente'}.
+                      Estado: runtime {status?.openClawRuntimeEnabled ? 'habilitado' : 'desligado'} · MCP {status?.openClawMcpConfigured ? 'configurado' : 'pendente'} · ponte {status?.openClawBridgeConfigured ? 'configurada' : 'pendente'} · Gateway {status?.openClawGatewayReady ? 'acessível' : 'indisponível'} · banco {status?.openClawStorageReady ? 'pronto' : 'migrations 022/024 pendentes'} · pareamento {openClawConnectionRegistered ? 'registrado' : 'pendente'}.
                     </small>
                   )}
                 </label>

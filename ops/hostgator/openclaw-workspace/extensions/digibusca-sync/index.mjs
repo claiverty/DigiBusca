@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry'
 
 const pluginId = 'digibusca-sync'
@@ -36,6 +36,26 @@ function inboundTimestampToIso(...values) {
     return new Date(milliseconds).toISOString()
   }
   return undefined
+}
+
+function outboundMessageIdentity(event, context, recipientE164, content) {
+  const messageId = typeof event?.messageId === 'string' ? event.messageId.trim() : ''
+  if (messageId) return messageId.slice(0, 240)
+
+  const runId = typeof context?.runId === 'string' && context.runId
+    ? context.runId
+    : typeof event?.runId === 'string' && event.runId
+      ? event.runId
+      : undefined
+  if (!runId) return undefined
+
+  // OpenClaw may omit a channel message ID. A digest of the stable run and
+  // logical payload keeps webhook retries idempotent without inventing IDs.
+  const digest = createHash('sha256')
+    .update(`${runId}\0${recipientE164}\0${content}`)
+    .digest('hex')
+    .slice(0, 48)
+  return `run-${digest}`
 }
 
 function bridgeConfig() {
@@ -131,6 +151,7 @@ export default definePluginEntry({
           phoneNumberId: config.phoneNumberId,
           recipientE164,
           content: event.content.slice(0, 10_000),
+          ...(typeof context?.runId === 'string' ? { openClawRunId: context.runId.slice(0, 240) } : {}),
           ...(typeof context?.sessionKey === 'string' ? { openClawSessionKey: context.sessionKey.slice(0, 512) } : {}),
         })
         if (result?.allowed === true) return
@@ -147,14 +168,17 @@ export default definePluginEntry({
       if (!config || !recipientE164 || recipientE164 === config.operatorE164) return
       const content = typeof event?.content === 'string' ? event.content.slice(0, 10_000) : ''
       if (!content) return
-      const providerMessageId = typeof event?.messageId === 'string' && event.messageId
-        ? event.messageId.slice(0, 240)
-        : `hook-${randomUUID()}`
+      const providerMessageId = outboundMessageIdentity(event, context, recipientE164, content)
+      if (!providerMessageId) {
+        console.warn(`[${pluginId}] outbound result not synchronized (stable message identity unavailable)`)
+        return
+      }
       try {
         await postBridge('/api/openclaw/outbound', {
           phoneNumberId: config.phoneNumberId,
           recipientE164,
           providerMessageId,
+          ...(typeof context?.runId === 'string' ? { openClawRunId: context.runId.slice(0, 240) } : {}),
           ...(typeof context?.sessionKey === 'string' ? { openClawSessionKey: context.sessionKey.slice(0, 512) } : {}),
           content,
           messageType: 'text',

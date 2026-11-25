@@ -11,6 +11,7 @@ export type DailyProspectingCampaignResult = {
   campaign: WhatsAppDailyProspectingCampaign
   searchedCount: number
   savedCount: number
+  candidateCount: number
   queuedCount: number
 }
 
@@ -43,9 +44,6 @@ export async function runWhatsAppDailyProspectingCampaign(input: {
   accessToken: string
   city: string
   segment: string
-  phoneNumberId?: string
-  queuePlatformType?: 'EVOLUTION_API' | 'OPENCLAW_WEB'
-  queueSendingAvailable: boolean
   campaign: WhatsAppDailyProspectingCampaign
   provider: LeadProvider
   persistenceStore: SupabaseStore
@@ -77,54 +75,35 @@ export async function runWhatsAppDailyProspectingCampaign(input: {
 
     const savedResults = await saveWithLimitedConcurrency(input.persistenceStore, input.accessToken, input.userId, leads)
     const savedCount = savedResults.filter((item) => item.saved).length
-    const settings = await prospectingStore.getSettings(input.userId)
-    const dailyCount = await prospectingStore.getDailyCount(input.userId)
-    const pendingCount = await prospectingStore.getPendingQueueCount(input.userId)
-    let availableSlots = input.queueSendingAvailable && settings.enabled
-      ? Math.max(0, settings.dailyNewLeadLimit - dailyCount - pendingCount)
-      : 0
-    let queuedCount = 0
+    let candidateCount = 0
+    for (let index = 0; index < savedResults.length; index += 1) {
+      const { lead, saved } = savedResults[index]
+      if (
+        !saved || saved.status !== 'Novo' || saved.whatsappConsentStatus === 'opted_out' || !lead.phone.trim() ||
+        !(
+          (saved.whatsappConsentStatus === 'opted_in' && Boolean(saved.whatsappConsentSource?.trim()) && Boolean(saved.whatsappConsentAt)) ||
+          (saved.whatsappOutboundAuthorizationStatus === 'authorized_by_owner' && Boolean(saved.whatsappOutboundAuthorizationSource?.trim()) && Boolean(saved.whatsappOutboundAuthorizationAt))
+        )
+      ) continue
 
-    if (availableSlots > 0 && input.phoneNumberId) {
-      for (let index = 0; index < savedResults.length && availableSlots > 0; index += 1) {
-        const { lead, saved } = savedResults[index]
-        if (
-          !saved || saved.status !== 'Novo' || saved.whatsappConsentStatus === 'opted_out' || !lead.phone.trim() ||
-          !(
-            (saved.whatsappConsentStatus === 'opted_in' && Boolean(saved.whatsappConsentSource?.trim()) && Boolean(saved.whatsappConsentAt)) ||
-            (saved.whatsappOutboundAuthorizationStatus === 'authorized_by_owner' && Boolean(saved.whatsappOutboundAuthorizationSource?.trim()) && Boolean(saved.whatsappOutboundAuthorizationAt))
-          )
-        ) continue
-
-        const message = buildWhatsAppProspectingOpening(lead.name, index)
-        try {
-          await input.persistenceStore.saveLeadState(input.accessToken, input.userId, lead.id, undefined, { draftMessage: message })
-          await prospectingStore.enqueueNewLead(input.userId, input.phoneNumberId, lead.id, message, input.queuePlatformType)
-          queuedCount += 1
-          availableSlots -= 1
-        } catch {
-          // A previously contacted, opted-out, duplicate, or invalid lead is skipped.
-        }
+      const message = buildWhatsAppProspectingOpening(lead.name, index)
+      try {
+        await input.persistenceStore.saveLeadState(input.accessToken, input.userId, lead.id, undefined, { draftMessage: message })
+        candidateCount += 1
+      } catch {
+        // Keep unsaved drafts out of the candidate count; no queue or send is created here.
       }
     }
 
     const unsaved = Math.max(0, leads.length - savedCount)
-    const message = queuedCount > 0
-      ? `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city}, salvei ${savedCount} e coloquei ${queuedCount} contatos novos na fila. Os envios respeitam o limite e o horário que você configurou.`
-      : !input.queueSendingAvailable
-        ? `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city} e salvei ${savedCount}. Não coloquei mensagens na fila porque o WhatsApp não está conectado ou o runtime de prospecção não está pronto.`
-        : !settings.enabled
-          ? `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city} e salvei ${savedCount}. A fila está pausada, então nenhum contato foi agendado para envio.`
-          : availableSlots === 0
-            ? `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city} e salvei ${savedCount}. O limite diário já está reservado por envios feitos ou itens que aguardam na fila.`
-            : `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city} e salvei ${savedCount}, mas não achei novos contatos elegíveis para a fila.`
+    const message = `Encontrei ${leads.length} empresas sem site informado no Google em ${input.city}, salvei ${savedCount} e preparei ${candidateCount} candidatas para sua seleção. Nenhuma entrou na fila nem será enviada pela busca.`
     const completedCampaign = await prospectingStore.finishDailyCampaign(input.userId, campaign.id, {
       searched: leads.length,
       saved: savedCount,
-      queued: queuedCount,
+      queued: 0,
       summary: unsaved > 0 ? `${message} ${unsaved} não puderam ser salvos nesta rodada.` : message,
     })
-    return { campaign: completedCampaign, searchedCount: leads.length, savedCount, queuedCount }
+    return { campaign: completedCampaign, searchedCount: leads.length, savedCount, candidateCount, queuedCount: 0 }
   } catch (error) {
     await prospectingStore.failDailyCampaign(
       input.userId,

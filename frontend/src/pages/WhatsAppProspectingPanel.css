@@ -360,6 +360,30 @@
   letter-spacing: -0.035em;
 }
 
+.prospecting-candidate-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prospecting-select-all {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #dedee2;
+  border-radius: 8px;
+  color: var(--color-text-subtle);
+  background: #fff;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.prospecting-select-all:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .prospecting-count {
   display: grid;
   width: 28px;
@@ -387,6 +411,78 @@
   border: 1px solid var(--color-border);
   border-radius: 13px;
   background: #fff;
+}
+
+.prospecting-lead-select {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.prospecting-lead-select input {
+  accent-color: #3a694c;
+}
+
+.prospecting-selection-review {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 13px;
+  border: 1px solid #dfdfe4;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.prospecting-selection-review > header,
+.prospecting-selection-review article > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.prospecting-selection-review > header strong {
+  font-size: 12px;
+}
+
+.prospecting-selection-review > header span,
+.prospecting-selection-review article span,
+.prospecting-selection-review > small {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.prospecting-selection-review article {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #e7e7ea;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.prospecting-selection-review article strong {
+  color: var(--color-text);
+  font-size: 11px;
+}
+
+.prospecting-selection-review article p {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.prospecting-selection-review article a {
+  width: fit-content;
+  color: #394b8a;
+  font-size: 10px;
+  text-decoration: underline;
 }
 
 .prospecting-lead-heading > div,
@@ -513,6 +609,11 @@
   background: #eff8f1;
 }
 
+.prospecting-status.is-review_required {
+  color: #775f2d;
+  background: #fbf5e8;
+}
+
 .prospecting-status.is-failed,
 .prospecting-status.is-unknown {
   color: #8b3838;
@@ -531,6 +632,116 @@
   gap: 6px;
   color: var(--color-text-muted);
   font-size: 10px;
+}
+
+.prospecting-queue-item.needs-contact-review {
+  border-color: #eadfca;
+  background: #fffdf8;
+}
+
+.prospecting-contact-review {
+  display: grid;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid #eee3ce;
+  border-radius: 10px;
+  background: #fffaf0;
+}
+
+.prospecting-contact-review > small,
+.prospecting-contact-verified {
+  color: #725d35;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.prospecting-contact-review > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prospecting-contact-reference-card {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: #494235;
+  background: #fff;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.prospecting-contact-reference-card strong {
+  color: #29251d;
+}
+
+.prospecting-contact-reference-card a {
+  width: fit-content;
+  color: #394b8a;
+  text-decoration: underline;
+}
+
+.prospecting-contact-evidence {
+  display: grid;
+  gap: 5px;
+  color: #514733;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.prospecting-contact-evidence textarea {
+  width: 100%;
+  min-height: 58px;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid #ded5c3;
+  border-radius: 8px;
+  color: var(--color-text);
+  background: #fff;
+  font: inherit;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.prospecting-contact-evidence textarea:focus {
+  outline: 2px solid #6f815b;
+  outline-offset: 1px;
+}
+
+.prospecting-contact-identity-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: #514733;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.prospecting-contact-identity-check input {
+  flex: 0 0 auto;
+  margin: 1px 0 0;
+  accent-color: #3a694c;
+}
+
+.prospecting-contact-review .secondary-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.prospecting-contact-review .secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.prospecting-contact-verified {
+  color: #326447;
 }
 
 .prospecting-cancel {

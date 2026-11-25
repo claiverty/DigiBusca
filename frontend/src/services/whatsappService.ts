@@ -39,12 +39,17 @@ export type WhatsAppProspectingQueueItem = {
   phoneNumberId: string
   recipientPhone: string
   message: string
-  status: 'queued' | 'sending' | 'sent' | 'failed' | 'unknown' | 'cancelled'
+  status: 'review_required' | 'queued' | 'sending' | 'sent' | 'failed' | 'unknown' | 'cancelled'
+  deliveryStatus: 'unconfirmed' | 'sent' | 'failed'
   scheduledAt: string
   claimedAt?: string
   sentAt?: string
   providerMessageId?: string
   errorCode?: string
+  contactVerifiedAt?: string
+  contactVerifiedBy?: string
+  contactVerificationReference?: string
+  contactIdentityVerified?: boolean
   createdAt: string
 }
 
@@ -73,8 +78,6 @@ export type WhatsAppProspectingDashboard = {
   dailyCount: number
   queue: WhatsAppProspectingQueueItem[]
   campaign: WhatsAppDailyProspectingCampaign
-  localRuntimeEnabled: boolean
-  evolutionConfigured: boolean
   openClawProspectingDispatcherReady: boolean
 }
 
@@ -149,6 +152,9 @@ export type WhatsAppConversation = {
   phoneNumberId: string
   contactWaId: string
   contactName?: string
+  linkedLeadId?: string
+  linkedLeadName?: string
+  automationHandoffNote?: string
   lastMessageAt?: string
   lastMessagePreview?: string
   lastMessageDirection?: 'inbound' | 'outbound'
@@ -264,7 +270,7 @@ export async function getWhatsAppProspectingDashboard(): Promise<WhatsAppProspec
   return getWhatsAppData<WhatsAppProspectingDashboard>('/whatsapp/prospecting')
 }
 
-export async function runWhatsAppDailyProspectingCampaign(input: { city: string; segment?: string; phoneNumberId?: string }) {
+export async function runWhatsAppDailyProspectingCampaign(input: { city: string; segment?: string }) {
   let response: Response
   try {
     response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/prospecting/campaign`, {
@@ -275,7 +281,7 @@ export async function runWhatsAppDailyProspectingCampaign(input: { city: string;
   } catch {
     throw new Error('Não foi possível conectar ao backend para fazer a busca do dia.')
   }
-  const payload = (await response.json().catch(() => null)) as { data?: { campaign: WhatsAppDailyProspectingCampaign; searchedCount: number; savedCount: number; queuedCount: number }; error?: string } | null
+  const payload = (await response.json().catch(() => null)) as { data?: { campaign: WhatsAppDailyProspectingCampaign; searchedCount: number; savedCount: number; candidateCount: number; queuedCount: number }; error?: string } | null
   if (!response.ok || !payload?.data) throw new Error(payload?.error ?? 'Não foi possível concluir a busca do dia.')
   return payload.data
 }
@@ -309,6 +315,22 @@ export async function enqueueWhatsAppNewLead(input: { phoneNumberId: string; lea
   }
   const payload = (await response.json().catch(() => null)) as { data?: WhatsAppProspectingQueueItem; error?: string } | null
   if (!response.ok || !payload?.data) throw new Error(payload?.error ?? 'Não foi possível adicionar este lead à fila.')
+  return payload.data
+}
+
+export async function confirmWhatsAppQueueContact(queueId: string, reference: string): Promise<WhatsAppProspectingQueueItem> {
+  let response: Response
+  try {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/prospecting/queue/${encodeURIComponent(queueId)}/confirm-contact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmed: true, identityVerified: true, reference }),
+    })
+  } catch {
+    throw new Error('Não foi possível conectar ao backend para liberar este contato.')
+  }
+  const payload = (await response.json().catch(() => null)) as { data?: WhatsAppProspectingQueueItem; error?: string } | null
+  if (!response.ok || !payload?.data) throw new Error(payload?.error ?? 'Não foi possível liberar este contato.')
   return payload.data
 }
 

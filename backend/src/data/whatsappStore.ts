@@ -14,6 +14,8 @@ type ConversationRow = {
   phone_number_id: string
   contact_wa_id: string
   contact_name: string | null
+  linked_lead_id?: string | null
+  automation_handoff_note?: string | null
   last_message_at: string | null
   last_message_preview: string | null
   last_message_direction: 'inbound' | 'outbound' | null
@@ -232,7 +234,7 @@ export class WhatsAppStore {
       admin.from('whatsapp_prospecting_queue')
         .select('id')
         .eq('phone_number_id', phoneNumberId)
-        .in('status', ['queued', 'sending'])
+        .in('status', ['review_required', 'queued', 'sending'])
         .limit(1),
     ])
     throwIfError(existing.error, 'Não foi possível verificar a conexão WhatsApp existente.')
@@ -304,11 +306,14 @@ export class WhatsAppStore {
   async isOpenClawStorageReady() {
     try {
       const admin = createWhatsAppWebhookSupabaseClient()
-      const [connection, runs] = await Promise.all([
+      const [connection, runs, conversation, queue, interaction] = await Promise.all([
         admin.from('whatsapp_phone_number_connections').select('platform_type').limit(0),
         admin.from('whatsapp_automation_runs').select('openclaw_run_id').limit(0),
+        admin.from('whatsapp_conversations').select('linked_lead_id, automation_handoff_note').limit(0),
+        admin.from('whatsapp_prospecting_queue').select('contact_verified_at, contact_verification_reference, contact_identity_verified, delivery_status').limit(0),
+        admin.from('lead_interactions').select('whatsapp_message_id').limit(0),
       ])
-      return !connection.error && !runs.error
+      return [connection, runs, conversation, queue, interaction].every((result) => !result.error)
     } catch {
       return false
     }
@@ -392,10 +397,14 @@ export class WhatsAppStore {
     return result.data?.length ?? 0
   }
 
-  async setConversationAutomationPaused(userId: string, conversationId: string, paused: boolean, reason = 'manual') {
+  async setConversationAutomationPaused(userId: string, conversationId: string, paused: boolean, reason = 'manual', handoffNote?: string) {
     const admin = createWhatsAppWebhookSupabaseClient()
     let query = admin.from('whatsapp_conversations')
-      .update({ automation_paused: paused, automation_pause_reason: paused ? reason : null })
+      .update({
+        automation_paused: paused,
+        automation_pause_reason: paused ? reason : null,
+        automation_handoff_note: paused && reason === 'handoff' ? handoffNote?.trim().slice(0, 120) || null : null,
+      })
       .eq('id', conversationId).eq('user_id', userId)
     if (!paused) query = query.eq('automation_opted_out', false)
     const result = await query
@@ -514,7 +523,7 @@ export class WhatsAppStore {
       .update({ status: 'cancelled', error_code: 'contact_opted_out', updated_at: now })
       .eq('user_id', userId)
       .eq('recipient_phone', contactWaId)
-      .eq('status', 'queued')
+      .in('status', ['review_required', 'queued'])
     throwIfError(queueUpdate.error, 'Não foi possível cancelar os contatos ainda não enviados para este número.')
   }
 
@@ -1189,13 +1198,13 @@ export class WhatsAppStore {
       const contactWaIds = conversationInputs.map((item) => item.contact_wa_id)
       const conversationResult = await admin
         .from('whatsapp_conversations')
-        .select('id, user_id, phone_number_id, contact_wa_id')
+        .select('id, user_id, phone_number_id, contact_wa_id, linked_lead_id')
         .eq('user_id', connection.user_id)
         .eq('phone_number_id', phoneNumberId)
         .in('contact_wa_id', contactWaIds)
       throwIfError(conversationResult.error, 'Não foi possível preparar as conversas do webhook.')
       const conversations = new Map(
-        (conversationResult.data as Pick<ConversationRow, 'id' | 'user_id' | 'phone_number_id' | 'contact_wa_id'>[])
+        (conversationResult.data as Pick<ConversationRow, 'id' | 'user_id' | 'phone_number_id' | 'contact_wa_id' | 'linked_lead_id'>[])
           .map((row) => [row.contact_wa_id, row]),
       )
 
@@ -1252,6 +1261,20 @@ export class WhatsAppStore {
         throwIfError(messageResult.error, 'Não foi possível atualizar as mensagens do webhook.')
       }
 
+      const respondedLeadIds = [...new Set(messages.flatMap((event) => {
+        if (event.direction !== 'inbound') return []
+        const linkedLeadId = conversations.get(event.contactWaId)?.linked_lead_id
+        return linkedLeadId ? [linkedLeadId] : []
+      }))]
+      if (respondedLeadIds.length > 0) {
+        const leadStatusResult = await admin.from('saved_leads')
+          .update({ status: 'Respondeu', updated_at: new Date().toISOString() })
+          .eq('user_id', connection.user_id)
+          .in('lead_id', respondedLeadIds)
+          .eq('status', 'Contatado')
+        throwIfError(leadStatusResult.error, 'Não foi possível avançar os leads que responderam no funil.')
+      }
+
       const statusRows = statuses.flatMap((event) => {
         const conversation = conversations.get(event.recipientWaId)
         if (!conversation) return []
@@ -1283,10 +1306,14 @@ export class WhatsAppStore {
         }
       }
       for (const event of latestQueueStatuses.values()) {
+        // OpenClaw's public message_sent hook confirms send success or failure,
+        // not WhatsApp recipient delivery/read receipts.
+        if (event.status !== 'sent' && event.status !== 'failed') continue
         const failed = event.status === 'failed'
         const queueUpdate = await admin.from('whatsapp_prospecting_queue')
           .update({
             status: failed ? 'failed' : 'sent',
+            delivery_status: event.status,
             ...(failed ? {} : { sent_at: event.occurredAt }),
             error_code: failed ? 'provider_delivery_failed' : null,
             updated_at: new Date().toISOString(),
@@ -1396,7 +1423,7 @@ export class WhatsAppStore {
   async listConversations(accessToken: string, userId: string, options: WhatsAppPageOptions) {
     let query = this.userClient(accessToken)
       .from('whatsapp_conversations')
-      .select('id, user_id, phone_number_id, contact_wa_id, contact_name, last_message_at, last_message_preview, last_message_direction, automation_paused, automation_opted_out, automation_pause_reason, created_at, updated_at')
+      .select('id, user_id, phone_number_id, contact_wa_id, contact_name, linked_lead_id, automation_handoff_note, last_message_at, last_message_preview, last_message_direction, automation_paused, automation_opted_out, automation_pause_reason, created_at, updated_at')
       .eq('user_id', userId)
       .not('last_message_at', 'is', null)
       .order('last_message_at', { ascending: false, nullsFirst: false })
@@ -1407,12 +1434,16 @@ export class WhatsAppStore {
     const result = await query
     throwIfError(result.error)
     const page = latestPage(result.data as ConversationRow[], options.limit, (row) => row.last_message_at!)
+    const linkedLeadNames = await this.getLinkedLeadNames(accessToken, userId, page.data)
     return {
       data: page.data.map((row) => ({
         id: row.id,
         phoneNumberId: row.phone_number_id,
         contactWaId: row.contact_wa_id,
         contactName: row.contact_name ?? undefined,
+        linkedLeadId: row.linked_lead_id ?? undefined,
+        linkedLeadName: row.linked_lead_id ? linkedLeadNames.get(row.linked_lead_id) : undefined,
+        automationHandoffNote: row.automation_handoff_note ?? undefined,
         lastMessageAt: row.last_message_at ?? undefined,
         lastMessagePreview: row.last_message_preview ?? undefined,
         lastMessageDirection: row.last_message_direction ?? undefined,
@@ -1439,7 +1470,7 @@ export class WhatsAppStore {
   async listHumanPendingConversations(accessToken: string, userId: string) {
     const result = await this.userClient(accessToken)
       .from('whatsapp_conversations')
-      .select('id, user_id, phone_number_id, contact_wa_id, contact_name, last_message_at, last_message_preview, last_message_direction, automation_paused, automation_opted_out, automation_pause_reason, created_at, updated_at')
+      .select('id, user_id, phone_number_id, contact_wa_id, contact_name, linked_lead_id, automation_handoff_note, last_message_at, last_message_preview, last_message_direction, automation_paused, automation_opted_out, automation_pause_reason, created_at, updated_at')
       .eq('user_id', userId)
       .in('automation_pause_reason', ['handoff', 'handoff_send_failed'])
       .not('last_message_at', 'is', null)
@@ -1447,11 +1478,16 @@ export class WhatsAppStore {
       .order('id', { ascending: false })
       .limit(1000)
     throwIfError(result.error, 'Não foi possível carregar os atendimentos humanos pendentes.')
-    return ((result.data ?? []) as ConversationRow[]).map((row) => ({
+    const rows = (result.data ?? []) as ConversationRow[]
+    const linkedLeadNames = await this.getLinkedLeadNames(accessToken, userId, rows)
+    return rows.map((row) => ({
       id: row.id,
       phoneNumberId: row.phone_number_id,
       contactWaId: row.contact_wa_id,
       contactName: row.contact_name ?? undefined,
+      linkedLeadId: row.linked_lead_id ?? undefined,
+      linkedLeadName: row.linked_lead_id ? linkedLeadNames.get(row.linked_lead_id) : undefined,
+      automationHandoffNote: row.automation_handoff_note ?? undefined,
       lastMessageAt: row.last_message_at ?? undefined,
       lastMessagePreview: row.last_message_preview ?? undefined,
       lastMessageDirection: row.last_message_direction ?? undefined,
@@ -1461,6 +1497,21 @@ export class WhatsAppStore {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }))
+  }
+
+  private async getLinkedLeadNames(accessToken: string, userId: string, conversations: ConversationRow[]) {
+    const leadIds = [...new Set(conversations.flatMap((row) => row.linked_lead_id ? [row.linked_lead_id] : []))]
+    if (leadIds.length === 0) return new Map<string, string>()
+    const result = await this.userClient(accessToken).from('saved_leads')
+      .select('lead_id, lead_data')
+      .eq('user_id', userId)
+      .in('lead_id', leadIds)
+    throwIfError(result.error, 'Não foi possível carregar os leads vinculados às conversas.')
+    return new Map(((result.data ?? []) as Array<{ lead_id: string; lead_data: unknown }>).flatMap((row) => (
+      isRecord(row.lead_data) && typeof row.lead_data.name === 'string'
+        ? [[row.lead_id, row.lead_data.name] as const]
+        : []
+    )))
   }
 
   async listConversationMessages(

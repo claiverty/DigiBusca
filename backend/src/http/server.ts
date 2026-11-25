@@ -6,7 +6,7 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { leadStatuses, opportunityTypes, parseBulkLeadDeleteInput, parseBulkLeadStatusUpdateInput, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, buildWhatsAppAgentProviderConfig, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getOpenClawBridgeConfig, getOpenClawGatewayHookConfig, getOpenClawMcpConfig, getWhatsAppAgentProviderConfig, getWhatsAppAgentProvidersStatus, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isOpenClawGatewayReady, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppEvolutionIntegrationEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppOpenClawRuntimeEnabled, isWhatsAppOpenClawProspectingRuntimeEnabled, isWhatsAppProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured, openClawBridgeAuthorizationMatches, openClawMcpAuthorizationMatches } from '../config/supabase.js'
+import { authenticateRequest, buildWhatsAppAgentProviderConfig, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getOpenClawBridgeConfig, getOpenClawGatewayHookConfig, getOpenClawMcpConfig, getWhatsAppAgentProviderConfig, getWhatsAppAgentProvidersStatus, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isOpenClawGatewayReady, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppEvolutionIntegrationEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppOpenClawRuntimeEnabled, isWhatsAppOpenClawProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured, openClawBridgeAuthorizationMatches, openClawMcpAuthorizationMatches } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
@@ -18,11 +18,7 @@ import { checkSiteHealth } from '../integrations/siteHealth.js'
 import { buildOpenBotOutreachPrompt, OpenBotOutreachResponseError, validateOpenBotOutreachAnswer } from '../application/generateOpenBotOutreach.js'
 import { getOpenBotDelivery, listOpenBotAgents, OpenBotAutomationError, sendOpenBotAgentMessage } from '../integrations/openbotAutomationApi.js'
 import { getOpenBotWhatsAppAgentStatus, OpenBotWhatsAppBridgeError } from '../integrations/openBotWhatsAppBridge.js'
-import { getWhatsAppConnections, getEvolutionPairingStatus, startEvolutionConnection } from '../application/evolutionConnections.js'
-import { persistEvolutionWebhook } from '../application/evolutionWebhook.js'
-import { processWhatsAppAutomation } from '../application/processWhatsAppAutomation.js'
-import { evolutionWebhookSecretMatches, EvolutionApiError } from '../integrations/evolutionApi.js'
-import { whatsappWebhookMaxBodyBytes, WhatsAppWebhookBodyTooLargeError } from '../application/whatsappWebhook.js'
+import { getWhatsAppConnections } from '../application/evolutionConnections.js'
 import { isUuid, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
 import { parseWhatsAppAutomationProfileInput, whatsappAgentProviders } from '../contracts/whatsappAutomation.js'
 import { WhatsAppStore } from '../data/whatsappStore.js'
@@ -231,38 +227,6 @@ function readLimitedJsonBody(request: IncomingMessage, maxBytes: number): Promis
     request.on('error', (error) => {
       if (!tooLarge) reject(error)
     })
-  })
-}
-
-function readRawWebhookBody(request: IncomingMessage): Promise<Uint8Array> {
-  const contentLength = request.headers['content-length']
-  if (typeof contentLength === 'string' && /^\d+$/.test(contentLength) && Number(contentLength) > whatsappWebhookMaxBodyBytes) {
-    request.resume()
-    return Promise.reject(new WhatsAppWebhookBodyTooLargeError())
-  }
-
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    let totalBytes = 0
-    let tooLarge = false
-    request.on('data', (chunk: Buffer | string) => {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-      totalBytes += buffer.byteLength
-      if (totalBytes > whatsappWebhookMaxBodyBytes) {
-        tooLarge = true
-        chunks.length = 0
-        return
-      }
-      if (!tooLarge) chunks.push(buffer)
-    })
-    request.on('end', () => {
-      if (tooLarge) {
-        reject(new WhatsAppWebhookBodyTooLargeError())
-        return
-      }
-      resolve(new Uint8Array(Buffer.concat(chunks, totalBytes)))
-    })
-    request.on('error', reject)
   })
 }
 
@@ -534,49 +498,12 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 
   if (requestUrl.pathname === '/api/webhooks/whatsapp') {
-    sendJson(response, 410, { error: 'Este endpoint legado foi desativado. Use o webhook local da Evolution API.' })
+    sendJson(response, 410, { error: 'Este webhook legado foi desativado. O atendimento e a prospecção usam o OpenClaw.' })
     return
   }
 
   if (requestUrl.pathname === '/api/webhooks/evolution') {
-    if (!isWhatsAppEvolutionIntegrationEnabled()) {
-      sendJson(response, 410, { error: 'A integração da Evolution está desativada. O WhatsApp é operado pelo OpenClaw.' })
-      return
-    }
-    if (request.method !== 'POST') {
-      sendJson(response, 405, { error: 'Este webhook aceita somente POST.' })
-      return
-    }
-    const suppliedSecret = request.headers['x-digibot-webhook-secret']
-    if (!evolutionWebhookSecretMatches(typeof suppliedSecret === 'string' ? suppliedSecret : undefined)) {
-      sendJson(response, 401, { error: 'A chave do webhook Evolution é inválida.' })
-      return
-    }
-    let body: unknown
-    try {
-      const rawBody = await readRawWebhookBody(request)
-      body = JSON.parse(new TextDecoder().decode(rawBody)) as unknown
-    } catch (error) {
-      if (error instanceof WhatsAppWebhookBodyTooLargeError) {
-        sendJson(response, 413, { error: error.message })
-        return
-      }
-      sendJson(response, 400, { error: 'O webhook Evolution enviou um JSON inválido.' })
-      return
-    }
-    try {
-      const persistedWebhook = await persistEvolutionWebhook(body)
-      sendJson(response, 200, { received: true })
-      if (persistedWebhook?.shouldProcessInboundNow) {
-        setImmediate(() => {
-          void processWhatsAppAutomation(persistedWebhook.events, { stopRequestsAlreadyPersisted: true }).catch(() => {
-            logWarning('whatsapp_webhook_followup_failed', { reason: 'inbound_processing_unavailable' })
-          })
-        })
-      }
-    } catch {
-      sendJson(response, 503, { error: 'Não foi possível persistir o evento Evolution no Supabase.' })
-    }
+    sendJson(response, 410, { error: 'A Evolution não é usada neste fluxo. Conecte o WhatsApp pelo OpenClaw para receber e enviar mensagens.' })
     return
   }
 
@@ -683,13 +610,11 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
           dailyCount,
           queue,
           campaign,
-          localRuntimeEnabled: isWhatsAppProspectingRuntimeEnabled(),
-          evolutionConfigured: Boolean(getEvolutionApiConfig()),
           openClawProspectingDispatcherReady: isWhatsAppOpenClawProspectingRuntimeEnabled() && openClawStorageReady && openClawGatewayReady && openClawConnectionPlatform === 'OPENCLAW_WEB',
         },
       })
     } catch {
-      sendJson(response, 503, { error: 'Aplique as migrations 013, 020 e 022 do WhatsApp no Supabase para habilitar a fila, o chat diário e a integração OpenClaw.' })
+      sendJson(response, 503, { error: 'Aplique as migrations 013, 020, 022 e 024 do WhatsApp no Supabase para habilitar a fila, o chat diário, a integração OpenClaw e a conferência de contatos.' })
     }
     return
   }
@@ -704,8 +629,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
     if (
       !isRecord(body) || typeof body.city !== 'string' || body.city.trim().length < 2 || body.city.trim().length > 120 ||
-      (body.segment !== undefined && (typeof body.segment !== 'string' || body.segment.trim().length > 120)) ||
-      (body.phoneNumberId !== undefined && (typeof body.phoneNumberId !== 'string' || !/^[-_a-zA-Z0-9]{1,128}$/.test(body.phoneNumberId)))
+      (body.segment !== undefined && (typeof body.segment !== 'string' || body.segment.trim().length > 120))
     ) {
       sendJson(response, 400, { error: 'Informe uma cidade válida e, se quiser, um segmento de até 120 caracteres.' })
       return
@@ -717,7 +641,6 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
     const city = body.city.trim()
     const segment = typeof body.segment === 'string' && body.segment.trim() ? body.segment.trim() : 'Todos os segmentos'
-    const phoneNumberId = typeof body.phoneNumberId === 'string' ? body.phoneNumberId : undefined
     const prospectingStore = new WhatsAppProspectingStore()
     let campaign
     try {
@@ -731,44 +654,12 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       return
     }
 
-    let connections: Awaited<ReturnType<typeof getWhatsAppConnections>> = []
-    if (phoneNumberId) {
-      try {
-        connections = await getWhatsAppConnections(user.id)
-      } catch {
-        connections = []
-      }
-    }
-    const openClawConfig = getOpenClawMcpConfig()
-    const selectedConnection = connections.find((connection) => (
-      connection.phoneNumberId === phoneNumberId && (
-        connection.connectionState?.toLowerCase() === 'open' ||
-        (connection.platformType === 'OPENCLAW_WEB' && connection.connectionState?.toLowerCase() === 'registered' && connection.phoneNumberId === openClawConfig?.phoneNumberId)
-      )
-    ))
-    const selectedConnectionPlatformType = selectedConnection?.platformType === 'EVOLUTION_API' || selectedConnection?.platformType === 'OPENCLAW_WEB'
-      ? selectedConnection.platformType
-      : undefined
-    let queueSendingAvailable = Boolean(
-      phoneNumberId && selectedConnection?.platformType === 'EVOLUTION_API' &&
-      isWhatsAppProspectingRuntimeEnabled() && getEvolutionApiConfig(),
-    )
-    if (phoneNumberId && selectedConnection?.platformType === 'OPENCLAW_WEB') {
-      const bridgeReady = Boolean(openClawConfig && openClawConfig.ownerUserId === user.id && getOpenClawBridgeConfig())
-      const storageReady = await new WhatsAppStore().isOpenClawStorageReady().catch(() => false)
-      const hookReady = Boolean(getOpenClawGatewayHookConfig())
-      const gatewayReady = await isOpenClawGatewayReady()
-      queueSendingAvailable = Boolean(isWhatsAppOpenClawProspectingRuntimeEnabled() && bridgeReady && storageReady && hookReady && gatewayReady)
-    }
     try {
       const result = await runWhatsAppDailyProspectingCampaign({
         userId: user.id,
         accessToken,
         city,
         segment,
-        ...(phoneNumberId ? { phoneNumberId } : {}),
-        ...(selectedConnectionPlatformType ? { queuePlatformType: selectedConnectionPlatformType } : {}),
-        queueSendingAvailable,
         campaign,
         provider: new GooglePlacesProvider(
           undefined,
@@ -778,13 +669,6 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         prospectingStore,
       })
       sendJson(response, 200, { data: result })
-      if (result.queuedCount > 0) {
-        setImmediate(() => {
-          void runLocalWhatsAppProspectingTick().catch(() => {
-            logWarning('whatsapp_campaign_dispatch_failed', { reason: 'queue_dispatch_unavailable' })
-          })
-        })
-      }
     } catch (error) {
       sendJson(response, isGoogleApiMonthlyLimitError(error) ? 429 : 503, {
         error: error instanceof Error ? error.message : 'Não foi possível concluir a busca de hoje.',
@@ -817,8 +701,6 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         sendJson(response, 503, { error: 'Não foi possível verificar as conexões do WhatsApp.' })
         return
       }
-      const evolutionReady = isWhatsAppProspectingRuntimeEnabled() && Boolean(getEvolutionApiConfig()) &&
-        connections.some((connection) => connection.platformType === 'EVOLUTION_API' && connection.connectionState?.toLowerCase() === 'open')
       const openClawConfig = getOpenClawMcpConfig()
       const openClawStorageReady = openClawConfig?.ownerUserId === user.id
         ? await new WhatsAppStore().isOpenClawStorageReady().catch(() => false)
@@ -827,8 +709,8 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       const openClawReady = isWhatsAppOpenClawProspectingRuntimeEnabled() &&
         openClawConfig?.ownerUserId === user.id && openClawStorageReady && openClawGatewayReady &&
         connections.some((connection) => connection.phoneNumberId === openClawConfig.phoneNumberId && connection.platformType === 'OPENCLAW_WEB' && connection.connectionState?.toLowerCase() === 'registered')
-      if (!evolutionReady && !openClawReady) {
-        sendJson(response, 503, { error: 'Para ativar a fila, conecte a Evolution com runtime ativo ou configure o Cristhian OpenClaw, o webhook privado e o pareamento registrado.' })
+      if (!openClawReady) {
+        sendJson(response, 503, { error: 'Para ativar a prospecção, configure o Cristhian OpenClaw, o webhook privado e o pareamento registrado. A fila envia somente pelo WhatsApp Web do OpenClaw.' })
         return
       }
     }
@@ -863,37 +745,25 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     }
     try {
       const prospectingStore = new WhatsAppProspectingStore()
-      const settings = await prospectingStore.getSettings(user.id)
-      if (!settings.enabled) {
-        sendJson(response, 409, { error: 'Ative a fila automática antes de adicionar contatos para envio.' })
-        return
-      }
       const platformType = await new WhatsAppStore().getConnectionPlatformType(user.id, body.phoneNumberId)
-      if (platformType !== 'EVOLUTION_API' && platformType !== 'OPENCLAW_WEB') {
-        sendJson(response, 409, { error: 'O número selecionado não tem um transporte WhatsApp registrado.' })
+      if (platformType !== 'OPENCLAW_WEB') {
+        sendJson(response, 409, { error: 'A prospecção envia somente pelo WhatsApp Web pareado ao OpenClaw. Selecione a conexão Cristhian/OpenClaw.' })
         return
       }
-      if (platformType === 'EVOLUTION_API' && (!isWhatsAppProspectingRuntimeEnabled() || !getEvolutionApiConfig())) {
-        sendJson(response, 503, { error: 'O runtime de prospecção da Evolution não está configurado.' })
+      const config = getOpenClawMcpConfig()
+      const storageReady = config?.ownerUserId === user.id
+        ? await new WhatsAppStore().isOpenClawStorageReady().catch(() => false)
+        : false
+      const gatewayReady = await isOpenClawGatewayReady()
+      if (!isWhatsAppOpenClawProspectingRuntimeEnabled() || config?.ownerUserId !== user.id || config.phoneNumberId !== body.phoneNumberId || !storageReady || !gatewayReady) {
+        sendJson(response, 503, { error: 'O dispatcher OpenClaw ainda não está pronto para esse número. Confira o Gateway, o webhook privado, o registro do pareamento e as migrations 022 e 024.' })
         return
-      }
-      if (platformType === 'OPENCLAW_WEB') {
-        const config = getOpenClawMcpConfig()
-        const storageReady = config?.ownerUserId === user.id
-          ? await new WhatsAppStore().isOpenClawStorageReady().catch(() => false)
-          : false
-        const gatewayReady = await isOpenClawGatewayReady()
-        if (!isWhatsAppOpenClawProspectingRuntimeEnabled() || config?.ownerUserId !== user.id || config.phoneNumberId !== body.phoneNumberId || !storageReady || !gatewayReady) {
-          sendJson(response, 503, { error: 'O dispatcher OpenClaw ainda não está pronto para esse número. Confira o Gateway, o webhook privado, o registro do pareamento e a migration 022.' })
-          return
-        }
       }
       const data = await prospectingStore.enqueueNewLead(
         user.id,
         body.phoneNumberId,
         body.leadId.trim(),
         typeof body.message === 'string' ? body.message : undefined,
-        platformType,
       )
       sendJson(response, 201, { data })
       setImmediate(() => {
@@ -907,6 +777,38 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         return
       }
       sendJson(response, 503, { error: 'Não foi possível adicionar este lead à fila de prospecção.' })
+    }
+    return
+  }
+
+  const prospectingContactReviewMatch = requestUrl.pathname.match(/^\/api\/whatsapp\/prospecting\/queue\/([^/]+)\/confirm-contact$/)
+  if (request.method === 'POST' && prospectingContactReviewMatch) {
+    const queueId = prospectingContactReviewMatch[1]
+    let body: unknown
+    try {
+      body = await readJsonBody(request)
+    } catch {
+      sendJson(response, 400, { error: 'Confirme que verificou o nome e o número no WhatsApp Web.' })
+      return
+    }
+    if (!isUuid(queueId) || !isRecord(body) || body.confirmed !== true || body.identityVerified !== true || typeof body.reference !== 'string') {
+      sendJson(response, 400, { error: 'Confirme um sinal de identidade além do número e informe a referência usada para vincular o WhatsApp ao negócio.' })
+      return
+    }
+    try {
+      const item = await new WhatsAppProspectingStore().verifyQueuedContact(user.id, queueId, body.reference, body.identityVerified)
+      sendJson(response, 200, { data: item })
+      setImmediate(() => {
+        void runLocalWhatsAppProspectingTick().catch(() => {
+          logWarning('whatsapp_contact_review_dispatch_failed', { reason: 'queue_dispatch_unavailable' })
+        })
+      })
+    } catch (error) {
+      if (error instanceof WhatsAppProspectingError) {
+        sendJson(response, error.status, { error: error.message })
+        return
+      }
+      sendJson(response, 503, { error: 'Não foi possível registrar a conferência deste contato.' })
     }
     return
   }
@@ -938,27 +840,12 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 
   if (request.method === 'GET' && requestUrl.pathname === '/api/whatsapp/connections/evolution/qr') {
-    response.setHeader('Cache-Control', 'no-store')
-    try {
-      sendJson(response, 200, { data: await getEvolutionPairingStatus(user.id) })
-    } catch {
-      sendJson(response, 503, { error: 'Não foi possível atualizar o QR Code. Gere um novo código.' })
-    }
+    sendJson(response, 410, { error: 'O pareamento Evolution está desativado. Use a conexão do OpenClaw.' })
     return
   }
 
   if (request.method === 'POST' && requestUrl.pathname === '/api/whatsapp/connections/evolution') {
-    try {
-      const data = await startEvolutionConnection(user.id)
-      response.setHeader('Cache-Control', 'no-store')
-      sendJson(response, 201, { data })
-    } catch (error) {
-      response.setHeader('Cache-Control', 'no-store')
-      const statusCode = error instanceof EvolutionApiError
-        ? error.status
-        : error instanceof Error && error.message.includes('já está associado') ? 409 : 503
-      sendJson(response, statusCode, { error: error instanceof Error ? error.message : 'Não foi possível conectar a Evolution API.' })
-    }
+    sendJson(response, 410, { error: 'O pareamento Evolution está desativado. Use a conexão do OpenClaw.' })
     return
   }
 
@@ -1235,7 +1122,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         !isWhatsAppOpenClawRuntimeEnabled() || !config || config.ownerUserId !== user.id ||
         config.phoneNumberId !== input.phoneNumberId || connectionPlatform !== 'OPENCLAW_WEB' || !openClawStorageReady || !openClawGatewayReady
       ) {
-        sendJson(response, 503, { error: 'O Cristhian do OpenClaw ainda não está pronto. Confira o Gateway, o MCP privado, a ponte de mensagens, a migration 022 e se este número já foi pareado e marcado como OPENCLAW_WEB.' })
+        sendJson(response, 503, { error: 'O Cristhian do OpenClaw ainda não está pronto. Confira o Gateway, o MCP privado, a ponte de mensagens, as migrations 022 e 024 e se este número já foi pareado e marcado como OPENCLAW_WEB.' })
         return
       }
     }
@@ -1357,7 +1244,22 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       agentProviderSources = { google: 'unavailable', anthropic: 'unavailable', openaiCompatible: 'unavailable' }
       }
     }
-    sendJson(response, 200, { data: { ...getWhatsAppEvolutionSetupStatus(), agentProviders, agentProviderSources, connectionStorageReady, automationStorageReady, openClawStorageReady, openClawGatewayReady, digiBuscaAgentStorageReady } })
+    sendJson(response, 200, { data: {
+      ...getWhatsAppEvolutionSetupStatus(),
+      evolutionIntegrationEnabled: false,
+      evolutionConfigured: false,
+      webhookConfigured: false,
+      prospectingRuntimeEnabled: false,
+      automationRuntimeEnabled: false,
+      openBotReplyRuntimeEnabled: false,
+      agentProviders,
+      agentProviderSources,
+      connectionStorageReady,
+      automationStorageReady,
+      openClawStorageReady,
+      openClawGatewayReady,
+      digiBuscaAgentStorageReady,
+    } })
     return
   }
 

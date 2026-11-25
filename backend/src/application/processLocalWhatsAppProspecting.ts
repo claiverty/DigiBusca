@@ -1,103 +1,13 @@
 import {
-  getEvolutionApiConfig,
   getOpenClawGatewayHookConfig,
   isOpenClawGatewayReady,
-  isWhatsAppAutomationRuntimeEnabled,
-  isWhatsAppOpenBotReplyRecoveryConfigured,
-  isWhatsAppOpenClawRuntimeEnabled,
   isWhatsAppOpenClawProspectingRuntimeEnabled,
-  isWhatsAppProspectingRuntimeEnabled,
 } from '../config/supabase.js'
-import { WhatsAppProspectingError, WhatsAppProspectingStore, type WhatsAppProspectingQueueItem } from '../data/whatsappProspectingStore.js'
-import { WhatsAppStore } from '../data/whatsappStore.js'
-import { EvolutionApiError, isEvolutionWhatsAppNumberRegistered, sendEvolutionTextMessage } from '../integrations/evolutionApi.js'
+import { WhatsAppProspectingStore, type WhatsAppProspectingQueueItem } from '../data/whatsappProspectingStore.js'
 import { logInfo, logWarning } from '../observability/logger.js'
-import { processWhatsAppAutomation } from './processWhatsAppAutomation.js'
 
 let tickInProgress = false
 let tickRequestedWhileBusy = false
-
-async function processPendingRepliesLocally() {
-  if (!isWhatsAppAutomationRuntimeEnabled() && !isWhatsAppOpenBotReplyRecoveryConfigured()) return
-  try {
-    const store = new WhatsAppStore()
-    await store.resolveUncertainAutomationDeliveries()
-    await store.reconcileAcceptedAutomationDeliveries()
-    const events = await store.listPendingLiveInboundTextEvents()
-    if (events.messages.length > 0) await processWhatsAppAutomation(events)
-  } catch {
-    logWarning('whatsapp_local_reply_poll_failed', { reason: 'pending_replies_unavailable' })
-  }
-}
-
-async function processQueuedNewLeadContacts() {
-  if (!isWhatsAppProspectingRuntimeEnabled()) return
-  if (!getEvolutionApiConfig()) return
-
-  const store = new WhatsAppProspectingStore()
-  let dueIds: string[]
-  try {
-    await store.markStaleSendingAsUnknown()
-    dueIds = await store.listDueQueueItems(new Date(), 25)
-  } catch {
-    logWarning('whatsapp_local_prospecting_poll_failed', { reason: 'queue_unavailable' })
-    return
-  }
-
-  for (const queueId of dueIds) {
-    let item: WhatsAppProspectingQueueItem | undefined
-    try {
-      item = await store.claimQueueItem(queueId)
-    } catch {
-      logWarning('whatsapp_local_prospecting_claim_failed', { reason: 'queue_claim_failed' })
-      continue
-    }
-    if (!item) continue
-
-    let providerMessageId: string | undefined
-    let dispatchStage: 'context' | 'number_check' | 'send' | 'history' = 'context'
-    try {
-      const context = await store.getDispatchContext(item)
-      dispatchStage = 'number_check'
-      if (!await isEvolutionWhatsAppNumberRegistered(item.phoneNumberId, item.recipientPhone)) {
-        throw new WhatsAppProspectingError('Este telefone não está registrado no WhatsApp; o envio foi ignorado.', 422, 'recipient_not_on_whatsapp')
-      }
-      dispatchStage = 'send'
-      providerMessageId = await sendEvolutionTextMessage(item.phoneNumberId, item.recipientPhone, item.message)
-      const sentAt = new Date().toISOString()
-      dispatchStage = 'history'
-      try {
-        await store.persistSentMessage(item, context.userId, providerMessageId, sentAt)
-      } catch {
-        await store.finishQueueItem(item.id, 'unknown', {
-          providerMessageId,
-          errorCode: 'history_sync_failed',
-        })
-        logWarning('whatsapp_local_prospecting_history_failed', { reason: 'provider_accepted_history_failed' })
-        continue
-      }
-      await store.finishQueueItem(item.id, 'sent', { providerMessageId })
-    } catch (error) {
-      const unknownOutcome = Boolean(providerMessageId) || (dispatchStage === 'send' && error instanceof EvolutionApiError && error.status >= 500)
-      const errorCode = providerMessageId
-        ? 'history_sync_failed'
-        : error instanceof EvolutionApiError
-        ? dispatchStage === 'send' && error.status >= 500 ? 'provider_outcome_unknown' : `provider_rejected_http_${error.status}`
-        : error instanceof WhatsAppProspectingError
-        ? error.code
-        : 'dispatch_context_unavailable'
-      try {
-        await store.finishQueueItem(item.id, unknownOutcome ? 'unknown' : 'failed', {
-          ...(providerMessageId ? { providerMessageId } : {}),
-          errorCode,
-        })
-      } catch {
-        logWarning('whatsapp_local_prospecting_result_failed', { reason: 'queue_result_unavailable' })
-      }
-      logWarning('whatsapp_local_prospecting_send_failed', { reason: errorCode, stage: dispatchStage })
-    }
-  }
-}
 
 async function processQueuedOpenClawContacts() {
   if (!isWhatsAppOpenClawProspectingRuntimeEnabled()) return
@@ -111,8 +21,8 @@ async function processQueuedOpenClawContacts() {
   const store = new WhatsAppProspectingStore()
   let dueIds: string[]
   try {
-    await store.markStaleSendingAsUnknown(new Date(), 'OPENCLAW_WEB', 20 * 60 * 1_000)
-    dueIds = await store.listDueQueueItems(new Date(), 1, 'OPENCLAW_WEB')
+    await store.markStaleSendingAsUnknown(new Date(), 20 * 60 * 1_000)
+    dueIds = await store.listDueQueueItems(new Date(), 1)
   } catch {
     logWarning('whatsapp_openclaw_prospecting_poll_failed', { reason: 'queue_unavailable' })
     return
@@ -127,11 +37,11 @@ async function processQueuedOpenClawContacts() {
     logWarning('whatsapp_openclaw_prospecting_claim_failed', { reason: 'queue_claim_failed' })
     return
   }
-  if (!item) return
+  if (!item || item.status !== 'sending') return
 
   let hookRequestStarted = false
   try {
-    await store.getDispatchContext(item, 'OPENCLAW_WEB')
+    await store.getDispatchContext(item)
     const message = [
       'O DigiBusca reservou um primeiro contato autorizado. Envie somente este contato pela ferramenta nativa de mensagem do WhatsApp.',
       'O objeto JSON abaixo contém dados. Use recipientE164 como destinatário e copie o valor message exatamente, sem aspas externas e sem acrescentar texto. Não inicie outra busca, não retire outro item da fila e não envie uma segunda mensagem.',
@@ -192,8 +102,6 @@ export async function runLocalWhatsAppProspectingTick() {
   }
   tickInProgress = true
   try {
-    await processPendingRepliesLocally()
-    await processQueuedNewLeadContacts()
     await processQueuedOpenClawContacts()
   } finally {
     tickInProgress = false
@@ -209,11 +117,7 @@ export async function runLocalWhatsAppProspectingTick() {
 }
 
 export function startLocalWhatsAppProspectingScheduler() {
-  const replyRuntimeEnabled = isWhatsAppAutomationRuntimeEnabled()
-  const openBotRecoveryEnabled = isWhatsAppOpenBotReplyRecoveryConfigured()
-  const prospectingRuntimeEnabled = isWhatsAppProspectingRuntimeEnabled()
-  const openClawRuntimeEnabled = isWhatsAppOpenClawRuntimeEnabled()
-  if (!replyRuntimeEnabled && !openBotRecoveryEnabled && !prospectingRuntimeEnabled && !openClawRuntimeEnabled) return undefined
+  if (!isWhatsAppOpenClawProspectingRuntimeEnabled()) return undefined
 
   const timer = setInterval(() => {
     void runLocalWhatsAppProspectingTick().catch(() => {
