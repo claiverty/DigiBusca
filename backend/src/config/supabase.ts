@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { createClient, type User } from '@supabase/supabase-js'
-import type { WhatsAppAgentProvider } from '../contracts/whatsappAutomation.js'
+import type { WhatsAppAgentProvider, WhatsAppAutomationResponseMode } from '../contracts/whatsappAutomation.js'
 
 export type RuntimeEnvironment = {
   SUPABASE_URL?: string
@@ -231,6 +231,12 @@ export function isWhatsAppIntegrationEnabled() {
 
 export function isWhatsAppAutomationRuntimeEnabled() {
   return isWhatsAppIntegrationEnabled() && environment().WHATSAPP_AUTOMATION_RUNTIME_ENABLED?.trim().toLowerCase() === 'true'
+}
+
+export function isWhatsAppAutomationModeRuntimeEnabled(responseMode: WhatsAppAutomationResponseMode) {
+  return responseMode === 'openclaw'
+    ? isWhatsAppOpenClawRuntimeEnabled()
+    : isWhatsAppAutomationRuntimeEnabled()
 }
 
 export function isWhatsAppProspectingRuntimeEnabled() {

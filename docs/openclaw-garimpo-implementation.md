@@ -48,40 +48,45 @@ administração do Gateway ou ferramentas de fila.
 
 ## Publicação e validação operacional
 
-1. **Concluído em 25/11/2026:** aplicar as migrations 024, 025 e 026 no Supabase.
+1. **Concluído em 25/11/2026:** aplicar as migrations 024, 025, 026 e 027 no Supabase.
    A verificação confirmou que a rotina transacional
    `settle_openclaw_prospecting_delivery` existe como `SECURITY DEFINER`, só é
    executável por `service_role`, e rejeita chamadas sem item autorizado. As
    respostas e a prospecção continuam pausadas; não há itens `queued` ou
    `sending`.
-2. **Concluído em 25/11/2026:** a alteração funcional está no commit
+2. **Concluído em 25/11/2026:** corrigir a permissão de leitura mínima usada
+   pela checagem de prontidão do OpenClaw. A migration 027 concede ao
+   `service_role` acesso somente à coluna `lead_interactions.whatsapp_message_id`;
+   as cinco verificações PostgREST agora passam, sem liberar essa leitura aos
+   clientes autenticados nem ativar respostas ou prospecção.
+3. **Concluído em 25/11/2026:** a alteração funcional está no commit
    `f134579`; o CI publicou backend, frontend e Worker a partir dele. Build,
    segurança, 73 testes unitários e 42 testes E2E passaram; os endpoints de
    saúde do backend e Worker retornaram HTTP 200. O backend da VPS está
    saudável.
-3. **Concluído em 25/11/2026:** playbook, extensão `digibusca-sync` e allowlist
+4. **Concluído em 25/11/2026:** playbook, extensão `digibusca-sync` e allowlist
    foram sincronizados na VPS. O Gateway validou a configuração, carregou a
    extensão e conectou ao MCP; a sondagem listou as dez ferramentas permitidas
    pelo `openclaw.config.example.json5`, sem `queue_prospect`.
-4. **Concluído em 25/11/2026:** a extensão atualizada foi sincronizada na
+5. **Concluído em 25/11/2026:** a extensão atualizada foi sincronizada na
    montagem ativa do Gateway e validada com o Node 24 do contêiner. Depois do
    reinício, o Gateway voltou a `healthy`, sem reinicializações adicionais.
-5. **Concluído em 25/11/2026:** a confirmação do OpenClaw grava, numa única
+6. **Concluído em 25/11/2026:** a confirmação do OpenClaw grava, numa única
    transação, o resultado da fila, a mensagem, a conversa, a etapa do lead e a
    interação do CRM. Eventos repetidos não duplicam o histórico. Confirmações
    atrasadas podem reconciliar um resultado incerto ou uma falha correspondente
    ao mesmo ID; ausência de confirmação continua como `unknown` e não dispara
    reenvio automático. O hook tenta reenviar ao backend apenas erros de rede,
    HTTP 429 ou 5xx, com três tentativas curtas.
-6. **Pendente:** fazer uma validação controlada da revisão de identidade, do
+7. **Pendente:** fazer uma validação controlada da revisão de identidade, do
    registro no histórico, do status da fila e do lembrete CRM com um contato de
    teste indicado pelo titular. Não enviar para um lead real durante esse teste.
-7. Reativar respostas e prospecção manualmente só depois da validação; revisar
+8. Reativar respostas e prospecção manualmente só depois da validação; revisar
    o primeiro envio antes de liberar novos contatos.
 
 ## Estado atual
 
-As migrations 024/025/026 estão aplicadas; o commit `f134579`, backend,
+As migrations 024/025/026/027 estão aplicadas; o commit `f134579`, backend,
 frontend, Worker e extensão do OpenClaw estão publicados. O backend e o Gateway
 estão saudáveis, e as dez ferramentas MCP foram verificadas. Respostas e
 prospecção seguem pausadas, sem itens `queued` ou `sending`, até concluir o

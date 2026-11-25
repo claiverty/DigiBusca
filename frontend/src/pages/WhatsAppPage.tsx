@@ -583,6 +583,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     status?.openClawRuntimeEnabled && status.openClawMcpConfigured && status.openClawBridgeConfigured &&
     status.openClawStorageReady && status.openClawGatewayReady && openClawConnectionRegistered,
   )
+  const selectedAutomationRuntimeEnabled = automationForm.responseMode === 'openclaw'
+    ? status?.openClawRuntimeEnabled === true
+    : status?.automationRuntimeEnabled === true
   const connectionReady = evolutionConnectionReady || openClawRuntimeReady
   const visibleWhatsAppConnections = connections.filter((connection) => (
     connection.platformType === 'OPENCLAW_WEB' || evolutionIntegrationEnabled
@@ -1191,7 +1194,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 <SetupRow label="Gateway acessível" configured={status?.openClawGatewayReady === true} />
                 <SetupRow label="Número registrado no DigiBusca" configured={openClawConnectionRegistered} />
                 <SetupRow label="Despacho automático da fila" configured={status?.openClawProspectingDispatcherConfigured === true} />
-                <SetupRow label="Migration 022" configured={status?.openClawStorageReady === true} />
+                <SetupRow label="Banco e permissões do OpenClaw" configured={status?.openClawStorageReady === true} />
               </div>
               <button
                 className="secondary-button"
@@ -1295,10 +1298,12 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 </label>
               )}
               {visibleWhatsAppConnections.length === 0 && <p className="whatsapp-connect-state is-pending">Registre um número WhatsApp do OpenClaw antes de configurar as respostas automáticas.</p>}
-              {status?.automationStorageReady === false && (
-                <p className="whatsapp-connect-state is-pending">A estrutura de atendimento ainda não está completa no Supabase. Aplique as migrations <code>011_whatsapp_reply_automation.sql</code>, <code>014_whatsapp_automation_response_mode.sql</code>, <code>016_whatsapp_openbot_replies.sql</code> e <code>019_digibot_agent_runtime.sql</code> antes de salvar.</p>
+              {((automationForm.responseMode === 'openclaw' && status?.openClawStorageReady === false) || (automationForm.responseMode !== 'openclaw' && status?.automationStorageReady === false)) && (
+                automationForm.responseMode === 'openclaw'
+                  ? <p className="whatsapp-connect-state is-pending">A verificação do banco ou das permissões do OpenClaw falhou. Confira as migrations 022 e 024 e o acesso do serviço às colunas necessárias.</p>
+                  : <p className="whatsapp-connect-state is-pending">A estrutura de atendimento ainda não está completa no Supabase. Aplique as migrations <code>011_whatsapp_reply_automation.sql</code>, <code>014_whatsapp_automation_response_mode.sql</code>, <code>016_whatsapp_openbot_replies.sql</code> e <code>019_digibot_agent_runtime.sql</code> antes de salvar.</p>
               )}
-              {status?.automationRuntimeEnabled === false && (
+              {status?.automationRuntimeEnabled === false && automationForm.responseMode !== 'openclaw' && (
                 <p className="whatsapp-connect-state is-pending">O interruptor global do servidor está desligado. Para disponibilizar ativação, configure <code>WHATSAPP_AUTOMATION_RUNTIME_ENABLED=true</code> após aprovar canal e conteúdo.</p>
               )}
               {automationState === 'loading' && <p className="whatsapp-connect-state">Carregando configuração…</p>}
@@ -1337,7 +1342,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                         : 'O Gemini recebe o histórico recente para responder com base nos fatos aprovados. Pedidos comerciais sem condições aprovadas, pedidos de atendimento humano e assuntos sensíveis ficam pendentes para você, sem aviso de transferência ao lead.'}</small>
                   {automationForm.responseMode === 'openclaw' && (
                     <small className="whatsapp-connect-state is-pending">
-                      Estado: runtime {status?.openClawRuntimeEnabled ? 'habilitado' : 'desligado'} · MCP {status?.openClawMcpConfigured ? 'configurado' : 'pendente'} · ponte {status?.openClawBridgeConfigured ? 'configurada' : 'pendente'} · Gateway {status?.openClawGatewayReady ? 'acessível' : 'indisponível'} · banco {status?.openClawStorageReady ? 'pronto' : 'migrations 022/024 pendentes'} · pareamento {openClawConnectionRegistered ? 'registrado' : 'pendente'}.
+                      Estado: runtime {status?.openClawRuntimeEnabled ? 'habilitado' : 'desligado'} · MCP {status?.openClawMcpConfigured ? 'configurado' : 'pendente'} · ponte {status?.openClawBridgeConfigured ? 'configurada' : 'pendente'} · Gateway {status?.openClawGatewayReady ? 'acessível' : 'indisponível'} · banco {status?.openClawStorageReady ? 'pronto' : 'estrutura ou permissões pendentes'} · pareamento {openClawConnectionRegistered ? 'registrado' : 'pendente'}.
                     </small>
                   )}
                 </label>
@@ -1505,7 +1510,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <input
                     type="checkbox"
                     checked={automationForm.automationEnabled}
-                    disabled={!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawRuntimeEnabled || !status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered)) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel))}
+                    disabled={!selectedAutomationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered)) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel))}
                     onChange={(event) => setAutomationForm((current) => ({ ...current, automationEnabled: event.target.checked }))}
                   />
                   <span>Ativar respostas automáticas após salvar as aprovações.</span>
@@ -1528,7 +1533,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               {automationError && <p className="whatsapp-connect-state is-error" role="alert">{automationError}</p>}
               {automationNotice && <p className="whatsapp-connect-state is-ready" role="status">{automationNotice}</p>}
               <div className="whatsapp-automation-actions">
-                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.responseMode === 'digibot_agent' && !automationForm.agentModel) || (automationForm.automationEnabled && (!status?.automationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawRuntimeEnabled || !status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered))))}>
+                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.responseMode === 'digibot_agent' && !automationForm.agentModel) || (automationForm.automationEnabled && (!selectedAutomationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered))))}>
                   <ShieldCheck size={15} />
                   {automationBusy ? 'Salvando…' : 'Salvar regras'}
                 </button>

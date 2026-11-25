@@ -6,7 +6,7 @@ import { isGoogleApiMonthlyLimitError } from '../application/googleApiUsageLimit
 import { leadStatuses, opportunityTypes, parseBulkLeadDeleteInput, parseBulkLeadStatusUpdateInput, parseLeadSnapshot, parseWhatsAppConsentChanges, type Lead, type LeadStatus, type LeadUpdate, type OpportunityType } from '../contracts/lead.js'
 import type { CreateSaleInput, UpdateSaleInput } from '../contracts/sale.js'
 import { interactionChannels, type CreateLeadInteractionInput } from '../contracts/interaction.js'
-import { authenticateRequest, buildWhatsAppAgentProviderConfig, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getOpenClawBridgeConfig, getOpenClawGatewayHookConfig, getOpenClawMcpConfig, getWhatsAppAgentProviderConfig, getWhatsAppAgentProvidersStatus, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isOpenClawGatewayReady, isWhatsAppAutomationRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppEvolutionIntegrationEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppOpenClawRuntimeEnabled, isWhatsAppOpenClawProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured, openClawBridgeAuthorizationMatches, openClawMcpAuthorizationMatches } from '../config/supabase.js'
+import { authenticateRequest, buildWhatsAppAgentProviderConfig, configureRuntimeEnvironment, getConfiguredWhatsAppOpenBotAgentId, getEvolutionApiConfig, getGeminiApiKey, getOpenClawBridgeConfig, getOpenClawGatewayHookConfig, getOpenClawMcpConfig, getWhatsAppAgentProviderConfig, getWhatsAppAgentProvidersStatus, getWhatsAppEvolutionSetupStatus, getWhatsAppOpenBotBridgeConfig, isOpenClawGatewayReady, isWhatsAppAutomationModeRuntimeEnabled, isWhatsAppDigiBuscaAgentRuntimeEnabled, isWhatsAppEvolutionIntegrationEnabled, isWhatsAppIntegrationEnabled, isWhatsAppOpenBotReplyRuntimeEnabled, isWhatsAppOpenClawRuntimeEnabled, isWhatsAppOpenClawProspectingRuntimeEnabled, isWhatsAppWebhookPersistenceConfigured, openClawBridgeAuthorizationMatches, openClawMcpAuthorizationMatches } from '../config/supabase.js'
 import { SupabaseStore, WhatsAppConsentSchemaMissingError } from '../data/supabaseStore.js'
 import { listCities, listCountries, listStates } from '../integrations/locationCatalog.js'
 import { parseGenerateOutreachInput } from '../contracts/aiOutreach.js'
@@ -1075,8 +1075,8 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       sendJson(response, 400, { error: 'Revise os campos e as aprovações antes de salvar.' })
       return
     }
-    if (input.automationEnabled && !isWhatsAppAutomationRuntimeEnabled()) {
-      sendJson(response, 503, { error: 'A automação está bloqueada pelo interruptor global do servidor.' })
+    if (input.automationEnabled && !isWhatsAppAutomationModeRuntimeEnabled(input.responseMode)) {
+      sendJson(response, 503, { error: 'O runtime do modo selecionado está desativado no servidor.' })
       return
     }
     if (input.automationEnabled && input.responseMode === 'openbot') {
@@ -1122,7 +1122,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
         !isWhatsAppOpenClawRuntimeEnabled() || !config || config.ownerUserId !== user.id ||
         config.phoneNumberId !== input.phoneNumberId || connectionPlatform !== 'OPENCLAW_WEB' || !openClawStorageReady || !openClawGatewayReady
       ) {
-        sendJson(response, 503, { error: 'O Cristhian do OpenClaw ainda não está pronto. Confira o Gateway, o MCP privado, a ponte de mensagens, as migrations 022 e 024 e se este número já foi pareado e marcado como OPENCLAW_WEB.' })
+        sendJson(response, 503, { error: 'O Cristhian do OpenClaw ainda não está pronto. Confira o Gateway, o MCP privado, a ponte de mensagens, a estrutura e as permissões do banco, e se este número já foi pareado e marcado como OPENCLAW_WEB.' })
         return
       }
     }

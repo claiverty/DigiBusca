@@ -36,7 +36,7 @@ As chaves nunca são enviadas ao navegador. Alterar o modo, provedor ou modelo i
 
 ## Estado atual e histórico deste runtime
 
-Este runtime permanece desligado por padrão e não é o caminho de mensagens publicado. A migration 019 permanece aplicada por compatibilidade com o runtime legado. Em 25/11/2026, as respostas e a prospecção de produção estão pausadas; o transporte de WhatsApp é exclusivamente OpenClaw Web e a Evolution está parada para mensagens. O deploy não ativa automações por conta própria. Veja o documento de implementação OpenClaw para os controles, migrations 024–026 e validação pendente.
+Este runtime permanece desligado por padrão e não é o caminho de mensagens publicado. A migration 019 permanece aplicada por compatibilidade com o runtime legado. Em 25/11/2026, as respostas e a prospecção de produção estão pausadas; o transporte de WhatsApp é exclusivamente OpenClaw Web e a Evolution está parada para mensagens. O deploy não ativa automações por conta própria. Veja o documento de implementação OpenClaw para os controles, migrations 024–027 e validação pendente.
 
 O histórico abaixo é diagnóstico do runtime Gemini legado, não prova que ele esteja ativo atualmente. As chamadas desse runtime usam a chave Gemini API cadastrada no painel de conexões. Em 20/11/2026, foram observadas respostas `429 RESOURCE_EXHAUSTED` na cota Free Tier para Gemini 3.5 Flash e `503 UNAVAILABLE` para Gemini 3.8 Flash. A assinatura Gemini CLI usa autenticação separada e não altera a cota da chave API.
 
