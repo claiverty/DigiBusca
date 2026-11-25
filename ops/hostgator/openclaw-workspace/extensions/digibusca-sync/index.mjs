@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomInt } from 'node:crypto'
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry'
 
 const pluginId = 'digibusca-sync'
@@ -100,6 +100,36 @@ function blocked() {
   return { handled: true }
 }
 
+function replyCooldownMs(content) {
+  const normalized = content
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // Keep urgent requests and clear scheduling confirmations moving quickly.
+  if (/\b(urgente|emergencia|nao funciona|parou|sem acesso|preciso agora)\b/.test(normalized)) {
+    return randomInt(1_500, 7_001)
+  }
+  if (/^(sim|confirmo|confirmado|confirmada|pode marcar|pode agendar|fechado|fechou|combinado|pode ser|ok|okay|certo|perfeito|beleza|claro)(\b.*)?$/.test(normalized)) {
+    return randomInt(1_500, 7_001)
+  }
+
+  // Most replies take a few seconds; a smaller share takes longer, and only
+  // a few take around one or two minutes. This applies to inbound replies only.
+  const roll = randomInt(0, 100)
+  if (roll < 35) return randomInt(3_000, 12_001)
+  if (roll < 75) return randomInt(12_000, 30_001)
+  if (roll < 95) return randomInt(30_000, 60_001)
+  return randomInt(60_000, 120_001)
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export default definePluginEntry({
   id: pluginId,
   name: 'DigiBusca Sync',
@@ -143,13 +173,16 @@ export default definePluginEntry({
           messageType: 'text',
           occurredAt,
         })
-        return result?.dispatch === true ? undefined : blocked()
+        if (result?.dispatch !== true) return blocked()
+
+        await wait(replyCooldownMs(content))
+        return undefined
       } catch (error) {
         const code = error instanceof Error ? error.message : 'unknown_error'
         console.warn(`[${pluginId}] inbound dispatch blocked (${code})`)
         return blocked()
       }
-    }, { timeoutMs: 12_000 })
+    }, { timeoutMs: 130_000 })
 
     api.on('message_sending', async (event, context) => {
       if (!channelIsWhatsApp(context)) return
