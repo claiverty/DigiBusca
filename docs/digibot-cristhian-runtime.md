@@ -1,5 +1,12 @@
 # Runtime do agente Cristhian
 
+> **Escopo legado:** este documento descreve o runtime DigiBusca/Gemini
+> introduzido na migration 019. O Cristhian operacional foi migrado para o
+> OpenClaw, que controla a sessão WhatsApp Web; respostas e prospecção estão
+> pausadas até a validação controlada. Para a configuração vigente, consulte
+> [openclaw-garimpo-implementation.md](openclaw-garimpo-implementation.md)
+> e [../ops/hostgator/README.md](../ops/hostgator/README.md).
+
 O runtime DigiBusca executa o Cristhian dentro do backend já hospedado na VPS. Ele processa mensagens recebidas quando o webhook ou o ciclo de recuperação as entrega; não mantém um agente OpenBot ou um processo de modelo rodando em segundo plano. Cada execução é limitada por tempo, número de etapas e ferramentas.
 
 ## Limites do agente
@@ -27,10 +34,10 @@ O titular da conta confirmou que os leads retornados pela busca do DigiBusca sã
 
 As chaves nunca são enviadas ao navegador. Alterar o modo, provedor ou modelo invalida a aprovação de conteúdo e desativa respostas até que sejam aprovadas novamente. A seleção do runtime DigiBusca não ativa a fila de prospecção.
 
-## Estado deste código
+## Estado atual e histórico deste runtime
 
-O runtime permanece desligado por padrão no código. Em produção, a migration está aplicada, o perfil usa o agente Cristhian do DigiBusca com Google Gemini 3.8 Flash e fallback 3.5 Flash, e as respostas estão aprovadas e ativas. A sessão da Evolution está `open`. O deploy não troca o modo persistido nem ativa respostas por conta própria.
+Este runtime permanece desligado por padrão e não é o caminho de mensagens publicado. A migration 019 permanece aplicada por compatibilidade com o runtime legado. Em 25/11/2026, as respostas e a prospecção de produção estão pausadas; o transporte de WhatsApp é exclusivamente OpenClaw Web e a Evolution está parada para mensagens. O deploy não ativa automações por conta própria. Veja o documento de implementação OpenClaw para os controles, migrations 024–026 e validação pendente.
 
-As chamadas do agente usam a chave da Gemini API cadastrada no painel de conexões; essa chave herda o tier do projeto do Google AI Studio. Uma assinatura usada pelo Gemini CLI com login Google pode seguir outra autenticação e não altera o tier da chave da API. Confirme o projeto e o tier em [Rate limits](https://aistudio.google.com/rate-limit) e [Billing](https://aistudio.google.com/billing). Em 20/11/2026, a API respondeu ao DigiBusca com `429 RESOURCE_EXHAUSTED` para a cota `GenerateRequestsPerDayPerProjectPerModel-FreeTier` do Gemini 3.5 Flash (limite diário de 20); o Gemini 3.8 Flash também retornou `503 UNAVAILABLE`. Para habilitar o tier pago da Gemini API, vincule uma conta de faturamento ao projeto da chave em AI Studio. Isso é uma configuração de cobrança separada e pode gerar custos.
+O histórico abaixo é diagnóstico do runtime Gemini legado, não prova que ele esteja ativo atualmente. As chamadas desse runtime usam a chave Gemini API cadastrada no painel de conexões. Em 20/11/2026, foram observadas respostas `429 RESOURCE_EXHAUSTED` na cota Free Tier para Gemini 3.5 Flash e `503 UNAVAILABLE` para Gemini 3.8 Flash. A assinatura Gemini CLI usa autenticação separada e não altera a cota da chave API.
 
 O agente usa saída estruturada validada por schema, tenta uma vez novamente quando o Gemini retorna `503`, e limita uma execução a 30 segundos somando o modelo principal e o fallback. Um `429` de cota esgotada não é mascarado por resposta pronta: a conversa fica pendente para nova tentativa quando a cota for liberada ou o projeto tiver o tier adequado.

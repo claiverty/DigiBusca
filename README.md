@@ -7,7 +7,7 @@ O DigiBusca é uma plataforma de prospecção digital para freelancers e agênci
 1. O usuário pesquisa empresas por localização e segmento.
 2. A aplicação organiza os dados públicos e identifica oportunidades de presença digital.
 3. Leads podem ser salvos, classificados por status e acompanhados com observações, contatos e próximos passos.
-4. Na aba de prospecção do WhatsApp, o DigiBot pergunta a cidade do dia. Depois da resposta, pesquisa no Google Places, salva os resultados como leads autorizados segundo a configuração do titular e prepara os novos contatos na fila da Evolution API; o backend da VPS agenda os envios e registra o resultado no CRM.
+4. Na aba de prospecção do WhatsApp, o DigiBot pergunta a cidade do dia e pesquisa no Google Places. A busca salva candidatos cujo perfil não informa um site, mas não os enfileira nem envia mensagens. O titular seleciona os leads, revisa o texto e registra uma evidência de identidade antes de liberar cada contato. O despacho aprovado usa exclusivamente o WhatsApp Web do OpenClaw e sincroniza o resultado com o CRM.
 5. Vendas podem ser registradas, editadas e acompanhadas em um resumo financeiro.
 
 ## Arquitetura
@@ -25,8 +25,8 @@ O Supabase Auth gerencia as contas. O backend valida cada sessão e acessa os da
 
 - Google Places: pesquisa de empresas e dados públicos de localização.
 - Gemini: geração de rascunhos de abordagem comercial.
-- Evolution API com Baileys/WhatsApp Web: pareamento por QR Code, caixa de entrada, histórico e fila de prospecção. As respostas podem ser conduzidas pelo runtime DigiBusca do agente Cristhian (com provedor configurado no backend), por Gemini direto ou, opcionalmente, pelo OpenBot. O backend valida as ações e envia pela Evolution; os runtimes começam desligados.
-- Supabase: autenticação e persistência de leads, interações e vendas.
+- OpenClaw com WhatsApp Web: agente Cristhian, respostas e despacho de prospecção após revisão. O backend DigiBusca valida identidade, autorização, opt-out, limites, janela e estado da conversa. A Evolution API está desativada para o fluxo de mensagens.
+- Supabase: autenticação e persistência de leads, conversas, interações e vendas.
 
 ## Desenvolvimento
 
@@ -68,7 +68,7 @@ Compare `version` com o commit do deploy e confirme `Cache-Control: no-store`. P
 
 A primeira mensagem tem somente uma saudação curta; aguarde a resposta. Depois, apresente-se quando o nome ou a forma de apresentação estiver informada e identifique quem cuida da presença digital. Conduza a conversa com uma pergunta por vez, passando por permissão, cenário, necessidade, ideia, qualificação de interesse e dúvidas. Para apresentar condições ou confirmar uma decisão, informe antes o escopo e as condições já acordadas; a IA não deve inventar preço, parcelas, prazo, desconto ou forma de pagamento. Recusas explícitas geram um encerramento respeitoso.
 
-O assistente de prospecção gera somente a mensagem da etapa escolhida; a primeira saudação e o restante do contato são conduzidos manualmente. Registre necessidade, prazo, decisor e condições confirmadas em Observações, e use Próximo passo e Próximo contato para organizar a continuidade.
+O playbook do Cristhian orienta a conversa com uma pergunta por vez, sem presumir o serviço desejado nem inventar condições comerciais. O primeiro contato comercial só pode sair depois de seleção, revisão da mensagem e conferência de identidade no DigiBusca.
 
 Para gerar rascunhos com o DigiProspector pelo OpenBot, consulte [docs/openbot-outreach.md](docs/openbot-outreach.md).
 
@@ -76,9 +76,9 @@ A carteira registra etapa da conversa, pessoa de contato e próximo passo. Permi
 
 ## Prospecção pelo WhatsApp
 
-A aba **WhatsApp → Conexão** pareia a Evolution API com um QR Code. Em **WhatsApp → Prospecção**, um chat diário pergunta qual cidade usar; o segmento é opcional e Brasília, DF fica como sugestão inicial. A campanha diária retorna somente empresas cujo perfil do Google Places não informa um site; isso não garante que a empresa não tenha um site fora do perfil. A busca só começa depois que você envia a cidade. O DigiBot salva os resultados e prepara até o espaço disponível na fila; sem conexão Evolution, runtime ativo ou fila ligada, ele apenas salva os leads e explica o que falta. O limite configurável fica entre 17 e 25 novos contatos por dia; os envios são espaçados entre 9h e 14h, de segunda a sexta, no fuso de São Paulo. Na implantação de produção, o backend e a Evolution rodam na VPS. O agente DigiBusca atende mensagens recebidas sob demanda no backend, sem manter um processo de agente pesado em execução contínua; OpenBot é opcional. O agente registra qualificações declaradas pelo lead por até 90 dias, e o backend continua responsável por pausa, descadastro, limites e envio pela Evolution. Aplique as migrations até `020_whatsapp_daily_prospecting_chat.sql` antes de usar o novo chat.
+A aba **WhatsApp → Conexão** pareia o OpenClaw por QR Code. Em **WhatsApp → Prospecção**, o chat diário pergunta qual cidade usar; o segmento é opcional e Brasília, DF pode ser a sugestão inicial. A busca retorna empresas cujo perfil do Google Places não informa um site — isso não garante que a empresa não tenha site fora do perfil — e salva candidatos sem criar envios. O titular escolhe os contatos, revisa a mensagem e registra uma referência independente do telefone que vincule o perfil à empresa. Só então o contato pode entrar na fila do OpenClaw. O backend agenda até 17–25 novos contatos entre 9h e 14h, de segunda a sexta, no fuso de São Paulo, quando a prospecção estiver habilitada. Em 25/11/2026, respostas e prospecção estão pausadas até a validação controlada; a Evolution está desativada para mensagens. O estado publicado e os requisitos de ativação estão em [docs/openclaw-garimpo-implementation.md](docs/openclaw-garimpo-implementation.md) e [ops/hostgator/README.md](ops/hostgator/README.md).
 
-Para desenvolvimento local da Evolution, veja [backend/README.md](backend/README.md). Para implantação na HostGator, veja [ops/hostgator/README.md](ops/hostgator/README.md). Para configurar o runtime do agente Cristhian, veja [docs/digibot-cristhian-runtime.md](docs/digibot-cristhian-runtime.md). A integração usa o webhook autenticado da Evolution; não usa a Cloud API para mensagens. Aplique as migrations necessárias até `019_digibot_agent_runtime.sql` antes de habilitar o novo runtime.
+Para o estado de produção e implantação do OpenClaw, veja [ops/hostgator/README.md](ops/hostgator/README.md). [docs/digibot-cristhian-runtime.md](docs/digibot-cristhian-runtime.md) descreve o runtime legado gerenciado pelo backend e não substitui o fluxo OpenClaw atualmente publicado. Para banco novo, aplique todas as migrations em `supabase/migrations/` em ordem; em produção as migrations 024–026 foram aplicadas em 25/11/2026.
 
 Antes de executar esta versão contra um banco existente, aplique as migrations necessárias pelo fluxo autorizado.
 

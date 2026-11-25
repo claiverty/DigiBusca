@@ -1,4 +1,10 @@
-# Rascunhos com agentes do OpenBot
+# Integração legada de rascunhos com OpenBot
+
+> Esta integração é opcional e serve apenas para gerar rascunhos pelo agente
+> `DigiProspector`. Ela não controla o Cristhian nem envia mensagens. O fluxo
+> publicado de atendimento e prospecção usa OpenClaw; consulte
+> [openclaw-garimpo-implementation.md](openclaw-garimpo-implementation.md) e
+> [../ops/hostgator/README.md](../ops/hostgator/README.md).
 
 O DigiBusca pode pedir ao agente `DigiProspector` um rascunho de abordagem e importar o resultado para o campo de mensagem do lead. O agente não envia mensagens; revise o rascunho e use o canal de contato manualmente, se decidir prosseguir.
 
