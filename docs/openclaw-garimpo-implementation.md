@@ -54,25 +54,25 @@ administração do Gateway ou ferramentas de fila.
    executável por `service_role`, e rejeita chamadas sem item autorizado. As
    respostas e a prospecção continuam pausadas; não há itens `queued` ou
    `sending`.
-2. **Concluído em 25/11/2026:** o CI publicou backend, frontend e Worker na
-   revisão `3f80c9e`. Build, segurança, 71 testes unitários e 42 testes E2E
-   passaram; os endpoints de saúde do backend e Worker retornaram HTTP 200.
-   A revisão com a liquidação atômica será publicada pelo CI após os checks
-   desta alteração.
+2. **Concluído em 25/11/2026:** a alteração funcional está no commit
+   `f134579`; o CI publicou backend, frontend e Worker a partir dele. Build,
+   segurança, 73 testes unitários e 42 testes E2E passaram; os endpoints de
+   saúde do backend e Worker retornaram HTTP 200. O backend da VPS está
+   saudável.
 3. **Concluído em 25/11/2026:** playbook, extensão `digibusca-sync` e allowlist
    foram sincronizados na VPS. O Gateway validou a configuração, carregou a
    extensão e conectou ao MCP; a sondagem listou as dez ferramentas permitidas
    pelo `openclaw.config.example.json5`, sem `queue_prospect`.
-4. A confirmação do OpenClaw agora é preparada para gravar, numa única
+4. **Concluído em 25/11/2026:** a extensão atualizada foi sincronizada na
+   montagem ativa do Gateway e validada com o Node 24 do contêiner. Depois do
+   reinício, o Gateway voltou a `healthy`, sem reinicializações adicionais.
+5. **Concluído em 25/11/2026:** a confirmação do OpenClaw grava, numa única
    transação, o resultado da fila, a mensagem, a conversa, a etapa do lead e a
    interação do CRM. Eventos repetidos não duplicam o histórico. Confirmações
    atrasadas podem reconciliar um resultado incerto ou uma falha correspondente
    ao mesmo ID; ausência de confirmação continua como `unknown` e não dispara
    reenvio automático. O hook tenta reenviar ao backend apenas erros de rede,
    HTTP 429 ou 5xx, com três tentativas curtas.
-5. **Pendente:** sincronizar a extensão atualizada na VPS e reiniciar somente o
-   Gateway para carregá-la; depois confirmar saúde do backend/Gateway e que os
-   interruptores permanecem pausados.
 6. **Pendente:** fazer uma validação controlada da revisão de identidade, do
    registro no histórico, do status da fila e do lembrete CRM com um contato de
    teste indicado pelo titular. Não enviar para um lead real durante esse teste.
@@ -81,10 +81,8 @@ administração do Gateway ou ferramentas de fila.
 
 ## Estado atual
 
-As migrations 024/025/026 estão aplicadas; o commit `3f80c9e`, o backend, o
-frontend, o Worker e o playbook/extensão do OpenClaw estão publicados. A
-liquidação transacional e as tentativas curtas de sincronização fazem parte da
-revisão que está passando pelo processo de publicação. A conexão WhatsApp do
-Gateway e as dez ferramentas MCP foram verificadas. Respostas e prospecção
-seguem pausadas, sem itens `queued` ou `sending`, até sincronizar essa revisão e
-concluir o teste controlado.
+As migrations 024/025/026 estão aplicadas; o commit `f134579`, backend,
+frontend, Worker e extensão do OpenClaw estão publicados. O backend e o Gateway
+estão saudáveis, e as dez ferramentas MCP foram verificadas. Respostas e
+prospecção seguem pausadas, sem itens `queued` ou `sending`, até concluir o
+teste controlado.
