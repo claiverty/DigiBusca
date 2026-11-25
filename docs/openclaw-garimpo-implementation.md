@@ -1,8 +1,9 @@
 # OpenClaw + Garimpo: implementação no DigiBusca
 
-Este documento registra o fluxo aprovado para o Cristhian, a separação de
-responsabilidades e o caminho de publicação. As alterações no repositório não
-significam que a migration ou o deploy já foram aplicados.
+Este documento registra o fluxo aprovado para o Cristhian e o estado real da
+implementação em produção em 25/11/2026. Backend, frontend, migrations e
+playbook foram publicados; as respostas e a prospecção permanecem pausadas até
+um teste controlado de ponta a ponta.
 
 ## Fluxo de prospecção
 
@@ -52,20 +53,25 @@ administração do Gateway ou ferramentas de fila.
    pausadas e nenhuma mensagem em `queued` ou `sending`. A função de follow-up
    está disponível como `SECURITY DEFINER`, executável por `service_role` e
    indisponível a `anon`.
-2. Publicar backend e frontend DigiBusca pelo CI.
-3. Copiar o playbook e a allowlist de ferramentas atualizados para o workspace
-   do Cristhian no OpenClaw.
-4. Confirmar no status MCP que respostas e prospecção estão pausadas, que o
-   transporte é `OPENCLAW_WEB`, e que a migration e o Gateway estão disponíveis.
-5. Fazer uma validação controlada da revisão de identidade, do registro de
-   envio no histórico, do status da fila e do lembrete CRM. Não habilitar o
-   envio automático antes dessas conferências.
-6. Reativar respostas e prospecção manualmente só depois da validação; observar
-   o primeiro envio e confirmar no WhatsApp que empresa e destinatário
-   correspondem.
+2. **Concluído em 25/11/2026:** o CI publicou backend, frontend e Worker na
+   revisão `3f80c9e`. Build, segurança, 71 testes unitários e 42 testes E2E
+   passaram; os endpoints de saúde do backend e Worker retornaram HTTP 200.
+3. **Concluído em 25/11/2026:** playbook, extensão `digibusca-sync` e allowlist
+   foram sincronizados na VPS. O Gateway validou a configuração, carregou a
+   extensão e conectou ao MCP; a sondagem listou as dez ferramentas permitidas
+   pelo `openclaw.config.example.json5`, sem `queue_prospect`.
+4. **Concluído em 25/11/2026:** o Gateway está saudável, o WhatsApp está
+   conectado e o MCP responde. O estado do Supabase continua pausado e não há
+   itens `queued` ou `sending`.
+5. **Pendente:** fazer uma validação controlada da revisão de identidade, do
+   registro no histórico, do status da fila e do lembrete CRM com um contato de
+   teste indicado pelo titular. Não enviar para um lead real durante esse teste.
+6. Reativar respostas e prospecção manualmente só depois da validação; revisar
+   o primeiro envio antes de liberar novos contatos.
 
 ## Estado atual
 
-As migrations já foram aplicadas em produção, mas as alterações de backend,
-frontend e playbook ainda aguardam commit e publicação. As respostas e a
-prospecção permanecem pausadas até concluir a validação controlada.
+As migrations 024/025, o commit `3f80c9e`, o backend, o frontend, o Worker e o
+playbook/extensão do OpenClaw estão publicados. A conexão WhatsApp do Gateway e
+as dez ferramentas MCP foram verificadas. As respostas e a prospecção seguem
+pausadas, sem itens pendentes na fila, até concluir o teste controlado.
