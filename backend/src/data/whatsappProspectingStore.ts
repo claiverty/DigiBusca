@@ -1,5 +1,5 @@
 import { createWhatsAppWebhookSupabaseClient } from '../config/supabase.js'
-import { buildWhatsAppProspectingOpening } from '../domain/whatsappProspectingOpening.js'
+import { resolveWhatsAppProspectingOpening } from '../domain/whatsappProspectingOpening.js'
 
 const brazilTimeZone = 'America/Sao_Paulo'
 const staleDailyCampaignMs = 30 * 60 * 1_000
@@ -454,7 +454,7 @@ export class WhatsAppProspectingStore {
     const recipientPhone = normalizeBrazilianPhone(lead.lead_data.phone)
     if (!recipientPhone) throw new WhatsAppProspectingError('O telefone do lead não está em um formato brasileiro válido.', 422)
     const leadName = typeof lead.lead_data.name === 'string' ? lead.lead_data.name : ''
-    const finalMessage = suppliedMessage || lead.draft_message?.trim() || buildWhatsAppProspectingOpening(leadName)
+    const finalMessage = resolveWhatsAppProspectingOpening(leadName, suppliedMessage || lead.draft_message)
     if (!finalMessage || finalMessage.length > 1_024) {
       throw new WhatsAppProspectingError('Não foi possível preparar uma mensagem inicial válida para este lead.', 422)
     }

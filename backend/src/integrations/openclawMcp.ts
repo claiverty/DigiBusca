@@ -3,7 +3,7 @@ import { toNodeHandler } from '@modelcontextprotocol/node'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 import { executeSearchLeads } from '../application/searchLeads.js'
-import { buildWhatsAppProspectingOpening } from '../domain/whatsappProspectingOpening.js'
+import { buildWhatsAppProspectingOpening, resolveWhatsAppProspectingOpening } from '../domain/whatsappProspectingOpening.js'
 import { leadStatuses, parseLeadSnapshot, type Lead, type LeadSnapshot } from '../contracts/lead.js'
 import { getOpenClawMcpConfig, isOpenClawGatewayReady, isWhatsAppOpenClawRuntimeEnabled, isWhatsAppOpenClawProspectingRuntimeEnabled, createWhatsAppWebhookSupabaseClient } from '../config/supabase.js'
 import { GooglePlacesProvider } from './googlePlacesProvider.js'
@@ -431,7 +431,7 @@ function createOpenClawMcpServer() {
             address: lead.address,
             website: lead.website ?? null,
             googleMapsUri: lead.googleMapsUri ?? null,
-            messagePreview: authorizationByLeadId.get(lead.id)?.draft_message ?? buildWhatsAppProspectingOpening(lead.name),
+            messagePreview: resolveWhatsAppProspectingOpening(lead.name, authorizationByLeadId.get(lead.id)?.draft_message),
             status: 'Novo',
             whatsappConsentStatus: authorization?.whatsapp_consent_status ?? 'unknown',
             outboundAuthorization: authorization?.whatsapp_consent_status === 'opted_out'
@@ -617,7 +617,7 @@ function createOpenClawMcpServer() {
         phone: lead.phone,
         website: lead.website,
         googleMapsUri: lead.googleMapsUri,
-        messagePreview: lead.draftMessage || buildWhatsAppProspectingOpening(lead.name),
+        messagePreview: resolveWhatsAppProspectingOpening(lead.name, typeof lead.draftMessage === 'string' ? lead.draftMessage : undefined),
         recipientConsent: lead.whatsappConsentStatus,
         accountAuthorization: lead.whatsappOutboundAuthorizationStatus,
         queued: false,

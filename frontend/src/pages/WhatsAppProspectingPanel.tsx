@@ -2,7 +2,7 @@ import { AlertCircle, CheckCircle2, Clock3, ExternalLink, LoaderCircle, Pause, P
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SearchPanel, type SearchLocation } from '../components/SearchPanel'
 import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
-import { buildWhatsAppProspectingOpening } from '../../../backend/src/domain/whatsappProspectingOpening'
+import { resolveWhatsAppProspectingOpening } from '../../../backend/src/domain/whatsappProspectingOpening'
 import {
   cancelWhatsAppQueueItem,
   confirmWhatsAppQueueContact,
@@ -200,7 +200,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
           const item = await enqueueWhatsAppNewLead({
             phoneNumberId: selectedPhoneNumberId,
             leadId: savedLead.leadId,
-            message: savedLead.draftMessage?.trim() || buildWhatsAppProspectingOpening(name, index),
+            message: resolveWhatsAppProspectingOpening(name, savedLead.draftMessage, index),
           })
           added.push(item)
         } catch {
@@ -439,7 +439,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
               <header><strong>Prévia dos selecionados</strong><span>{selectedEligibleLeads.length} contato(s)</span></header>
               {selectedEligibleLeads.map((savedLead, index) => {
                 const name = savedLead.lead?.name ?? 'Lead sem nome'
-                const message = savedLead.draftMessage?.trim() || buildWhatsAppProspectingOpening(name, index)
+                const message = resolveWhatsAppProspectingOpening(name, savedLead.draftMessage, index)
                 return (
                   <article key={savedLead.leadId}>
                     <div><strong>{name}</strong><span>{savedLead.lead?.phone} · {savedLead.lead?.address}</span></div>
