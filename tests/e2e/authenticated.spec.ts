@@ -146,7 +146,7 @@ test.describe('área autenticada — somente leitura', () => {
 
   test('navega pelas quatro áreas sem perder a rota', async ({ page }) => {
     const destinations = [
-      { label: 'Buscar leads', path: '/sistema/buscar', heading: 'Encontre empresas que precisam de você.' },
+      { label: 'Buscar leads', path: '/sistema/buscar', heading: 'Buscar leads' },
       { label: 'Meus leads', path: '/sistema/leads', heading: 'Meus leads' },
       { label: 'Financeiro', path: '/sistema/financeiro', heading: 'Acompanhe suas vendas.' },
       { label: 'Visão geral', path: '/sistema', heading: 'Uso geral do Google' },
@@ -162,7 +162,7 @@ test.describe('área autenticada — somente leitura', () => {
   test('mantém cada área aberta após uma recarga direta', async ({ page }) => {
     const destinations = [
       { path: '/sistema', marker: 'VISÃO GERAL' },
-      { path: '/sistema/buscar', marker: 'BUSCAR OPORTUNIDADES' },
+      { path: '/sistema/buscar', marker: 'Busca manual' },
       { path: '/sistema/leads', marker: 'ACOMPANHAMENTO' },
       { path: '/sistema/financeiro', marker: 'CONTROLE FINANCEIRO' },
     ]
