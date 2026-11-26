@@ -1,5 +1,6 @@
 import { ChevronDown, Search, X } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { segmentOptions } from '../data/searchSegments'
 import { getCities, getCountries, getStates } from '../services/locationsService'
 import type { OpportunityType } from '../types'
 import type { LocationCity, LocationCountry, LocationState } from '../types/locations'
@@ -32,23 +33,6 @@ type SearchPanelProps = {
   onSearch: (location: SearchLocation) => void
 }
 
-const segments = [
-  'Todos os segmentos',
-  'Restaurantes, padarias e lanchonetes',
-  'Clínicas e consultórios',
-  'Dentistas e clínicas odontológicas',
-  'Salões e barbearias',
-  'Estética e bem-estar',
-  'Oficinas e serviços automotivos',
-  'Lojas e comércio local',
-  'Academias e estúdios',
-  'Pet shops e veterinárias',
-  'Imobiliárias e corretores',
-  'Escolas e cursos',
-  'Contabilidade e advocacia',
-  'Serviços residenciais',
-]
-
 const opportunityOptions: Array<{ value: '' | OpportunityType; label: string }> = [
   { value: '', label: 'Prioridade: todos os perfis' },
   { value: 'Sem site', label: 'Prioridade: site não informado' },
@@ -58,6 +42,10 @@ const opportunityOptions: Array<{ value: '' | OpportunityType; label: string }> 
 
 function normalizeLocation(value: string) {
   return value.trim().toLocaleLowerCase('pt-BR')
+}
+
+function normalizeSuggestion(value: string) {
+  return normalizeLocation(value).normalize('NFD').replace(/\p{Diacritic}/gu, '')
 }
 
 function stateLabel(state: LocationState) {
@@ -77,7 +65,7 @@ function matchesCountry(country: LocationCountry, value: string) {
   )
 }
 
-type LocationOption = { value: string; label: string; searchTerms?: string[] }
+type LocationOption = { value: string; label: string; searchTerms?: string[]; group?: string }
 
 type LocationComboboxProps = {
   id: string
@@ -117,16 +105,25 @@ function LocationCombobox({
   const [isOpen, setIsOpen] = useState(false)
   const [showAllSuggestions, setShowAllSuggestions] = useState(false)
   const suggestions = useMemo(() => {
-    const query = showAllSuggestions ? '' : normalizeLocation(value)
-    return options
-      .filter(
-        (option) =>
-          !query ||
-          [option.label, option.value, ...(option.searchTerms ?? [])].some((term) =>
-            normalizeLocation(term).startsWith(query),
-          ),
-      )
+    const query = showAllSuggestions ? '' : normalizeSuggestion(value)
+    return options.filter((option) => {
+      if (!query) return true
+      const terms = [option.label, option.value, ...(option.searchTerms ?? [])]
+      if (option.group) {
+        return [...terms, option.group].some((term) => normalizeSuggestion(term).includes(query))
+      }
+      return terms.some((term) => normalizeSuggestion(term).startsWith(query))
+    })
   }, [options, showAllSuggestions, value])
+  const suggestionGroups = new Map<string, LocationOption[]>()
+  if (isOpen) {
+    for (const option of suggestions) {
+      const group = option.group ?? ''
+      const items = suggestionGroups.get(group) ?? []
+      items.push(option)
+      suggestionGroups.set(group, items)
+    }
+  }
   const customValue = value.trim()
   const canUseCustomValue = allowCustomValue && customValue.length > 0 && !options.some(
     (option) => [option.value, option.label].some(
@@ -212,17 +209,22 @@ function LocationCombobox({
       {isOpen && !disabled && (
         <div id={`${id}-suggestions`} className="location-suggestions" role="listbox">
           {suggestions.length ? (
-            suggestions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={normalizeLocation(option.value) === normalizeLocation(value)}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => chooseOption(option)}
-              >
-                {option.label}
-              </button>
+            Array.from(suggestionGroups, ([group, items]) => (
+              <div key={group} role={group ? 'group' : 'presentation'} aria-label={group || undefined}>
+                {group && <span className="location-suggestion-heading" aria-hidden="true">{group}</span>}
+                {items.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    role="option"
+                    aria-selected={normalizeLocation(option.value) === normalizeLocation(value)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => chooseOption(option)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             ))
           ) : !canUseCustomValue ? (
             <span>Nenhuma opção encontrada</span>
@@ -357,11 +359,6 @@ export function SearchPanel({
     value: availableCity.name,
     label: availableCity.name,
   }))
-  const segmentOptions: LocationOption[] = segments.map((option) => ({
-    value: option,
-    label: option,
-  }))
-
   useEffect(() => {
     if (selectedCountry) {
       setCountryInput(countryLabel(selectedCountry))

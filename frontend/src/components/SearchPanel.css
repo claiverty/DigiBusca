@@ -151,6 +151,13 @@
   color: #858690;
 }
 
+.location-suggestions .location-suggestion-heading {
+  padding-block: 8px 4px;
+  color: var(--color-text-subtle);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .search-opportunity-select .app-select-trigger {
   border-radius: var(--radius-control);
 }
