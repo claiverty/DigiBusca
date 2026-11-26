@@ -1,0 +1,166 @@
+.lead-workspace {
+  display: grid;
+  gap: 22px;
+}
+
+.lead-workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.lead-workspace-header h1 {
+  margin-top: 10px;
+  font-size: clamp(32px, 4.5vw, 48px);
+  line-height: 1.05;
+  letter-spacing: -0.055em;
+  font-weight: 550;
+}
+
+.lead-workspace-header p {
+  max-width: 620px;
+  margin-top: 12px;
+  color: var(--color-text-subtle);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.lead-workspace-tabs {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.lead-workspace-tabs button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--color-text-subtle);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 650;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.lead-workspace-tabs button:hover {
+  color: var(--color-text);
+  background: #eeeeF2;
+}
+
+.lead-workspace-tabs button.active {
+  color: #fff;
+  background: var(--color-text);
+}
+
+.lead-workspace-tabs button:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+
+.lead-workflow-card {
+  display: grid;
+  gap: 19px;
+  margin-bottom: 16px;
+  padding: 20px 22px;
+}
+
+.lead-workflow-heading p {
+  margin-top: 6px;
+  color: var(--color-text-subtle);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.lead-workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lead-workflow-steps li {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+  background: #fcfcfb;
+}
+
+.lead-workflow-icon {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  color: #2d6742;
+  background: #eaf3ec;
+}
+
+.lead-workflow-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lead-workflow-copy strong {
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.lead-workflow-copy small {
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.lead-workspace-connection-state {
+  margin: -3px 0 0;
+  color: var(--color-text-subtle);
+  font-size: 12px;
+}
+
+.lead-workspace-connection-state.is-error {
+  color: #963f3f;
+}
+
+@media (max-width: 760px) {
+  .lead-workspace {
+    gap: 17px;
+  }
+
+  .lead-workspace-header p {
+    font-size: 13px;
+  }
+
+  .lead-workflow-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .lead-workspace-tabs {
+    gap: 5px;
+  }
+
+  .lead-workspace-tabs button {
+    min-height: 39px;
+    gap: 6px;
+    padding: 0 11px;
+    font-size: 11px;
+  }
+
+  .lead-workflow-card {
+    padding: 16px;
+  }
+}

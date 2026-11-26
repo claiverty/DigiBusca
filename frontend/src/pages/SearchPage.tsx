@@ -8,7 +8,7 @@ import { hasContactPhone } from '../lib/phone'
 import type { Lead, OpportunityType } from '../types'
 import './SearchPage.css'
 
-type SearchPageProps = { onSelectLead: (lead: Lead) => void; savedLeadIds?: Set<string> }
+type SearchPageProps = { onSelectLead: (lead: Lead) => void; savedLeadIds?: Set<string>; showHeader?: boolean }
 
 type SearchStatus = 'idle' | 'loading' | 'success' | 'error'
 type SearchQuery = { city: string; segment: string; opportunity?: OpportunityType }
@@ -104,7 +104,7 @@ function getSearchCache(): SearchCache {
   }
 }
 
-export function SearchPage({ onSelectLead, savedLeadIds = new Set() }: SearchPageProps) {
+export function SearchPage({ onSelectLead, savedLeadIds = new Set(), showHeader = true }: SearchPageProps) {
   const [searchCache, setSearchCache] = useState<SearchCache>(getSearchCache)
   const [hideSaved, setHideSaved] = useState(false)
   const [onlyWithPhone, setOnlyWithPhone] = useState(false)
@@ -274,15 +274,17 @@ export function SearchPage({ onSelectLead, savedLeadIds = new Set() }: SearchPag
 
   return (
     <>
-      <header className="page-header">
-        <div>
-          <span className="eyebrow">BUSCAR OPORTUNIDADES</span>
-          <h1>Encontre empresas que precisam de você.</h1>
-          <p>
-            Pesquise uma região e encontre negócios com espaço para melhorar sua presença digital.
-          </p>
-        </div>
-      </header>
+      {showHeader && (
+        <header className="page-header">
+          <div>
+            <span className="eyebrow">BUSCAR OPORTUNIDADES</span>
+            <h1>Encontre empresas que precisam de você.</h1>
+            <p>
+              Pesquise uma região e encontre negócios com espaço para melhorar sua presença digital.
+            </p>
+          </div>
+        </header>
+      )}
 
       <SearchPanel
         countryCode={countryCode}

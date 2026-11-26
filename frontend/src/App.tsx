@@ -5,7 +5,7 @@ import { LeadDetail } from './components/LeadDetail'
 import { Sidebar, type AppView } from './components/Sidebar'
 import { FinancePage } from './pages/FinancePage'
 import { OverviewPage } from './pages/OverviewPage'
-import { SearchPage } from './pages/SearchPage'
+import { LeadWorkspacePage } from './pages/LeadWorkspacePage'
 import { SavedLeadsPage } from './pages/SavedLeadsPage'
 import { WhatsAppPage } from './pages/WhatsAppPage'
 import {
@@ -36,6 +36,10 @@ const pathViews = Object.fromEntries(
 
 function getViewFromPathname(pathname = window.location.pathname): AppView {
   const normalizedPath = pathname.replace(/\/+$/, '') || '/'
+
+  if (normalizedPath === viewPaths.whatsapp && new URLSearchParams(window.location.search).get('tab') === 'prospecting') {
+    return 'search'
+  }
 
   return pathViews[normalizedPath] ?? 'overview'
 }
@@ -143,12 +147,12 @@ function App() {
     savedLeads.current.set(savedLead.id, savedLead)
     setSavedLeadIds((current) => new Set(current).add(savedLead.id))
 
-    const nextPath = `${viewPaths.whatsapp}?tab=prospecting`
+    const nextPath = `${viewPaths.search}?tab=prospecting`
     if (window.location.pathname + window.location.search !== nextPath) {
       window.history.pushState({}, '', nextPath)
     }
     setSelectedLead(null)
-    setActiveView('whatsapp')
+    setActiveView('search')
   }
 
   async function registerSaleFromLead(input: Omit<CreateSaleInput, 'businessName' | 'leadId'>) {
@@ -187,9 +191,10 @@ function App() {
   }
 
   function handleNavigate(view: AppView) {
-    const nextPath = viewPaths[view]
+    const keepProspectingTab = view === 'search' && activeView === 'search' && new URLSearchParams(window.location.search).get('tab') === 'prospecting'
+    const nextPath = keepProspectingTab ? `${viewPaths.search}?tab=prospecting` : viewPaths[view]
 
-    if (window.location.pathname !== nextPath || window.location.search || window.location.hash) {
+    if (`${window.location.pathname}${window.location.search}` !== nextPath || window.location.hash) {
       window.history.pushState({}, '', nextPath)
     }
 
@@ -270,13 +275,11 @@ function App() {
         )}
         {activeView === 'whatsapp' && (
           <WhatsAppPage initialTab={
-            new URLSearchParams(window.location.search).get('tab') === 'prospecting'
-              ? 'prospecting'
-              : new URLSearchParams(window.location.search).get('tab') === 'settings' ? 'settings' : 'inbox'
+            new URLSearchParams(window.location.search).get('tab') === 'settings' ? 'settings' : 'inbox'
           } />
         )}
         {activeView === 'search' && (
-          <SearchPage savedLeadIds={savedLeadIds} onSelectLead={(lead) => void openSearchLead(lead)} />
+          <LeadWorkspacePage savedLeadIds={savedLeadIds} onSelectLead={(lead) => void openSearchLead(lead)} />
         )}
       </main>
     </div>

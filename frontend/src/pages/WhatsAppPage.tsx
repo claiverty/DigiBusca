@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUpRight, CalendarDays, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, Send, ShieldCheck, Video } from 'lucide-react'
+import { ArrowUpRight, CalendarDays, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, ShieldCheck, Video } from 'lucide-react'
 import {
   connectWhatsAppEvolution,
   registerOpenClawWhatsAppConnection,
@@ -37,11 +37,10 @@ import {
   type GoogleCalendarConnectionStatus,
   WhatsAppAiProviderOperationError,
 } from '../services/whatsappService'
-import { WhatsAppProspectingPanel } from './WhatsAppProspectingPanel'
 import { AppSelect, type AppSelectOption } from '../components/AppSelect'
 import './WhatsAppPage.css'
 
-type PageTab = 'inbox' | 'settings' | 'prospecting'
+type PageTab = 'inbox' | 'settings'
 type LoadState = 'loading' | 'ready' | 'error'
 const inboxRefreshIntervalMs = 5_000
 
@@ -955,9 +954,6 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
         <button type="button" role="tab" aria-selected={activeTab === 'settings'} className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>
           <ShieldCheck size={16} /> Conexão
         </button>
-        <button type="button" role="tab" aria-selected={activeTab === 'prospecting'} className={activeTab === 'prospecting' ? 'active' : ''} onClick={() => setActiveTab('prospecting')}>
-          <Send size={16} /> Prospecção
-        </button>
       </nav>
 
       {activeTab === 'inbox' ? (
@@ -1108,7 +1104,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
             )}
           </section>
         </div>
-      ) : activeTab === 'settings' ? (
+      ) : (
         <div className="whatsapp-settings-layout" role="tabpanel">
           <section className="panel whatsapp-settings-card">
             <div className="whatsapp-settings-heading">
@@ -1548,8 +1544,6 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
           </section>
 
         </div>
-      ) : (
-                <WhatsAppProspectingPanel connections={visibleWhatsAppConnections} />
       )}
     </section>
   )
