@@ -231,53 +231,10 @@
   line-height: 1.55;
 }
 
-.prospecting-chat-form {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(190px, 1.2fr) auto;
-  align-items: end;
-  gap: 10px;
-}
-
-.prospecting-chat-form label {
-  display: grid;
-  min-width: 0;
-  gap: 6px;
-  color: var(--color-text-subtle);
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.prospecting-chat-form label small {
-  color: var(--color-text-muted);
-  font-weight: 450;
-}
-
-.prospecting-chat-form input {
-  width: 100%;
-  min-height: 40px;
-  padding: 0 11px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  color: var(--color-text);
-  background: #fff;
-  font: inherit;
-  font-size: 11px;
-}
-
-.prospecting-chat-input-wrap {
-  position: relative;
-}
-
-.prospecting-chat-input-wrap svg {
-  position: absolute;
-  top: 50%;
-  left: 11px;
-  color: var(--color-text-muted);
-  transform: translateY(-50%);
-}
-
-.prospecting-chat-input-wrap input {
-  padding-left: 34px;
+.prospecting-daily-chat .search-panel {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
 }
 
 .prospecting-chat-submit {
@@ -793,10 +750,6 @@
   .prospecting-chat-heading {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .prospecting-chat-form {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .prospecting-chat-submit {

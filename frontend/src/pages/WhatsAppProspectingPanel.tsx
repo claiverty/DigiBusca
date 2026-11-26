@@ -1,5 +1,6 @@
-import { AlertCircle, CheckCircle2, Clock3, ExternalLink, LoaderCircle, MapPin, Pause, Play, RefreshCw, Send, Trash2 } from 'lucide-react'
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { AlertCircle, CheckCircle2, Clock3, ExternalLink, LoaderCircle, Pause, Play, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { SearchPanel, type SearchLocation } from '../components/SearchPanel'
 import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import { buildWhatsAppProspectingOpening } from '../../../backend/src/domain/whatsappProspectingOpening'
 import {
@@ -90,8 +91,8 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([])
   const [contactReferences, setContactReferences] = useState<Record<string, string>>({})
   const [contactIdentityChecks, setContactIdentityChecks] = useState<Record<string, boolean>>({})
-  const [campaignCity, setCampaignCity] = useState('')
-  const [campaignSegment, setCampaignSegment] = useState('')
+  const [campaignLocation, setCampaignLocation] = useState({ countryCode: 'BR', stateCode: '', city: '' })
+  const [campaignSegment, setCampaignSegment] = useState('Todos os segmentos')
   const [campaignBusy, setCampaignBusy] = useState(false)
 
   const reload = useCallback(async () => {
@@ -104,7 +105,6 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
       ])
       setDashboard(nextDashboard)
       setDailyLimit(nextDashboard.settings.dailyNewLeadLimit)
-      setCampaignCity((current) => current || nextDashboard.settings.defaultCity)
       setLeads(savedLeads)
       setLoadState('ready')
     } catch (loadError) {
@@ -123,7 +123,6 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
       void getWhatsAppProspectingDashboard().then((nextDashboard) => {
         setDashboard(nextDashboard)
         setDailyLimit(nextDashboard.settings.dailyNewLeadLimit)
-        setCampaignCity((current) => current || nextDashboard.settings.defaultCity)
       }).catch(() => undefined)
     }, 30_000)
     return () => window.clearInterval(timer)
@@ -264,13 +263,9 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
     }
   }
 
-  async function submitDailyCampaign(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const city = campaignCity.trim()
-    if (city.length < 2) {
-      setError('Digite a cidade que vamos prospectar hoje.')
-      return
-    }
+  async function submitDailyCampaign(location: SearchLocation) {
+    if (campaignBusy || loadState !== 'ready') return
+    const city = [location.cityName, location.stateName, location.countryName].filter(Boolean).join(', ')
     setCampaignBusy(true)
     setError('')
     setNotice('')
@@ -385,20 +380,19 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
           ))}
         </div>
         {dashboard?.campaign.status === 'awaiting_city' || dashboard?.campaign.status === 'failed' || dashboard?.campaign.status === 'completed' ? (
-          <form className="prospecting-chat-form" onSubmit={(event) => void submitDailyCampaign(event)}>
-            <label>
-              <span>Cidade</span>
-              <div className="prospecting-chat-input-wrap"><MapPin size={16} /><input value={campaignCity} onChange={(event) => setCampaignCity(event.target.value)} maxLength={120} placeholder="Ex.: Brasília, DF" disabled={campaignBusy} required /></div>
-            </label>
-            <label>
-              <span>Segmento <small>opcional</small></span>
-              <input value={campaignSegment} onChange={(event) => setCampaignSegment(event.target.value)} maxLength={120} placeholder="Todos os segmentos" disabled={campaignBusy} />
-            </label>
-            <button className="prospecting-chat-submit" type="submit" disabled={campaignBusy || loadState !== 'ready'}>
-              {campaignBusy ? <LoaderCircle size={16} className="is-spinning" /> : <Send size={15} />}
-              {campaignBusy ? 'Pesquisando…' : dashboard?.campaign.status === 'completed' ? 'Prospectar mais hoje' : 'Buscar e preparar contatos'}
-            </button>
-          </form>
+          <SearchPanel
+            {...campaignLocation}
+            segment={campaignSegment}
+            segmentOptional
+            isSearching={campaignBusy}
+            submitDisabled={loadState !== 'ready'}
+            submitLabel={dashboard.campaign.status === 'completed' ? 'Prospectar mais hoje' : 'Buscar e preparar contatos'}
+            onCountryChange={(countryCode) => setCampaignLocation({ countryCode, stateCode: '', city: '' })}
+            onStateChange={(stateCode) => setCampaignLocation((current) => ({ ...current, stateCode, city: '' }))}
+            onCityChange={(city) => setCampaignLocation((current) => ({ ...current, city }))}
+            onSegmentChange={setCampaignSegment}
+            onSearch={(location) => void submitDailyCampaign(location)}
+          />
         ) : dashboard?.campaign.status === 'processing' ? (
           <p className="prospecting-chat-hint">A busca está rodando. O DigiBot vai salvar os candidatos e preparar prévias. A busca não cria fila nem envia mensagem; você escolhe os leads depois.</p>
         ) : (

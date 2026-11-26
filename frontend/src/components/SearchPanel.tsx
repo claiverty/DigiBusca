@@ -19,13 +19,16 @@ type SearchPanelProps = {
   stateCode: string
   city: string
   segment: string
-  opportunity: '' | OpportunityType
+  opportunity?: '' | OpportunityType
   isSearching?: boolean
+  submitDisabled?: boolean
+  submitLabel?: string
+  segmentOptional?: boolean
   onCountryChange: (countryCode: string) => void
   onStateChange: (stateCode: string) => void
   onCityChange: (city: string) => void
   onSegmentChange: (segment: string) => void
-  onOpportunityChange: (opportunity: '' | OpportunityType) => void
+  onOpportunityChange?: (opportunity: '' | OpportunityType) => void
   onSearch: (location: SearchLocation) => void
 }
 
@@ -247,8 +250,11 @@ export function SearchPanel({
   stateCode,
   city,
   segment,
-  opportunity,
+  opportunity = '',
   isSearching = false,
+  submitDisabled = false,
+  submitLabel = 'Buscar oportunidades',
+  segmentOptional = false,
   onCountryChange,
   onStateChange,
   onCityChange,
@@ -399,16 +405,12 @@ export function SearchPanel({
     }
   }, [countryCode, hasStates, stateCode, statesReady])
 
+  const canSubmit = !submitDisabled && !isSearching && !hasLocationError &&
+    hasValidCountry && statesReady && hasValidState && !isLoadingCities &&
+    Boolean(matchingCity) && (segmentOptional || Boolean(segment))
+
   function handleSearch() {
-    if (
-      !matchingCountry ||
-      !matchingCity ||
-      !segment ||
-      !hasValidCountry ||
-      !hasValidState
-    ) {
-      return
-    }
+    if (!canSubmit || !matchingCountry || !matchingCity) return
 
     onSearch({
       countryCode: matchingCountry.code,
@@ -513,7 +515,7 @@ export function SearchPanel({
         id="search-query-4"
         value={segment}
         options={segmentOptions}
-        placeholder="Digite ou escolha um segmento"
+        placeholder={segmentOptional ? 'Todos os segmentos' : 'Digite ou escolha um segmento'}
         ariaLabel="Segmento"
         allowCustomValue
         showAllOptionsOnFocus
@@ -522,7 +524,7 @@ export function SearchPanel({
         onClear={() => onSegmentChange('')}
         onSelect={(option) => onSegmentChange(option.value)}
       />
-      <AppSelect
+      {onOpportunityChange && <AppSelect
         id="opportunity"
         value={opportunity}
         options={opportunityOptions}
@@ -531,22 +533,14 @@ export function SearchPanel({
         onValueChange={(nextOpportunity) =>
           onOpportunityChange(nextOpportunity as '' | OpportunityType)
         }
-      />
+      />}
       <button
         className="primary-button search-button"
         type="submit"
-        disabled={
-          isSearching ||
-          hasLocationError ||
-          !hasValidCountry ||
-          !matchingCity ||
-          !segment ||
-          !hasValidState ||
-          isLoadingCities
-        }
+        disabled={!canSubmit}
       >
         <Search size={17} aria-hidden="true" />
-        {isSearching ? 'Buscando...' : 'Buscar oportunidades'}
+        {isSearching ? 'Buscando...' : submitLabel}
       </button>
       {hasLocationError && (
         <span className="search-location-error" role="alert">
