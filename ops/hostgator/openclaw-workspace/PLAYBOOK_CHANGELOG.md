@@ -1,5 +1,11 @@
 # Histórico do playbook do Cristhian
 
+## 2026.11.27.1 — Abertura de atendimento
+
+- Oferece ajuda na primeira resposta a uma saudação sem pedido. Se a conversa
+  ainda estiver nas cortesias, responde e abre o atendimento no mesmo balão.
+- Responde diretamente quando a pessoa já explicou o que precisa.
+
 ## 2026.11.25.1 — Revisão segura de prospecção e follow-up
 
 - Exige referência de identidade independente do telefone antes de qualquer
