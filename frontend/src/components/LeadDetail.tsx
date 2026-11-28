@@ -557,7 +557,7 @@ export function LeadDetail({
                   </div>
                 )}
                 {timelineEntries.length > 0 && (
-                  <div className="interaction-list" aria-label="Linha do tempo do lead">
+                  <div className="interaction-list" aria-label="Interações registradas">
                     {timelineEntries.map((entry) => entry.kind === 'interaction' ? (
                       <article className="interaction-row" key={`interaction-${entry.interaction.id}`}>
                         <div className="interaction-row-heading">

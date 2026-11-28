@@ -34,6 +34,12 @@ async function mountWorkflow(page: Page, view: 'assistant' | 'portfolio' | 'sear
     contentType: 'application/javascript', body: `
       export class GoogleApiMonthlyLimitError extends Error {}
       export const MAX_BULK_LEAD_IDS = 200;
+      export async function authenticatedFetch() {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
       export async function getSavedLeads() { return window.fixtureLeads }
       export async function getCachedAiOutreach() { return undefined }
       export async function getOpenBotAgents() { return [] }
