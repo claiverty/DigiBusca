@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUpRight, CalendarDays, Check, CircleDashed, Inbox, Link2, MessageCircle, Pause, Play, QrCode, RefreshCw, ShieldCheck, Video } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUpRight, CalendarDays, Check, CircleDashed, Inbox, Link2, MessageCircle, Pause, Play, QrCode, RefreshCw, Search, ShieldCheck, Video } from 'lucide-react'
 import {
   connectWhatsAppEvolution,
   registerOpenClawWhatsAppConnection,
@@ -44,7 +44,31 @@ import './WhatsAppPage.css'
 
 type PageTab = 'inbox' | 'settings'
 type LoadState = 'loading' | 'ready' | 'error'
+type InboxFilter = 'all' | 'attention' | 'linked' | 'unlinked'
 const inboxRefreshIntervalMs = 5_000
+
+const inboxFilters: Array<{ id: InboxFilter; label: string }> = [
+  { id: 'all', label: 'Todas' },
+  { id: 'attention', label: 'Precisam de atenção' },
+  { id: 'linked', label: 'Vinculadas ao CRM' },
+  { id: 'unlinked', label: 'Sem lead' },
+]
+
+function conversationNeedsAttention(conversation: WhatsAppConversation) {
+  return ['handoff', 'handoff_send_failed', 'schedule_review_required', 'provider_unavailable']
+    .includes(conversation.automationPauseReason ?? '')
+}
+
+function normalizeInboxSearch(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim()
+}
+
+function matchesInboxFilter(conversation: WhatsAppConversation, filter: InboxFilter) {
+  if (filter === 'attention') return conversationNeedsAttention(conversation)
+  if (filter === 'linked') return Boolean(conversation.linkedLeadId)
+  if (filter === 'unlinked') return !conversation.linkedLeadId
+  return true
+}
 
 function mergeInboxConversations(latest: WhatsAppConversation[], pending: WhatsAppConversation[]) {
   const byId = new Map<string, WhatsAppConversation>()
@@ -275,12 +299,19 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
   const [status, setStatus] = useState<WhatsAppEvolutionSetupStatus | null>(null)
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [conversations, setConversations] = useState<WhatsAppConversation[]>([])
+  const [conversationSearch, setConversationSearch] = useState('')
+  const [conversationFilter, setConversationFilter] = useState<InboxFilter>('all')
+  const [nextConversationCursor, setNextConversationCursor] = useState<string>()
+  const [hasLoadedOlderConversations, setHasLoadedOlderConversations] = useState(false)
+  const [loadingOlderConversations, setLoadingOlderConversations] = useState(false)
+  const [olderConversationsError, setOlderConversationsError] = useState('')
   const [humanPendingCount, setHumanPendingCount] = useState(0)
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<WhatsAppMessage[]>([])
   const threadMessagesRef = useRef<HTMLDivElement | null>(null)
   const loadedThreadConversationIdRef = useRef<string | null>(null)
   const lastScrolledConversationIdRef = useRef<string | null>(null)
+  const inboxPageGenerationRef = useRef(0)
   const [inboxState, setInboxState] = useState<LoadState>('loading')
   const [messagesState, setMessagesState] = useState<LoadState>('ready')
   const [inboxError, setInboxError] = useState('')
@@ -547,8 +578,13 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
 
   useEffect(() => {
     let active = true
+    const pageGeneration = ++inboxPageGenerationRef.current
     setInboxState('loading')
     setInboxError('')
+    setOlderConversationsError('')
+    setHasLoadedOlderConversations(false)
+    setLoadingOlderConversations(false)
+    setNextConversationCursor(undefined)
 
     void Promise.all([
       getWhatsAppConversations(),
@@ -558,6 +594,7 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
         if (!active) return
         const items = mergeInboxConversations(Array.isArray(page?.data) ? page.data : [], pending)
         setConversations(items)
+        setNextConversationCursor(page?.nextCursor)
         setSelectedConversationId((current) => (
           current && items.some((conversation) => conversation.id === current)
             ? current
@@ -576,7 +613,10 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
       })
       .catch(() => undefined)
 
-    return () => { active = false }
+    return () => {
+      active = false
+      if (inboxPageGenerationRef.current === pageGeneration) inboxPageGenerationRef.current += 1
+    }
   }, [refreshKey])
 
   useEffect(() => {
@@ -634,13 +674,9 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
             .then(async (page) => {
               if (!active) return
               const pending = await getWhatsAppHumanPendingConversations().catch(() => [])
-              const items = mergeInboxConversations(Array.isArray(page?.data) ? page.data : [], pending)
-              setConversations(items)
-              setSelectedConversationId((current) => (
-                current && items.some((conversation) => conversation.id === current)
-                  ? current
-                  : items[0]?.id ?? null
-              ))
+              const latest = Array.isArray(page?.data) ? page.data : []
+              setConversations((current) => mergeInboxConversations([...latest, ...current], pending))
+              if (!hasLoadedOlderConversations) setNextConversationCursor(page?.nextCursor)
               setInboxError('')
               setInboxState('ready')
             })
@@ -686,7 +722,7 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
       window.clearInterval(interval)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeTab, selectedConversationId])
+  }, [activeTab, hasLoadedOlderConversations, selectedConversationId])
 
   // Keep the current Evolution UI while an older backend (without the flag) is still deployed.
   const evolutionIntegrationEnabled = status?.evolutionIntegrationEnabled !== false
@@ -705,6 +741,30 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
     connection.platformType === 'OPENCLAW_WEB' || evolutionIntegrationEnabled
   ))
   const selectedConversation = conversations.find((conversation) => conversation.id === selectedConversationId)
+  const normalizedConversationSearch = normalizeInboxSearch(conversationSearch)
+  const conversationFilterCounts = useMemo(() => ({
+    all: conversations.length,
+    attention: conversations.filter(conversationNeedsAttention).length,
+    linked: conversations.filter((conversation) => Boolean(conversation.linkedLeadId)).length,
+    unlinked: conversations.filter((conversation) => !conversation.linkedLeadId).length,
+  }), [conversations])
+  const filteredConversations = useMemo(() => conversations.filter((conversation) => {
+    if (!matchesInboxFilter(conversation, conversationFilter)) return false
+    if (!normalizedConversationSearch) return true
+    const searchableText = normalizeInboxSearch([
+      conversation.contactName,
+      conversation.contactWaId,
+      conversation.linkedLeadName,
+      conversation.lastMessagePreview,
+    ].filter(Boolean).join(' '))
+    return searchableText.includes(normalizedConversationSearch)
+  }), [conversationFilter, conversations, normalizedConversationSearch])
+
+  useEffect(() => {
+    if (inboxState !== 'ready') return
+    if (selectedConversationId && filteredConversations.some((conversation) => conversation.id === selectedConversationId)) return
+    setSelectedConversationId(filteredConversations[0]?.id ?? null)
+  }, [filteredConversations, inboxState, selectedConversationId])
 
   useEffect(() => {
     if (status?.evolutionIntegrationEnabled !== false) return
@@ -917,6 +977,27 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
     }
   }
 
+  async function loadOlderConversations() {
+    const cursor = nextConversationCursor
+    if (!cursor || loadingOlderConversations) return
+    const pageGeneration = inboxPageGenerationRef.current
+    setLoadingOlderConversations(true)
+    setOlderConversationsError('')
+    try {
+      const page = await getWhatsAppConversations(cursor)
+      if (pageGeneration !== inboxPageGenerationRef.current) return
+      const olderConversations = Array.isArray(page?.data) ? page.data : []
+      setConversations((current) => mergeInboxConversations([...current, ...olderConversations], []))
+      setNextConversationCursor(page?.nextCursor)
+      setHasLoadedOlderConversations(true)
+    } catch (error) {
+      if (pageGeneration !== inboxPageGenerationRef.current) return
+      setOlderConversationsError(error instanceof Error ? error.message : 'Não foi possível carregar as conversas antigas.')
+    } finally {
+      if (pageGeneration === inboxPageGenerationRef.current) setLoadingOlderConversations(false)
+    }
+  }
+
   function updateConversationLeadLink(conversationId: string, result: { linkedLeadId: string; linkedLeadName: string }) {
     setConversations((current) => current.map((conversation) => conversation.id === conversationId
       ? { ...conversation, linkedLeadId: result.linkedLeadId, linkedLeadName: result.linkedLeadName }
@@ -1100,6 +1181,34 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
                   : `${conversations.filter((conversation) => conversation.automationPauseReason === 'schedule_review_required').length} pedidos de agenda precisam da sua conferência.`}
               </p>
             )}
+            <div className="whatsapp-inbox-controls">
+              <label className="whatsapp-inbox-search">
+                <Search size={15} aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Buscar conversas"
+                  value={conversationSearch}
+                  onChange={(event) => setConversationSearch(event.target.value)}
+                  placeholder="Nome, número ou mensagem"
+                />
+              </label>
+              <div className="whatsapp-inbox-filters" role="group" aria-label="Filtrar conversas">
+                {inboxFilters.map((filter) => (
+                  <button
+                    className={`whatsapp-inbox-filter${conversationFilter === filter.id ? ' is-active' : ''}`}
+                    key={filter.id}
+                    type="button"
+                    aria-pressed={conversationFilter === filter.id}
+                    onClick={() => setConversationFilter(filter.id)}
+                  >
+                    {filter.label}<span>{conversationFilterCounts[filter.id]}</span>
+                  </button>
+                ))}
+              </div>
+              {(normalizedConversationSearch || conversationFilter !== 'all') && nextConversationCursor && (
+                <small className="whatsapp-inbox-search-note">Busca e filtros consideram as {conversations.length} conversas carregadas. Carregue mais para incluir as antigas.</small>
+              )}
+            </div>
             <div className="whatsapp-conversation-items" aria-live="polite">
               {inboxState === 'loading' && <p className="whatsapp-inline-state">Carregando conversas…</p>}
               {inboxState === 'error' && <p className="whatsapp-inline-state is-error" role="alert">{inboxError}</p>}
@@ -1110,7 +1219,14 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
                   <span>As mensagens aparecerão aqui quando o webhook estiver conectado e chegar uma resposta.</span>
                 </div>
               )}
-              {conversations.map((conversation) => (
+              {inboxState === 'ready' && conversations.length > 0 && filteredConversations.length === 0 && (
+                <div className="whatsapp-empty-list">
+                  <Search size={21} />
+                  <strong>Nenhuma conversa neste filtro</strong>
+                  <span>Ajuste a busca ou escolha outro filtro para encontrar a conversa.</span>
+                </div>
+              )}
+              {filteredConversations.map((conversation) => (
                 <button
                   className={`whatsapp-conversation-item${conversation.id === selectedConversationId ? ' is-active' : ''}`}
                   key={conversation.id}
@@ -1136,6 +1252,12 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
                   </span>
                 </button>
               ))}
+              {olderConversationsError && <p className="whatsapp-inline-state is-error" role="alert">{olderConversationsError}</p>}
+              {nextConversationCursor && (
+                <button className="whatsapp-load-older" type="button" onClick={() => void loadOlderConversations()} disabled={loadingOlderConversations}>
+                  {loadingOlderConversations ? 'Carregando conversas…' : 'Carregar conversas antigas'}
+                </button>
+              )}
             </div>
           </aside>
 
@@ -1223,11 +1345,23 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
             ) : (
               <div className="whatsapp-conversation-placeholder">
                 <div className="whatsapp-placeholder-icon"><MessageCircle size={25} /></div>
-                <h2>Seu atendimento começa por aqui</h2>
-                <p>Quando o webhook estiver conectado e alguém responder, a conversa ficará disponível nesta tela.</p>
-                <button className="text-button" type="button" onClick={() => setActiveTab('settings')}>
-                  Ver configuração <ArrowUpRight size={15} />
-                </button>
+                {conversationSearch || conversationFilter !== 'all' ? (
+                  <>
+                    <h2>Nenhuma conversa selecionada</h2>
+                    <p>A busca ou o filtro atual não mostra uma conversa para abrir.</p>
+                    <button className="text-button" type="button" onClick={() => { setConversationSearch(''); setConversationFilter('all') }}>
+                      Limpar busca e filtros
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <h2>Seu atendimento começa por aqui</h2>
+                    <p>Quando o webhook estiver conectado e alguém responder, a conversa ficará disponível nesta tela.</p>
+                    <button className="text-button" type="button" onClick={() => setActiveTab('settings')}>
+                      Ver configuração <ArrowUpRight size={15} />
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </section>
