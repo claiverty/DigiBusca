@@ -192,10 +192,10 @@
 
 .whatsapp-inbox-filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
+  overflow: visible;
   padding: 1px 0 3px;
-  scrollbar-width: thin;
 }
 
 .whatsapp-inbox-filter {
