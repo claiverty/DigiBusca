@@ -132,7 +132,7 @@ export function LeadWorkspacePage({
 
           {connectionState === 'loading' && <p className="lead-workspace-connection-state" role="status">Verificando o WhatsApp conectado…</p>}
           {connectionState === 'error' && <p className="lead-workspace-connection-state is-error" role="alert">{connectionError}</p>}
-          <WhatsAppProspectingPanel connections={connections} />
+          <WhatsAppProspectingPanel connections={connections} onSelectLead={onSelectLead} />
           </>
         )}
       </div>

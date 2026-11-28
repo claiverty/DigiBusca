@@ -94,6 +94,14 @@
   border-bottom: 0;
 }
 
+.whatsapp-timeline-message.is-inbound {
+  border-left: 3px solid #d7e8dc;
+}
+
+.whatsapp-timeline-message.is-outbound {
+  border-left: 3px solid #dce2fa;
+}
+
 .interaction-row-heading {
   display: flex;
   align-items: baseline;

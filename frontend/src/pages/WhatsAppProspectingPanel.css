@@ -136,6 +136,23 @@
   background: #f8f0dd;
 }
 
+.prospecting-session-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  grid-column: 1 / -1;
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.prospecting-session-confirm input {
+  flex: 0 0 auto;
+  margin: 1px 0 0;
+  accent-color: #3a694c;
+}
+
 .prospecting-phone-field,
 .prospecting-policy-note {
   grid-column: 1 / -1;
@@ -351,6 +368,46 @@
   background: #f1f1f3;
   font-size: 11px;
   font-weight: 650;
+}
+
+.prospecting-queue-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.prospecting-queue-filters button {
+  display: inline-flex;
+  min-height: 31px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-subtle);
+  background: #fff;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.prospecting-queue-filters button.is-active {
+  border-color: #cdd4ff;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.prospecting-queue-filters button span {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  color: inherit;
+  background: rgb(0 0 0 / 5%);
+  font-size: 9px;
 }
 
 .prospecting-lead-list,
@@ -591,6 +648,19 @@
   font-size: 10px;
 }
 
+.prospecting-queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.prospecting-queue-actions .secondary-button {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 10px;
+}
+
 .prospecting-queue-item.needs-contact-review {
   border-color: #eadfca;
   background: #fffdf8;
@@ -754,6 +824,16 @@
 
   .prospecting-chat-submit {
     width: 100%;
+  }
+
+  .prospecting-queue-filters {
+    gap: 6px;
+  }
+
+  .prospecting-queue-filters button {
+    min-height: 29px;
+    padding: 0 8px;
+    font-size: 9px;
   }
 
   .prospecting-chat-message {

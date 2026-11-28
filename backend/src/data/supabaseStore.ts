@@ -53,6 +53,7 @@ type GoogleApiUsageRow = {
 type LeadInteractionRow = {
   id: string
   lead_id: string
+  whatsapp_message_id: string | null
   channel: InteractionChannel
   occurred_at: string
   notes: string
@@ -140,6 +141,7 @@ function mapLeadInteraction(row: LeadInteractionRow): LeadInteraction {
     notes: row.notes,
     outcome: row.outcome ?? undefined,
     createdAt: row.created_at,
+    whatsappMessageId: row.whatsapp_message_id ?? undefined,
   }
 }
 
@@ -412,7 +414,7 @@ export class SupabaseStore {
   ): Promise<LeadInteraction[]> {
     const { data, error } = await this.client(accessToken)
       .from('lead_interactions')
-      .select('id, lead_id, channel, occurred_at, notes, outcome, created_at')
+      .select('id, lead_id, whatsapp_message_id, channel, occurred_at, notes, outcome, created_at')
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .order('occurred_at', { ascending: false })
@@ -438,7 +440,7 @@ export class SupabaseStore {
         notes: input.notes,
         outcome: input.outcome || null,
       })
-      .select('id, lead_id, channel, occurred_at, notes, outcome, created_at')
+      .select('id, lead_id, whatsapp_message_id, channel, occurred_at, notes, outcome, created_at')
       .single()
 
     throwIfError(error)

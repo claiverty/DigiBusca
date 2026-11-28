@@ -15,13 +15,25 @@ import {
   type WhatsAppConnection,
 } from '../services/whatsappService'
 import { AppSelect } from '../components/AppSelect'
+import type { Lead } from '../types'
 import './WhatsAppProspectingPanel.css'
+
+type QueueFilter = 'all' | 'review' | 'scheduled' | 'sent' | 'problems'
 
 type Props = {
   connections: WhatsAppConnection[]
+  onSelectLead: (lead: Lead) => void
 }
 
 type LoadState = 'loading' | 'ready' | 'error'
+
+const queueFilterOptions: Array<{ id: QueueFilter; label: string }> = [
+  { id: 'review', label: 'Para revisar' },
+  { id: 'scheduled', label: 'Agendados' },
+  { id: 'sent', label: 'Enviados' },
+  { id: 'problems', label: 'Com problema' },
+  { id: 'all', label: 'Todos' },
+]
 
 function queueStatusLabel(item: WhatsAppProspectingQueueItem) {
   if (item.status === 'review_required') return 'Conferir contato'
@@ -29,7 +41,7 @@ function queueStatusLabel(item: WhatsAppProspectingQueueItem) {
   if (item.status === 'sending') return 'Enviando'
   if (item.status === 'sent') {
     if (item.deliveryStatus === 'failed') return 'Falha no envio'
-    return 'Envio confirmado'
+    return item.deliveryStatus === 'sent' ? 'Envio confirmado' : 'Resultado sem confirmação'
   }
   if (item.status === 'unknown') return 'Verificar envio'
   if (item.status === 'failed') return 'Falhou'
@@ -38,6 +50,19 @@ function queueStatusLabel(item: WhatsAppProspectingQueueItem) {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(value))
+}
+
+function queueItemTiming(item: WhatsAppProspectingQueueItem) {
+  if (item.status === 'sent' && item.deliveryStatus === 'unconfirmed') return `Resultado sem confirmação · ${formatDate(item.createdAt)}`
+  if (item.sentAt) return `${item.deliveryStatus === 'failed' ? 'Envio recusado' : 'Envio confirmado pelo OpenClaw'} · ${formatDate(item.sentAt)}`
+  if (item.status === 'review_required') return `Aguardando sua conferência · ${formatDate(item.createdAt)}`
+  if (item.status === 'queued' || item.status === 'sending') {
+    const scheduledAt = Date.parse(item.scheduledAt)
+    return Number.isFinite(scheduledAt) && scheduledAt > Date.now()
+      ? `Agendado para ${formatDate(item.scheduledAt)}`
+      : item.status === 'sending' ? `Despacho em andamento · ${formatDate(item.createdAt)}` : `Aguardando processamento · ${formatDate(item.createdAt)}`
+  }
+  return `${queueStatusLabel(item)} · ${formatDate(item.createdAt)}`
 }
 
 function openClawContactUrl(phone: string) {
@@ -79,7 +104,7 @@ function isRegisteredWhatsAppConnection(connection: WhatsAppConnection) {
   return state === 'open' || (connection.platformType === 'OPENCLAW_WEB' && state === 'registered')
 }
 
-export function WhatsAppProspectingPanel({ connections }: Props) {
+export function WhatsAppProspectingPanel({ connections, onSelectLead }: Props) {
   const [dashboard, setDashboard] = useState<WhatsAppProspectingDashboard | null>(null)
   const [leads, setLeads] = useState<SavedLeadState[]>([])
   const [loadState, setLoadState] = useState<LoadState>('loading')
@@ -94,6 +119,8 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
   const [campaignLocation, setCampaignLocation] = useState({ countryCode: 'BR', stateCode: '', city: '' })
   const [campaignSegment, setCampaignSegment] = useState('Todos os segmentos')
   const [campaignBusy, setCampaignBusy] = useState(false)
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>('all')
+  const [sessionManuallyConfirmed, setSessionManuallyConfirmed] = useState(false)
 
   const reload = useCallback(async () => {
     setLoadState('loading')
@@ -137,6 +164,10 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
     ))
   }, [connections])
 
+  useEffect(() => {
+    setSessionManuallyConfirmed(false)
+  }, [selectedPhoneNumberId])
+
   const queuedLeadIds = useMemo(() => new Set(
     (dashboard?.queue ?? [])
       .filter((item) => ['review_required', 'queued', 'sending', 'sent', 'unknown'].includes(item.status))
@@ -156,8 +187,13 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
     !queuedLeadIds.has(savedLead.leadId)
   )), [leads, queuedLeadIds])
   const leadDetails = useMemo(() => new Map(leads.map((savedLead) => [savedLead.leadId, savedLead.lead] as const)), [leads])
+  const leadRecords = useMemo(() => new Map(leads.map((savedLead) => [savedLead.leadId, savedLead] as const)), [leads])
 
   async function updateSettings(enabled: boolean, nextLimit = dailyLimit) {
+    if (enabled && dashboard?.settings.enabled !== true && !sessionManuallyConfirmed) {
+      setError('Confira no OpenClaw se o WhatsApp Web está conectado e confirme essa checagem antes de ativar a fila.')
+      return
+    }
     setBusyKey('settings')
     setError('')
     setNotice('')
@@ -294,6 +330,27 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
   const prospectingReadyConnections = openClawDispatcherReady ? readyConnections : []
   const selectedConnection = readyConnections.find((connection) => connection.phoneNumberId === selectedPhoneNumberId)
   const selectedConnectionAvailable = Boolean(selectedConnection)
+  const queueItems = dashboard?.queue ?? []
+  const queueCounts: Record<QueueFilter, number> = {
+    all: queueItems.length,
+    review: queueItems.filter((item) => item.status === 'review_required').length,
+    scheduled: queueItems.filter((item) => item.status === 'queued' || item.status === 'sending').length,
+    sent: queueItems.filter((item) => item.status === 'sent' && item.deliveryStatus === 'sent').length,
+    problems: queueItems.filter((item) => item.status === 'unknown' || item.status === 'failed' || (item.status === 'sent' && item.deliveryStatus !== 'sent')).length,
+  }
+  const visibleQueueItems = queueItems.filter((item) => {
+    if (queueFilter === 'all') return true
+    if (queueFilter === 'review') return item.status === 'review_required'
+    if (queueFilter === 'scheduled') return item.status === 'queued' || item.status === 'sending'
+    if (queueFilter === 'sent') return item.status === 'sent' && item.deliveryStatus === 'sent'
+    return item.status === 'unknown' || item.status === 'failed' || (item.status === 'sent' && item.deliveryStatus !== 'sent')
+  }).sort((left, right) => {
+    const priority = (item: WhatsAppProspectingQueueItem) => item.status === 'review_required' ? 0
+      : item.status === 'unknown' || item.status === 'failed' || item.deliveryStatus === 'failed' ? 1
+        : item.status === 'queued' || item.status === 'sending' ? 2
+          : item.status === 'sent' ? 3 : 4
+    return priority(left) - priority(right) || Date.parse(right.createdAt) - Date.parse(left.createdAt)
+  })
 
   return (
     <section className="whatsapp-prospecting" role="tabpanel" aria-label="Fila de prospecção">
@@ -329,7 +386,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
           <button
             className={`prospecting-toggle${dashboard?.settings.enabled ? ' is-on' : ''}`}
             type="button"
-            disabled={busyKey === 'settings' || loadState !== 'ready' || (!dashboard?.settings.enabled && prospectingReadyConnections.length === 0)}
+            disabled={busyKey === 'settings' || loadState !== 'ready' || (!dashboard?.settings.enabled && (prospectingReadyConnections.length === 0 || !sessionManuallyConfirmed))}
             onClick={() => void updateSettings(dashboard?.settings.enabled !== true, dailyLimit)}
           >
             {dashboard?.settings.enabled ? <Pause size={16} /> : <Play size={16} />}
@@ -342,7 +399,13 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
 
         {readyConnections.length === 0 && <p className="prospecting-guidance"><AlertCircle size={15} /> Registre o pareamento do WhatsApp Web do OpenClaw na aba Conexão para habilitar a prospecção.</p>}
         {readyConnections.length > 0 && prospectingReadyConnections.length === 0 && <p className="prospecting-guidance"><AlertCircle size={15} /> O dispatcher privado do OpenClaw ainda não está pronto para enviar.</p>}
-        {selectedConnection && <p className="prospecting-guidance">A prospecção usa somente o WhatsApp Web do OpenClaw. Confira a sessão ativa do Cristhian antes de liberar envios.</p>}
+        {selectedConnection && <p className="prospecting-guidance">A prospecção usa somente o WhatsApp Web do OpenClaw. O DigiBusca ainda não verifica a sessão ativa do Cristhian; confira o canal no OpenClaw antes de liberar envios.</p>}
+        {selectedConnection && dashboard?.settings.enabled !== true && (
+          <label className="prospecting-session-confirm">
+            <input type="checkbox" checked={sessionManuallyConfirmed} onChange={(event) => setSessionManuallyConfirmed(event.target.checked)} />
+            <span>Conferi agora no OpenClaw que a sessão do WhatsApp Web está conectada.</span>
+          </label>
+        )}
         {readyConnections.length > 1 && (
           <label className="prospecting-phone-field">
             <span>Número de envio</span>
@@ -459,21 +522,41 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
 
         <section className="panel prospecting-queue">
           <header className="prospecting-section-heading">
-            <div><span className="eyebrow">ACOMPANHAMENTO</span><h3>Envios e agendamentos</h3></div>
-            <span className="prospecting-count">{dashboard?.queue.length ?? 0}</span>
+            <div><span className="eyebrow">ACOMPANHAMENTO</span><h3>Fila por próxima ação</h3></div>
+            <span className="prospecting-count">{queueItems.length}</span>
           </header>
           <p className="prospecting-guidance">“Envio confirmado” significa que o OpenClaw registrou sucesso no envio pelo WhatsApp Web. Esta integração não recebe recibos de entrega ou leitura do destinatário; quando o resultado é incerto, confira a conversa antes de agir.</p>
+          <div className="prospecting-queue-filters" role="group" aria-label="Filtrar fila por estado">
+            {queueFilterOptions.map((filter) => (
+              <button
+                key={filter.id}
+                className={queueFilter === filter.id ? 'is-active' : ''}
+                type="button"
+                aria-pressed={queueFilter === filter.id}
+                onClick={() => setQueueFilter(filter.id)}
+              >
+                {filter.label}<span>{queueCounts[filter.id]}</span>
+              </button>
+            ))}
+          </div>
           {loadState === 'loading' && <p className="prospecting-empty">Carregando fila…</p>}
-          {loadState === 'ready' && (dashboard?.queue.length ?? 0) === 0 && <p className="prospecting-empty">A fila está vazia.</p>}
+          {loadState === 'ready' && queueItems.length === 0 && <p className="prospecting-empty">A fila está vazia.</p>}
+          {loadState === 'ready' && queueItems.length > 0 && visibleQueueItems.length === 0 && <p className="prospecting-empty">Nenhum contato nesta etapa. Escolha outro filtro para ver a fila.</p>}
           <div className="prospecting-queue-list">
-          {(dashboard?.queue ?? []).map((item) => (
+          {visibleQueueItems.map((item) => {
+            const savedLead = leadRecords.get(item.leadId)
+            return (
             <article className={`prospecting-queue-item${item.status === 'review_required' ? ' needs-contact-review' : ''}`} key={item.id}>
               <div className="prospecting-queue-item-top">
                 <div><strong>{leadNames.get(item.leadId) ?? item.leadId}</strong><small>+{item.recipientPhone}</small></div>
                 <span className={`prospecting-status is-${item.status}`}>{queueStatusLabel(item)}</span>
               </div>
               <p>{item.message}</p>
-              <div className="prospecting-queue-meta"><Clock3 size={13} /> {item.sentAt ? `${item.deliveryStatus === 'failed' ? 'Envio recusado' : 'Envio confirmado pelo OpenClaw'} ${formatDate(item.sentAt)}` : item.status === 'review_required' ? `Aguardando conferência · ${formatDate(item.createdAt)}` : item.status === 'queued' || item.status === 'sending' ? `Na fila desde ${formatDate(item.createdAt)}` : `${queueStatusLabel(item)} · ${formatDate(item.createdAt)}`}</div>
+              <div className="prospecting-queue-meta"><Clock3 size={13} /> {queueItemTiming(item)}</div>
+              <div className="prospecting-queue-actions">
+                {savedLead?.lead && <button className="text-button" type="button" onClick={() => onSelectLead({ ...savedLead.lead!, status: savedLead.status, notes: savedLead.notes, nextFollowUp: savedLead.nextFollowUp, draftMessage: savedLead.draftMessage, conversationStage: savedLead.conversationStage, contactName: savedLead.contactName, nextAction: savedLead.nextAction })}>Abrir ficha no CRM</button>}
+                {item.status !== 'cancelled' && <a className="secondary-button" href={openClawContactUrl(item.recipientPhone)} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} /> {item.status === 'unknown' ? 'Conferir chat no OpenClaw' : 'Abrir chat no OpenClaw'}</a>}
+              </div>
               {item.status === 'review_required' && (
                 <div className="prospecting-contact-review">
                   {(() => {
@@ -489,9 +572,6 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
                     )
                   })()}
                   <small>O telefone da ficha do Google é uma referência para comparação, mas não basta sozinho: a linha pode ter mudado de titular. Procure também um sinal de identidade, como nome comercial, logo, descrição, endereço ou site no perfil Business, ou uma fonte oficial atual que ligue a pessoa à empresa. Se só houver coincidência do número, cancele.</small>
-                  <div>
-                    <a className="secondary-button" href={openClawContactUrl(item.recipientPhone)} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} /> Abrir no OpenClaw</a>
-                  </div>
                   <label className="prospecting-contact-evidence">
                     <span>Qual sinal além do telefone vinculou o perfil ou a pessoa à empresa?</span>
                     <textarea
@@ -518,7 +598,7 @@ export function WhatsAppProspectingPanel({ connections }: Props) {
               {(item.status === 'review_required' || item.status === 'queued') && <button className="prospecting-cancel" type="button" disabled={busyKey === item.id} onClick={() => void cancelItem(item)}><Trash2 size={14} /> Cancelar</button>}
               {item.status === 'unknown' && <small className="prospecting-uncertain">Confira a conversa antes de tentar novamente para evitar duplicidade.</small>}
             </article>
-            ))}
+          )})}
           </div>
         </section>
       </div>

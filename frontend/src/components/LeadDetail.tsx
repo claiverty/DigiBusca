@@ -10,6 +10,7 @@ import { AppSelect } from './AppSelect'
 import { DatePicker } from './DatePicker'
 import { SaleServiceField } from './SaleServiceField'
 import { AiOutreachAssistant } from './AiOutreachAssistant'
+import { getWhatsAppLeadTimeline, type WhatsAppLeadTimelineItem } from '../services/whatsappService'
 import type { Lead, LeadStatus, LeadUpdate } from '../types'
 import { interactionChannels, type InteractionChannel, type LeadInteraction } from '../types/interactions'
 import type { CreateSaleInput } from '../types/sales'
@@ -58,6 +59,10 @@ function formatInteractionDate(value: string) {
   )
 }
 
+function formatWhatsAppTimelineDate(value: string) {
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+
 export function LeadDetail({
   lead,
   isSaved,
@@ -87,6 +92,9 @@ export function LeadDetail({
   const [interactions, setInteractions] = useState<LeadInteraction[]>([])
   const [interactionStatus, setInteractionStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [interactionAttempt, setInteractionAttempt] = useState(0)
+  const [whatsappTimeline, setWhatsappTimeline] = useState<WhatsAppLeadTimelineItem[]>([])
+  const [whatsappTimelineStatus, setWhatsappTimelineStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [whatsappTimelineAttempt, setWhatsappTimelineAttempt] = useState(0)
   const [interactionChannel, setInteractionChannel] = useState<InteractionChannel>('WhatsApp')
   const [interactionDate, setInteractionDate] = useState(getToday())
   const [interactionNotes, setInteractionNotes] = useState('')
@@ -120,6 +128,26 @@ export function LeadDetail({
       active = false
     }
   }, [interactionAttempt, isSaved, lead.id])
+
+  useEffect(() => {
+    if (!isSaved) {
+      setWhatsappTimeline([])
+      setWhatsappTimelineStatus('idle')
+      return
+    }
+    let active = true
+    setWhatsappTimelineStatus('loading')
+    void getWhatsAppLeadTimeline(lead.id)
+      .then((items) => {
+        if (!active) return
+        setWhatsappTimeline(items)
+        setWhatsappTimelineStatus('ready')
+      })
+      .catch(() => {
+        if (active) setWhatsappTimelineStatus('error')
+      })
+    return () => { active = false }
+  }, [isSaved, lead.id, whatsappTimelineAttempt])
 
   useEffect(() => {
     if (!lead.website) {
@@ -261,6 +289,14 @@ export function LeadDetail({
       setIsRegisteringInteraction(false)
     }
   }
+
+  const whatsappMessageIds = new Set(whatsappTimeline.map((message) => message.providerMessageId))
+  const timelineEntries = [
+    ...interactions
+      .filter((interaction) => !interaction.whatsappMessageId || !whatsappMessageIds.has(interaction.whatsappMessageId))
+      .map((interaction) => ({ kind: 'interaction' as const, timestamp: new Date(`${interaction.occurredAt}T12:00:00`).getTime(), interaction })),
+    ...whatsappTimeline.map((message) => ({ kind: 'whatsapp' as const, timestamp: new Date(message.occurredAt).getTime(), message })),
+  ].sort((left, right) => right.timestamp - left.timestamp)
 
   return (
     <section className="detail-view">
@@ -432,7 +468,7 @@ export function LeadDetail({
             <div className="section-heading">
               <div>
                 <span className="eyebrow">HISTÓRICO</span>
-                <h2>Interações do lead</h2>
+                <h2>Linha do tempo</h2>
               </div>
               <History size={19} className="section-muted-icon" aria-hidden="true" />
             </div>
@@ -509,18 +545,35 @@ export function LeadDetail({
                   </div>
                 )}
                 {interactionStatus === 'ready' && interactions.length === 0 && (
-                  <p className="interaction-empty">Nenhuma interação registrada ainda.</p>
+                  whatsappTimeline.length === 0 && whatsappTimelineStatus === 'ready'
+                    ? <p className="interaction-empty">Nenhuma interação ou conversa vinculada ainda.</p>
+                    : null
                 )}
-                {interactions.length > 0 && (
-                  <div className="interaction-list" aria-label="Interações registradas">
-                    {interactions.map((interaction) => (
-                      <article className="interaction-row" key={interaction.id}>
+                {whatsappTimelineStatus === 'loading' && <div className="data-state">Carregando mensagens do WhatsApp…</div>}
+                {whatsappTimelineStatus === 'error' && (
+                  <div className="data-state" role="alert">
+                    <p>Não foi possível carregar as conversas vinculadas.</p>
+                    <button className="secondary-button" type="button" onClick={() => setWhatsappTimelineAttempt((value) => value + 1)}>Tentar novamente</button>
+                  </div>
+                )}
+                {timelineEntries.length > 0 && (
+                  <div className="interaction-list" aria-label="Linha do tempo do lead">
+                    {timelineEntries.map((entry) => entry.kind === 'interaction' ? (
+                      <article className="interaction-row" key={`interaction-${entry.interaction.id}`}>
                         <div className="interaction-row-heading">
-                          <strong>{interaction.channel}</strong>
-                          <time dateTime={interaction.occurredAt}>{formatInteractionDate(interaction.occurredAt)}</time>
+                          <strong>{entry.interaction.channel}</strong>
+                          <time dateTime={entry.interaction.occurredAt}>{formatInteractionDate(entry.interaction.occurredAt)}</time>
                         </div>
-                        <p>{interaction.notes}</p>
-                        {interaction.outcome && <small>Resultado: {interaction.outcome}</small>}
+                        <p>{entry.interaction.notes}</p>
+                        {entry.interaction.outcome && <small>Resultado: {entry.interaction.outcome}</small>}
+                      </article>
+                    ) : (
+                      <article className={`interaction-row whatsapp-timeline-message is-${entry.message.direction}`} key={`whatsapp-${entry.message.id}`}>
+                        <div className="interaction-row-heading">
+                          <strong>{entry.message.direction === 'inbound' ? entry.message.contactName || 'Contato no WhatsApp' : 'DigiBusca · WhatsApp'}</strong>
+                          <time dateTime={entry.message.occurredAt}>{formatWhatsAppTimelineDate(entry.message.occurredAt)}</time>
+                        </div>
+                        <p>{entry.message.body?.trim() || (entry.message.isPlaceholder ? 'Mensagem registrada; o conteúdo não está disponível.' : `Mensagem ${entry.message.messageType} recebida.`)}</p>
                       </article>
                     ))}
                   </div>

@@ -276,7 +276,7 @@ function App() {
         {activeView === 'whatsapp' && (
           <WhatsAppPage initialTab={
             new URLSearchParams(window.location.search).get('tab') === 'settings' ? 'settings' : 'inbox'
-          } />
+          } onOpenLead={openSavedLead} />
         )}
         {activeView === 'search' && (
           <LeadWorkspacePage savedLeadIds={savedLeadIds} onSelectLead={(lead) => void openSearchLead(lead)} />

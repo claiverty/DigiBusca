@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUpRight, CalendarDays, Check, CircleDashed, Inbox, MessageCircle, Pause, Play, QrCode, RefreshCw, ShieldCheck, Video } from 'lucide-react'
+import { ArrowUpRight, CalendarDays, Check, CircleDashed, Inbox, Link2, MessageCircle, Pause, Play, QrCode, RefreshCw, ShieldCheck, Video } from 'lucide-react'
 import {
   connectWhatsAppEvolution,
   registerOpenClawWhatsAppConnection,
@@ -14,6 +14,7 @@ import {
   getWhatsAppConversations,
   getWhatsAppHumanPendingCount,
   getWhatsAppHumanPendingConversations,
+  linkWhatsAppConversationToLead,
   getWhatsAppAutomationProfile,
   getWhatsAppAgentModels,
   connectWhatsAppAiProvider,
@@ -37,6 +38,7 @@ import {
   type GoogleCalendarConnectionStatus,
   WhatsAppAiProviderOperationError,
 } from '../services/whatsappService'
+import { getSavedLeads, type SavedLeadState } from '../services/leadsService'
 import { AppSelect, type AppSelectOption } from '../components/AppSelect'
 import './WhatsAppPage.css'
 
@@ -127,14 +129,14 @@ function updateAiProviderStatus(
   }
 }
 
-function SetupRow({ label, configured }: { label: string; configured: boolean }) {
+function SetupRow({ label, configured, pendingLabel = 'Pendente', readyLabel = 'Configurado' }: { label: string; configured: boolean; pendingLabel?: string; readyLabel?: string }) {
   return (
     <div className="whatsapp-setup-row">
       <span className={`whatsapp-setup-icon${configured ? ' is-ready' : ''}`} aria-hidden="true">
         {configured ? <Check size={15} /> : <CircleDashed size={15} />}
       </span>
       <span>{label}</span>
-      <strong className={configured ? 'is-ready' : ''}>{configured ? 'Configurado' : 'Pendente'}</strong>
+      <strong className={configured ? 'is-ready' : ''}>{configured ? readyLabel : pendingLabel}</strong>
     </div>
   )
 }
@@ -157,7 +159,118 @@ function getMessageFallback(message: WhatsAppMessage) {
   return `Mensagem ${message.messageType || 'sem texto'} recebida.`
 }
 
-export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab }) {
+type WhatsAppConversationLeadLinkProps = {
+  conversation: WhatsAppConversation
+  onLinked: (conversationId: string, result: { linkedLeadId: string; linkedLeadName: string }) => void
+  onOpenLead?: (leadId: string) => Promise<void>
+}
+
+function WhatsAppConversationLeadLink({ conversation, onLinked, onOpenLead }: WhatsAppConversationLeadLinkProps) {
+  const [savedLeads, setSavedLeads] = useState<SavedLeadState[]>([])
+  const [savedLeadsState, setSavedLeadsState] = useState<LoadState>('ready')
+  const [savedLeadsLoaded, setSavedLeadsLoaded] = useState(false)
+  const [isOpen, setIsOpen] = useState(false)
+  const [leadId, setLeadId] = useState('')
+  const [identityConfirmed, setIdentityConfirmed] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  async function loadSavedLeads() {
+    setSavedLeadsState('loading')
+    try {
+      setSavedLeads(await getSavedLeads())
+      setSavedLeadsLoaded(true)
+      setSavedLeadsState('ready')
+    } catch (loadError) {
+      setSavedLeadsState('error')
+      setError(loadError instanceof Error ? loadError.message : 'Não foi possível carregar os leads do CRM.')
+    }
+  }
+
+  function openLinkForm() {
+    setIsOpen(true)
+    setError('')
+    if (!savedLeadsLoaded && savedLeadsState !== 'loading') void loadSavedLeads()
+  }
+
+  async function saveLink() {
+    if (!leadId || !identityConfirmed) return
+    setIsSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await linkWhatsAppConversationToLead(conversation.id, leadId)
+      onLinked(conversation.id, result)
+      setIsOpen(false)
+      setLeadId('')
+      setIdentityConfirmed(false)
+      setNotice(`Conversa vinculada ao lead ${result.linkedLeadName}.`)
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Não foi possível vincular a conversa ao lead.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function openLead() {
+    if (!conversation.linkedLeadId || !onOpenLead) return
+    setError('')
+    try {
+      await onOpenLead(conversation.linkedLeadId)
+    } catch (openError) {
+      setError(openError instanceof Error ? openError.message : 'Não foi possível abrir a ficha do lead.')
+    }
+  }
+
+  return (
+    <div className="whatsapp-lead-link">
+      {conversation.linkedLeadId ? (
+        <div className="whatsapp-lead-link-current">
+          <span>Lead no CRM · <strong>{conversation.linkedLeadName ?? conversation.linkedLeadId}</strong></span>
+          {onOpenLead && <button className="text-button" type="button" onClick={() => void openLead()}><ArrowUpRight size={14} /> Abrir ficha</button>}
+        </div>
+      ) : (
+        <button className="text-button" type="button" onClick={openLinkForm}><Link2 size={14} /> Vincular a um lead do CRM</button>
+      )}
+      {notice && <p className="whatsapp-lead-link-notice" role="status">{notice}</p>}
+      {error && <p className="whatsapp-lead-link-error" role="alert">{error}</p>}
+      {isOpen && !conversation.linkedLeadId && (
+        <div className="whatsapp-lead-link-form">
+          <label className="whatsapp-lead-link-field">
+            <span>Lead salvo</span>
+            <AppSelect
+              value={leadId}
+              onValueChange={setLeadId}
+              ariaLabel="Lead do CRM para vincular à conversa"
+              placeholder={savedLeadsState === 'loading' ? 'Carregando leads…' : 'Selecione um lead salvo'}
+              disabled={savedLeadsState === 'loading' || savedLeads.length === 0}
+              options={savedLeads.map((savedLead) => ({
+                value: savedLead.leadId,
+                label: `${savedLead.lead?.name ?? 'Lead sem dados recentes'} · ${savedLead.lead?.phone ?? savedLead.leadId}`,
+              }))}
+            />
+          </label>
+          {savedLeadsState === 'error' && <button className="text-button" type="button" onClick={() => void loadSavedLeads()}>Tentar carregar leads novamente</button>}
+          {savedLeadsState === 'ready' && savedLeads.length === 0 && <small>Salve um lead no CRM antes de fazer o vínculo.</small>}
+          <label className="whatsapp-lead-link-confirm">
+            <input type="checkbox" checked={identityConfirmed} onChange={(event) => setIdentityConfirmed(event.target.checked)} />
+            <span>Conferi que esta conversa corresponde ao lead selecionado.</span>
+          </label>
+          <small>O DigiBusca não associa conversas automaticamente pelo número de telefone.</small>
+          <div className="whatsapp-lead-link-actions">
+            <button className="primary-button" type="button" onClick={() => void saveLink()} disabled={isSaving || !leadId || !identityConfirmed || savedLeadsState !== 'ready'}>
+              {isSaving ? 'Vinculando…' : 'Confirmar vínculo'}
+            </button>
+            <button className="text-button" type="button" onClick={() => setIsOpen(false)} disabled={isSaving}>Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?: PageTab; onOpenLead?: (leadId: string) => Promise<void> }) {
   const [activeTab, setActiveTab] = useState<PageTab>(initialTab)
   const [status, setStatus] = useState<WhatsAppEvolutionSetupStatus | null>(null)
   const [loadState, setLoadState] = useState<LoadState>('loading')
@@ -184,6 +297,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const qrActive = Boolean(connectQrCode)
   const [openClawRegisterError, setOpenClawRegisterError] = useState('')
   const [openClawRegisterNotice, setOpenClawRegisterNotice] = useState('')
+  const [openClawSessionManuallyConfirmed, setOpenClawSessionManuallyConfirmed] = useState(false)
   const [automationPhoneNumberId, setAutomationPhoneNumberId] = useState('')
   const [automationForm, setAutomationForm] = useState<WhatsAppAutomationProfileInput>(newAutomationProfileDraft(''))
   const [agentModelChoices, setAgentModelChoices] = useState<AppSelectOption[]>([])
@@ -220,6 +334,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
   const [pauseError, setPauseError] = useState('')
   const loadStatus = useCallback(async () => {
     setLoadState('loading')
+    setOpenClawSessionManuallyConfirmed(false)
 
     try {
       setStatus(await getWhatsAppEvolutionSetupStatus())
@@ -582,10 +697,10 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     status?.openClawRuntimeEnabled && status.openClawMcpConfigured && status.openClawBridgeConfigured &&
     status.openClawStorageReady && status.openClawGatewayReady && openClawConnectionRegistered,
   )
+  const openClawSessionCanActivate = status?.openClawSessionLiveVerified === true || openClawSessionManuallyConfirmed
   const selectedAutomationRuntimeEnabled = automationForm.responseMode === 'openclaw'
     ? status?.openClawRuntimeEnabled === true
     : status?.automationRuntimeEnabled === true
-  const connectionReady = evolutionConnectionReady || openClawRuntimeReady
   const visibleWhatsAppConnections = connections.filter((connection) => (
     connection.platformType === 'OPENCLAW_WEB' || evolutionIntegrationEnabled
   ))
@@ -802,6 +917,12 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
     }
   }
 
+  function updateConversationLeadLink(conversationId: string, result: { linkedLeadId: string; linkedLeadName: string }) {
+    setConversations((current) => current.map((conversation) => conversation.id === conversationId
+      ? { ...conversation, linkedLeadId: result.linkedLeadId, linkedLeadName: result.linkedLeadName }
+      : conversation))
+  }
+
   async function clearScheduleReview() {
     if (!selectedConversation) return
     setPauseBusy(true)
@@ -838,6 +959,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
 
   async function registerOpenClawConnection() {
     setOpenClawRegisterBusy(true)
+    setOpenClawSessionManuallyConfirmed(false)
     setOpenClawRegisterError('')
     setOpenClawRegisterNotice('')
     try {
@@ -931,9 +1053,9 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
           <p>{evolutionIntegrationEnabled ? 'Conecte seu WhatsApp pela Evolution API ou pelo OpenClaw e acompanhe as conversas em um só lugar.' : 'O atendimento e a prospecção deste número usam exclusivamente o OpenClaw.'}</p>
         </div>
         <div className="whatsapp-header-actions">
-          <span className={`whatsapp-connection-pill${sendReady || connectionReady ? ' is-ready' : ''}`}>
+          <span className={`whatsapp-connection-pill${evolutionConnectionReady ? ' is-ready' : ''}`}>
             <span aria-hidden="true" />
-            {connectionsState === 'loading' ? 'Verificando conexão' : !evolutionIntegrationEnabled ? openClawRuntimeReady ? 'OpenClaw configurado' : 'OpenClaw pendente' : evolutionConnectionReady ? 'Evolution conectada' : openClawRuntimeReady ? 'OpenClaw configurado' : sendReady ? 'Evolution configurada' : 'Configuração pendente'}
+            {connectionsState === 'loading' ? 'Verificando conexão' : !evolutionIntegrationEnabled ? openClawRuntimeReady ? 'OpenClaw · sessão não verificada' : 'OpenClaw pendente' : evolutionConnectionReady ? 'Evolution conectada' : openClawRuntimeReady ? 'OpenClaw · sessão não verificada' : sendReady ? 'Evolution configurada' : 'Configuração pendente'}
           </span>
           <button className="icon-button whatsapp-refresh" type="button" onClick={() => { void loadStatus(); setRefreshKey((value) => value + 1) }} aria-label="Atualizar conexão e conversas" title="Atualizar conexão e conversas">
             <RefreshCw size={16} className={loadState === 'loading' ? 'is-spinning' : ''} />
@@ -1030,6 +1152,12 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                     {selectedConversation.linkedLeadName && <small>Lead no CRM · {selectedConversation.linkedLeadName}</small>}
                   </div>
                 </header>
+                <WhatsAppConversationLeadLink
+                  key={selectedConversation.id}
+                  conversation={selectedConversation}
+                  onLinked={updateConversationLeadLink}
+                  onOpenLead={onOpenLead}
+                />
                 <div className="whatsapp-thread-automation">
                   <span className={selectedConversation.automationPaused ? 'is-paused' : 'is-running'}>
                     {selectedConversation.automationOptedOut ? 'Pedido de parada registrado; automação bloqueada' : selectedConversation.automationPauseReason === 'schedule_review_required' ? 'Pedido de agenda para conferir; automação continua ativa' : selectedConversation.automationPauseReason === 'provider_unavailable' ? 'Gemini temporariamente indisponível; resposta pendente' : selectedConversation.automationPauseReason === 'handoff_send_failed' ? 'Falha de envio anterior; automação pausada' : selectedConversation.automationPauseReason === 'handoff' ? 'Atendimento humano pendente; automação pausada' : selectedConversation.automationPaused ? 'Automação pausada nesta conversa' : 'Automação pode responder se estiver aprovada e ativa'}
@@ -1170,7 +1298,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   {visibleWhatsAppConnections.map((connection) => (
                     <li key={connection.phoneNumberId}>
                       <span><strong>{connection.displayPhoneNumber || 'WhatsApp via OpenClaw'}</strong><small>OpenClaw · registro {connection.connectionState || 'pendente'}</small></span>
-                      <span className={`whatsapp-connected-badge${openClawRuntimeReady ? '' : ' is-pending'}`}>{openClawRuntimeReady ? 'Configurado' : 'Pendente'}</span>
+                      <span className={`whatsapp-connected-badge${status?.openClawSessionLiveVerified === true ? '' : ' is-pending'}`}>{status?.openClawSessionLiveVerified === true ? 'Conectado' : 'Sessão não verificada'}</span>
                     </li>
                   ))}
                 </ul>
@@ -1188,10 +1316,20 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                 <SetupRow label="MCP privado" configured={status?.openClawMcpConfigured === true} />
                 <SetupRow label="Ponte protegida" configured={status?.openClawBridgeConfigured === true} />
                 <SetupRow label="Gateway acessível" configured={status?.openClawGatewayReady === true} />
-                <SetupRow label="Número registrado no DigiBusca" configured={openClawConnectionRegistered} />
+                <SetupRow label="Pareamento registrado no DigiBusca" configured={openClawConnectionRegistered} />
+                <SetupRow label="Sessão ativa do WhatsApp Web" configured={status?.openClawSessionLiveVerified === true} pendingLabel="Não verificada" readyLabel="Ativa" />
                 <SetupRow label="Despacho automático da fila" configured={status?.openClawProspectingDispatcherConfigured === true} />
                 <SetupRow label="Banco e permissões do OpenClaw" configured={status?.openClawStorageReady === true} />
               </div>
+              <label className="whatsapp-check-row">
+                <input
+                  type="checkbox"
+                  checked={openClawSessionManuallyConfirmed}
+                  disabled={!openClawConnectionRegistered || status?.openClawGatewayReady !== true}
+                  onChange={(event) => setOpenClawSessionManuallyConfirmed(event.target.checked)}
+                />
+                <span>Conferi agora no OpenClaw que a sessão do WhatsApp Web está conectada. O DigiBusca não monitora essa sessão continuamente.</span>
+              </label>
               <button
                 className="secondary-button"
                 type="button"
@@ -1203,7 +1341,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               </button>
               {openClawRegisterError && <p className="whatsapp-connect-state is-error" role="alert">{openClawRegisterError}</p>}
               {openClawRegisterNotice && <p className="whatsapp-connect-state is-ready" role="status">{openClawRegisterNotice}</p>}
-              {openClawConnectionRegistered && !openClawRegisterNotice && <p className={`whatsapp-connect-state ${openClawRuntimeReady ? 'is-ready' : 'is-pending'}`} role="status">{openClawRuntimeReady ? 'A configuração e o Gateway estão acessíveis. O registro no DigiBusca não confirma sozinho que a sessão do WhatsApp Web continua conectada; confira o canal no OpenClaw antes do teste real.' : 'Registro feito, mas ainda há pré-requisitos pendentes. A automação e a fila continuam bloqueadas até o runtime ficar pronto.'}</p>}
+              {openClawConnectionRegistered && !openClawRegisterNotice && <p className="whatsapp-connect-state is-pending" role="status">O DigiBusca confirma que o Gateway e o pareamento estão registrados. A sessão ativa do WhatsApp Web ainda não é verificada automaticamente; confira o canal no OpenClaw antes de operar a fila.</p>}
             </section>
 
             <section className="whatsapp-embedded-signup whatsapp-calendar-panel" aria-labelledby="google-calendar-title">
@@ -1506,7 +1644,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
                   <input
                     type="checkbox"
                     checked={automationForm.automationEnabled}
-                    disabled={!selectedAutomationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered)) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel))}
+                    disabled={!selectedAutomationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && !automationForm.automationEnabled && !openClawSessionCanActivate) || (automationForm.responseMode === 'openclaw' && (!status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered)) || (automationProfileSaved && (automationPersistedResponseMode !== automationForm.responseMode || automationPersistedOpenBotAgentId !== automationForm.openBotAgentId || automationPersistedAgentProvider !== automationForm.agentProvider || automationPersistedAgentModel !== automationForm.agentModel))}
                     onChange={(event) => setAutomationForm((current) => ({ ...current, automationEnabled: event.target.checked }))}
                   />
                   <span>Ativar respostas automáticas após salvar as aprovações.</span>
@@ -1529,7 +1667,7 @@ export function WhatsAppPage({ initialTab = 'inbox' }: { initialTab?: PageTab })
               {automationError && <p className="whatsapp-connect-state is-error" role="alert">{automationError}</p>}
               {automationNotice && <p className="whatsapp-connect-state is-ready" role="status">{automationNotice}</p>}
               <div className="whatsapp-automation-actions">
-                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.responseMode === 'digibot_agent' && !automationForm.agentModel) || (automationForm.automationEnabled && (!selectedAutomationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered))))}>
+                <button className="secondary-button" type="button" onClick={() => void saveAutomationSettings()} disabled={automationBusy || !automationPhoneNumberId || automationState === 'loading' || status?.automationStorageReady !== true || (automationForm.responseMode === 'digibot_agent' && !automationForm.agentModel) || (automationForm.automationEnabled && (!selectedAutomationRuntimeEnabled || !automationForm.channelApproved || !automationForm.contentApproved || !automationForm.businessName.trim() || !automationForm.senderIdentity.trim() || !automationForm.serviceSummary.trim() || !automationForm.escalationContact.trim() || (automationForm.responseMode === 'openbot' && !openBotCanEnable) || (automationForm.responseMode === 'digibot_agent' && !digiBuscaAgentCanEnable) || (automationForm.responseMode === 'openclaw' && (!openClawSessionCanActivate && !automationPersistedEnabled || !status?.openClawMcpConfigured || !status?.openClawBridgeConfigured || !status?.openClawGatewayReady || !status?.openClawStorageReady || !openClawConnectionRegistered))))}>
                   <ShieldCheck size={15} />
                   {automationBusy ? 'Salvando…' : 'Salvar regras'}
                 </button>

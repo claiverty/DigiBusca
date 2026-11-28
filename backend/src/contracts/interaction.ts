@@ -9,6 +9,7 @@ export type LeadInteraction = {
   notes: string
   outcome?: string
   createdAt: string
+  whatsappMessageId?: string
 }
 
 export type CreateLeadInteractionInput = Pick<LeadInteraction, 'channel' | 'occurredAt' | 'notes'> & {

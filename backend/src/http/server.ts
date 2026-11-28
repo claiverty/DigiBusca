@@ -21,7 +21,7 @@ import { getOpenBotWhatsAppAgentStatus, OpenBotWhatsAppBridgeError } from '../in
 import { getWhatsAppConnections } from '../application/evolutionConnections.js'
 import { isUuid, parseWhatsAppPageOptions } from '../contracts/whatsapp.js'
 import { parseWhatsAppAutomationProfileInput, whatsappAgentProviders } from '../contracts/whatsappAutomation.js'
-import { WhatsAppStore } from '../data/whatsappStore.js'
+import { WhatsAppConversationLeadConflictError, WhatsAppLeadNotFoundError, WhatsAppStore } from '../data/whatsappStore.js'
 import { invalidateWhatsAppAgentModelCache, listWhatsAppAgentModels, listWhatsAppAgentModelsForConfig, WhatsAppAgentModelCatalogError } from '../integrations/whatsappAgentModels.js'
 import { getDefaultWhatsAppAgentModel, getWhatsAppAgentProviderConfigForUser, getWhatsAppAgentProvidersStateForUser } from '../integrations/whatsappAgentProviderConfig.js'
 import { disableWhatsAppAiProviderCredential, saveWhatsAppAiProviderCredential, WhatsAppAiProviderCredentialStorageError } from '../data/whatsappAiProviderCredentials.js'
@@ -611,6 +611,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
           queue,
           campaign,
           openClawProspectingDispatcherReady: isWhatsAppOpenClawProspectingRuntimeEnabled() && openClawStorageReady && openClawGatewayReady && openClawConnectionPlatform === 'OPENCLAW_WEB',
+          openClawSessionLiveVerified: false,
         },
       })
     } catch {
@@ -878,6 +879,40 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     response.setHeader('Cache-Control', 'no-store')
     const data = await new WhatsAppStore().listHumanPendingConversations(accessToken, user.id)
     sendJson(response, 200, { data })
+    return
+  }
+
+  const whatsappConversationLeadMatch = requestUrl.pathname.match(/^\/api\/whatsapp\/conversations\/([^/]+)\/lead$/)
+  if (request.method === 'POST' && whatsappConversationLeadMatch) {
+    const conversationId = whatsappConversationLeadMatch[1]
+    if (!isUuid(conversationId)) {
+      sendJson(response, 400, { error: 'A conversa é inválida.' })
+      return
+    }
+    let body: unknown
+    try {
+      body = await readLimitedJsonBody(request, 8 * 1024)
+    } catch {
+      sendJson(response, 400, { error: 'Informe o lead que foi conferido para esta conversa.' })
+      return
+    }
+    if (!isRecord(body) || typeof body.leadId !== 'string' || !body.leadId.trim() || body.leadId.length > 256 || body.identityConfirmed !== true) {
+      sendJson(response, 400, { error: 'Selecione o lead e confirme a identidade do contato antes do vínculo.' })
+      return
+    }
+    try {
+      const data = await new WhatsAppStore().linkConversationToLead(accessToken, user.id, conversationId, body.leadId.trim())
+      response.setHeader('Cache-Control', 'no-store')
+      sendJson(response, 200, { data })
+    } catch (error) {
+      if (error instanceof WhatsAppConversationLeadConflictError) {
+        sendJson(response, 409, { error: error.message })
+      } else if (error instanceof WhatsAppLeadNotFoundError || (error instanceof Error && error.message === 'Conversa não encontrada.')) {
+        sendJson(response, 404, { error: error.message })
+      } else {
+        sendJson(response, 503, { error: error instanceof Error ? error.message : 'Não foi possível vincular a conversa ao lead.' })
+      }
+    }
     return
   }
 
@@ -1258,6 +1293,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       automationStorageReady,
       openClawStorageReady,
       openClawGatewayReady,
+      openClawSessionLiveVerified: false,
       digiBuscaAgentStorageReady,
     } })
     return
@@ -1295,6 +1331,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     (requestType) => persistenceStore.reserveGoogleApiRequest(accessToken, requestType),
   )
   const interactionMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/interactions$/)
+  const leadWhatsAppTimelineMatch = requestUrl.pathname.match(/^\/api\/leads\/([^/]+)\/whatsapp$/)
 
   if (request.method === 'GET' && requestUrl.pathname === '/api/openbot/agents') {
     try {
@@ -1314,6 +1351,17 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     sendJson(response, 200, {
       data: await persistenceStore.listLeadInteractions(accessToken, user.id, interactionMatch[1]),
     })
+    return
+  }
+
+  if (request.method === 'GET' && leadWhatsAppTimelineMatch) {
+    const data = await new WhatsAppStore().listLeadWhatsAppTimeline(accessToken, user.id, leadWhatsAppTimelineMatch[1])
+    if (!data) {
+      sendJson(response, 404, { error: 'Lead não encontrado nos salvos do CRM.' })
+      return
+    }
+    response.setHeader('Cache-Control', 'no-store')
+    sendJson(response, 200, { data })
     return
   }
 

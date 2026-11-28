@@ -146,6 +146,20 @@ export class WhatsAppConnectionConflictError extends Error {
   }
 }
 
+export class WhatsAppConversationLeadConflictError extends Error {
+  constructor() {
+    super('Esta conversa já está vinculada a outro lead. Revise o vínculo atual antes de alterá-lo.')
+    this.name = 'WhatsAppConversationLeadConflictError'
+  }
+}
+
+export class WhatsAppLeadNotFoundError extends Error {
+  constructor() {
+    super('Salve o lead no CRM antes de vincular esta conversa.')
+    this.name = 'WhatsAppLeadNotFoundError'
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -1465,6 +1479,97 @@ export class WhatsAppStore {
       .in('automation_pause_reason', ['handoff', 'handoff_send_failed'])
     throwIfError(result.error, 'Não foi possível consultar os atendimentos humanos pendentes.')
     return result.count ?? 0
+  }
+
+  async linkConversationToLead(accessToken: string, userId: string, conversationId: string, leadId: string) {
+    const client = this.userClient(accessToken)
+    const leadResult = await client.from('saved_leads')
+      .select('lead_id, lead_data')
+      .eq('user_id', userId)
+      .eq('lead_id', leadId)
+      .maybeSingle()
+    throwIfError(leadResult.error)
+    if (!leadResult.data) throw new WhatsAppLeadNotFoundError()
+
+    const conversationResult = await client.from('whatsapp_conversations')
+      .select('id, linked_lead_id')
+      .eq('user_id', userId)
+      .eq('id', conversationId)
+      .maybeSingle()
+    throwIfError(conversationResult.error)
+    if (!conversationResult.data) throw new Error('Conversa não encontrada.')
+
+    const currentLeadId = (conversationResult.data as { linked_lead_id: string | null }).linked_lead_id
+    if (currentLeadId && currentLeadId !== leadId) throw new WhatsAppConversationLeadConflictError()
+
+    if (!currentLeadId) {
+      const updated = await createWhatsAppWebhookSupabaseClient().from('whatsapp_conversations')
+        .update({ linked_lead_id: leadId })
+        .eq('user_id', userId)
+        .eq('id', conversationId)
+        .is('linked_lead_id', null)
+        .select('id')
+        .maybeSingle()
+      throwIfError(updated.error, 'Não foi possível salvar o vínculo da conversa.')
+      if (!updated.data) {
+        const latest = await client.from('whatsapp_conversations')
+          .select('linked_lead_id')
+          .eq('user_id', userId)
+          .eq('id', conversationId)
+          .maybeSingle()
+        throwIfError(latest.error)
+        const latestLeadId = (latest.data as { linked_lead_id: string | null } | null)?.linked_lead_id
+        if (latestLeadId !== leadId) throw new WhatsAppConversationLeadConflictError()
+      }
+    }
+
+    const leadData = (leadResult.data as { lead_data: unknown }).lead_data
+    const leadName = isRecord(leadData) && typeof leadData.name === 'string' ? leadData.name : leadId
+    return { linkedLeadId: leadId, linkedLeadName: leadName }
+  }
+
+  async listLeadWhatsAppTimeline(accessToken: string, userId: string, leadId: string) {
+    const client = this.userClient(accessToken)
+    const leadResult = await client.from('saved_leads')
+      .select('lead_id')
+      .eq('user_id', userId)
+      .eq('lead_id', leadId)
+      .maybeSingle()
+    throwIfError(leadResult.error)
+    if (!leadResult.data) return undefined
+
+    const conversationResult = await client.from('whatsapp_conversations')
+      .select('id, contact_name')
+      .eq('user_id', userId)
+      .eq('linked_lead_id', leadId)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(50)
+    throwIfError(conversationResult.error)
+    const conversations = (conversationResult.data ?? []) as Array<{ id: string; contact_name: string | null }>
+    if (conversations.length === 0) return []
+
+    const contactNames = new Map(conversations.map((conversation) => [conversation.id, conversation.contact_name ?? undefined]))
+    const messagesResult = await client.from('whatsapp_messages')
+      .select('id, conversation_id, provider_message_id, contact_wa_id, direction, message_type, body, is_placeholder, occurred_at, created_at')
+      .eq('user_id', userId)
+      .in('conversation_id', conversations.map((conversation) => conversation.id))
+      .order('occurred_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(100)
+    throwIfError(messagesResult.error)
+
+    return ((messagesResult.data ?? []) as Array<MessageRow>).map((row) => ({
+      id: row.id,
+      conversationId: row.conversation_id,
+      providerMessageId: row.provider_message_id,
+      contactWaId: row.contact_wa_id,
+      contactName: contactNames.get(row.conversation_id),
+      direction: row.direction,
+      messageType: row.message_type,
+      body: row.body ?? undefined,
+      isPlaceholder: row.is_placeholder,
+      occurredAt: row.occurred_at,
+    }))
   }
 
   async listHumanPendingConversations(accessToken: string, userId: string) {

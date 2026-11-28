@@ -23,6 +23,7 @@ export type WhatsAppEvolutionSetupStatus = {
   openClawProspectingDispatcherConfigured: boolean
   openClawStorageReady: boolean
   openClawGatewayReady: boolean
+  openClawSessionLiveVerified?: boolean
 }
 
 export type WhatsAppProspectingSettings = {
@@ -79,6 +80,20 @@ export type WhatsAppProspectingDashboard = {
   queue: WhatsAppProspectingQueueItem[]
   campaign: WhatsAppDailyProspectingCampaign
   openClawProspectingDispatcherReady: boolean
+  openClawSessionLiveVerified?: boolean
+}
+
+export type WhatsAppLeadTimelineItem = {
+  id: string
+  conversationId: string
+  providerMessageId: string
+  contactWaId: string
+  contactName?: string
+  direction: 'inbound' | 'outbound'
+  messageType: string
+  body?: string
+  isPlaceholder: boolean
+  occurredAt: string
 }
 
 export type WhatsAppAutomationProfile = {
@@ -479,6 +494,31 @@ export async function getWhatsAppConversations(before?: string): Promise<WhatsAp
   const params = new URLSearchParams({ limit: '50' })
   if (before) params.set('before', before)
   return getWhatsAppData<WhatsAppPage<WhatsAppConversation>>(`/whatsapp/conversations?${params.toString()}`)
+}
+
+export async function linkWhatsAppConversationToLead(conversationId: string, leadId: string) {
+  let response: Response
+  try {
+    response = await whatsAppFetch(`${apiBaseUrl}/whatsapp/conversations/${encodeURIComponent(conversationId)}/lead`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ leadId, identityConfirmed: true }),
+    })
+  } catch {
+    throw new Error('Não foi possível conectar ao DigiBusca para vincular a conversa.')
+  }
+  const payload = (await response.json().catch(() => null)) as {
+    data?: { linkedLeadId: string; linkedLeadName: string }
+    error?: string
+  } | null
+  if (!response.ok || !payload?.data) {
+    throw new Error(payload?.error ?? 'Não foi possível vincular a conversa ao lead.')
+  }
+  return payload.data
+}
+
+export async function getWhatsAppLeadTimeline(leadId: string): Promise<WhatsAppLeadTimelineItem[]> {
+  return getWhatsAppData<WhatsAppLeadTimelineItem[]>(`/leads/${encodeURIComponent(leadId)}/whatsapp`)
 }
 
 export async function getWhatsAppHumanPendingCount(): Promise<number> {
