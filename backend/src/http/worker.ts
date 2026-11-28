@@ -25,7 +25,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isWhatsAppIntegrationPath(pathname: string) {
   return pathname === '/api/whatsapp' || pathname.startsWith('/api/whatsapp/') ||
-    pathname === '/api/webhooks/whatsapp' || pathname === '/api/webhooks/evolution'
+    pathname === '/api/webhooks/whatsapp' || pathname === '/api/webhooks/evolution' ||
+    /^\/api\/leads\/[^/]+\/whatsapp$/.test(pathname)
 }
 
 function isGoogleCalendarIntegrationPath(pathname: string) {
