@@ -185,7 +185,7 @@ function getMessageFallback(message: WhatsAppMessage) {
 
 type WhatsAppConversationLeadLinkProps = {
   conversation: WhatsAppConversation
-  onLinked: (conversationId: string, result: { linkedLeadId: string; linkedLeadName: string }) => void
+  onLinked: (conversationId: string, result: { linkedLeadId: string; linkedLeadName: string; linkedLeadContactName?: string }) => void
   onOpenLead?: (leadId: string) => Promise<void>
 }
 
@@ -754,6 +754,7 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
     const searchableText = normalizeInboxSearch([
       conversation.contactName,
       conversation.contactWaId,
+      conversation.linkedLeadContactName,
       conversation.linkedLeadName,
       conversation.lastMessagePreview,
     ].filter(Boolean).join(' '))
@@ -998,9 +999,14 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
     }
   }
 
-  function updateConversationLeadLink(conversationId: string, result: { linkedLeadId: string; linkedLeadName: string }) {
+  function updateConversationLeadLink(conversationId: string, result: { linkedLeadId: string; linkedLeadName: string; linkedLeadContactName?: string }) {
     setConversations((current) => current.map((conversation) => conversation.id === conversationId
-      ? { ...conversation, linkedLeadId: result.linkedLeadId, linkedLeadName: result.linkedLeadName }
+      ? {
+          ...conversation,
+          linkedLeadId: result.linkedLeadId,
+          linkedLeadContactName: result.linkedLeadContactName,
+          linkedLeadName: result.linkedLeadName,
+        }
       : conversation))
   }
 
@@ -1235,14 +1241,14 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
                   aria-pressed={conversation.id === selectedConversationId}
                 >
                   <span className="whatsapp-contact-avatar" aria-hidden="true">
-                    {(conversation.contactName || conversation.contactWaId).slice(0, 1).toLocaleUpperCase('pt-BR')}
+                    {(conversation.linkedLeadContactName || conversation.contactName || conversation.contactWaId).slice(0, 1).toLocaleUpperCase('pt-BR')}
                   </span>
                   <span className="whatsapp-conversation-copy">
                     <span className="whatsapp-conversation-topline">
-                      <strong>{conversation.contactName || conversation.contactWaId}</strong>
+                      <strong>{conversation.linkedLeadContactName || conversation.contactName || conversation.contactWaId}</strong>
                       <time>{formatWhatsAppDate(conversation.lastMessageAt)}</time>
                     </span>
-                    {conversation.linkedLeadName && <span className="whatsapp-conversation-preview">Lead no CRM · {conversation.linkedLeadName}</span>}
+                    {conversation.linkedLeadId && <span className="whatsapp-conversation-crm">Empresa · {conversation.linkedLeadName || 'Lead vinculado'}</span>}
                     <span className="whatsapp-conversation-preview">{conversation.lastMessagePreview || 'Mensagem recebida'}</span>
                     {(conversation.automationPauseReason === 'handoff' || conversation.automationPauseReason === 'handoff_send_failed' || conversation.automationPauseReason === 'provider_unavailable' || conversation.automationPauseReason === 'schedule_review_required') && (
                       <span className="whatsapp-conversation-handoff">
@@ -1266,12 +1272,12 @@ export function WhatsAppPage({ initialTab = 'inbox', onOpenLead }: { initialTab?
               <>
                 <header className="whatsapp-thread-header">
                   <div className="whatsapp-contact-avatar" aria-hidden="true">
-                    {(selectedConversation.contactName || selectedConversation.contactWaId).slice(0, 1).toLocaleUpperCase('pt-BR')}
+                    {(selectedConversation.linkedLeadContactName || selectedConversation.contactName || selectedConversation.contactWaId).slice(0, 1).toLocaleUpperCase('pt-BR')}
                   </div>
                   <div>
-                    <h2>{selectedConversation.contactName || selectedConversation.contactWaId}</h2>
+                    <h2>{selectedConversation.linkedLeadContactName || selectedConversation.contactName || selectedConversation.contactWaId}</h2>
                     <span>{selectedConversation.contactWaId}</span>
-                    {selectedConversation.linkedLeadName && <small>Lead no CRM · {selectedConversation.linkedLeadName}</small>}
+                    {selectedConversation.linkedLeadId && <small className="whatsapp-thread-crm">Empresa · {selectedConversation.linkedLeadName || 'Lead vinculado'}</small>}
                   </div>
                 </header>
                 <WhatsAppConversationLeadLink

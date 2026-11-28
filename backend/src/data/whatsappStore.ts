@@ -1448,7 +1448,7 @@ export class WhatsAppStore {
     const result = await query
     throwIfError(result.error)
     const page = latestPage(result.data as ConversationRow[], options.limit, (row) => row.last_message_at!)
-    const linkedLeadNames = await this.getLinkedLeadNames(accessToken, userId, page.data)
+    const linkedLeadDetails = await this.getLinkedLeadDetails(accessToken, userId, page.data)
     return {
       data: page.data.map((row) => ({
         id: row.id,
@@ -1456,7 +1456,8 @@ export class WhatsAppStore {
         contactWaId: row.contact_wa_id,
         contactName: row.contact_name ?? undefined,
         linkedLeadId: row.linked_lead_id ?? undefined,
-        linkedLeadName: row.linked_lead_id ? linkedLeadNames.get(row.linked_lead_id) : undefined,
+        linkedLeadContactName: row.linked_lead_id ? linkedLeadDetails.get(row.linked_lead_id)?.contactName : undefined,
+        linkedLeadName: row.linked_lead_id ? linkedLeadDetails.get(row.linked_lead_id)?.name : undefined,
         automationHandoffNote: row.automation_handoff_note ?? undefined,
         lastMessageAt: row.last_message_at ?? undefined,
         lastMessagePreview: row.last_message_preview ?? undefined,
@@ -1484,7 +1485,7 @@ export class WhatsAppStore {
   async linkConversationToLead(accessToken: string, userId: string, conversationId: string, leadId: string) {
     const client = this.userClient(accessToken)
     const leadResult = await client.from('saved_leads')
-      .select('lead_id, lead_data')
+      .select('lead_id, lead_data, contact_name')
       .eq('user_id', userId)
       .eq('lead_id', leadId)
       .maybeSingle()
@@ -1523,9 +1524,14 @@ export class WhatsAppStore {
       }
     }
 
-    const leadData = (leadResult.data as { lead_data: unknown }).lead_data
+    const leadRow = leadResult.data as { lead_data: unknown; contact_name: string | null }
+    const leadData = leadRow.lead_data
     const leadName = isRecord(leadData) && typeof leadData.name === 'string' ? leadData.name : leadId
-    return { linkedLeadId: leadId, linkedLeadName: leadName }
+    return {
+      linkedLeadId: leadId,
+      linkedLeadName: leadName,
+      ...(leadRow.contact_name ? { linkedLeadContactName: leadRow.contact_name } : {}),
+    }
   }
 
   async listLeadWhatsAppTimeline(accessToken: string, userId: string, leadId: string) {
@@ -1584,14 +1590,15 @@ export class WhatsAppStore {
       .limit(1000)
     throwIfError(result.error, 'Não foi possível carregar os atendimentos humanos pendentes.')
     const rows = (result.data ?? []) as ConversationRow[]
-    const linkedLeadNames = await this.getLinkedLeadNames(accessToken, userId, rows)
+    const linkedLeadDetails = await this.getLinkedLeadDetails(accessToken, userId, rows)
     return rows.map((row) => ({
       id: row.id,
       phoneNumberId: row.phone_number_id,
       contactWaId: row.contact_wa_id,
       contactName: row.contact_name ?? undefined,
       linkedLeadId: row.linked_lead_id ?? undefined,
-      linkedLeadName: row.linked_lead_id ? linkedLeadNames.get(row.linked_lead_id) : undefined,
+      linkedLeadContactName: row.linked_lead_id ? linkedLeadDetails.get(row.linked_lead_id)?.contactName : undefined,
+      linkedLeadName: row.linked_lead_id ? linkedLeadDetails.get(row.linked_lead_id)?.name : undefined,
       automationHandoffNote: row.automation_handoff_note ?? undefined,
       lastMessageAt: row.last_message_at ?? undefined,
       lastMessagePreview: row.last_message_preview ?? undefined,
@@ -1604,18 +1611,19 @@ export class WhatsAppStore {
     }))
   }
 
-  private async getLinkedLeadNames(accessToken: string, userId: string, conversations: ConversationRow[]) {
+  private async getLinkedLeadDetails(accessToken: string, userId: string, conversations: ConversationRow[]) {
     const leadIds = [...new Set(conversations.flatMap((row) => row.linked_lead_id ? [row.linked_lead_id] : []))]
-    if (leadIds.length === 0) return new Map<string, string>()
+    if (leadIds.length === 0) return new Map<string, { name?: string; contactName?: string }>()
     const result = await this.userClient(accessToken).from('saved_leads')
-      .select('lead_id, lead_data')
+      .select('lead_id, lead_data, contact_name')
       .eq('user_id', userId)
       .in('lead_id', leadIds)
     throwIfError(result.error, 'Não foi possível carregar os leads vinculados às conversas.')
-    return new Map(((result.data ?? []) as Array<{ lead_id: string; lead_data: unknown }>).flatMap((row) => (
-      isRecord(row.lead_data) && typeof row.lead_data.name === 'string'
-        ? [[row.lead_id, row.lead_data.name] as const]
-        : []
+    return new Map(((result.data ?? []) as Array<{ lead_id: string; lead_data: unknown; contact_name: string | null }>).map((row) => (
+      [row.lead_id, {
+        ...(isRecord(row.lead_data) && typeof row.lead_data.name === 'string' ? { name: row.lead_data.name } : {}),
+        ...(row.contact_name ? { contactName: row.contact_name } : {}),
+      }] as const
     )))
   }
 

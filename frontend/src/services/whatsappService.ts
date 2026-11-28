@@ -168,6 +168,7 @@ export type WhatsAppConversation = {
   contactWaId: string
   contactName?: string
   linkedLeadId?: string
+  linkedLeadContactName?: string
   linkedLeadName?: string
   automationHandoffNote?: string
   lastMessageAt?: string
@@ -508,7 +509,7 @@ export async function linkWhatsAppConversationToLead(conversationId: string, lea
     throw new Error('Não foi possível conectar ao DigiBusca para vincular a conversa.')
   }
   const payload = (await response.json().catch(() => null)) as {
-    data?: { linkedLeadId: string; linkedLeadName: string }
+    data?: { linkedLeadId: string; linkedLeadName: string; linkedLeadContactName?: string }
     error?: string
   } | null
   if (!response.ok || !payload?.data) {
